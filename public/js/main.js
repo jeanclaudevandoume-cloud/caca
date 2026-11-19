@@ -272,11 +272,13 @@ function stream(now) {
     let c = chunks.get(key);
     if (!c) { c = { cx: w.cx, cz: w.cz, g: null, lod: -1, req: 0, loaded: false }; chunks.set(key, c); }
     c.seen = now; c.want = w.lod; c.d = w.d;
-    if ((c.lod !== w.lod || c.stale) && !c.req && budget > 0) {
+    const lite = quality.s < 0.7;
+    if ((c.lod !== w.lod || c.stale || (c.g && c.lite !== lite)) && !c.req && budget > 0) {
       const custom = customFor(w.cx, w.cz);
       if (custom === undefined) continue;          // still downloading
       c.stale = false;
-      send({ type: 'chunk', cx: w.cx, cz: w.cz, lod: w.lod, custom, lite: quality.s < 0.7 }, c, w.lod);
+      c.lite = lite;
+      send({ type: 'chunk', cx: w.cx, cz: w.cz, lod: w.lod, custom, lite }, c, w.lod);
       budget--;
     }
   }
@@ -356,7 +358,8 @@ function frame(now) {
   // when nothing moves and nothing is loading, draw at ~12 fps (water and clouds still drift)
   const sig = `${cam.x},${cam.y},${cam.z},${cam.yaw},${cam.pitch},${tod},${canvas.width},${canvas.height},${reqs.size},${pin ? 1 : 0}`;
   if (sig !== lastSig || fly) { lastSig = sig; lastActive = now; }
-  if (now - lastActive > 1500 && now - lastRender < 80 && !params.has('shot')) return;
+  // with frozen time (?t=) an idle frame is identical: don't redraw at all
+  if (now - lastActive > 1500 && (frozenT !== null || now - lastRender < 80) && !params.has('shot')) return;
   lastRender = now;
   render(now);
   if (showTags) tags(now);
@@ -394,7 +397,7 @@ function render(now) {
   gl.useProgram(geo.p);
   setCommon(geo.u);
   gl.uniformMatrix4fv(geo.u.uVP, false, VP);
-  const fadeA = r1 * 0.72, fadeB = r1 * 0.96;
+  const fadeA = r1 * 0.72, fadeB = r1 * 0.96, shadowR = 650 * quality.s;
   gl.uniform4f(geo.u.uLod, fadeA, fadeB, 0, 0);
   const R = CHUNK * PITCH * 0.75;
   const drawn = [];
@@ -408,7 +411,7 @@ function render(now) {
     gl.bindVertexArray(c.g.vao);
     gl.drawElements(gl.TRIANGLES, c.g.n, c.g.it, 0);
     tris += c.g.n / 3; draws++;
-    if (c.lod === 0) drawn.push(c);
+    if (Math.hypot(ox - cam.x, oz - cam.z) < shadowR) drawn.push(c);
   }
   gl.uniform4f(geo.u.uLod, fadeA, fadeB, 1, 0);
   const RS = REGION * PITCH * 0.75;
@@ -464,7 +467,7 @@ function render(now) {
     gl.uniform3fv(sh.u.uShadowDir, shDir);
     const k = 1 - T.night * 1.4;
     gl.uniform3f(sh.u.uShadowCol, 1 - 0.42 * k, 1 - 0.38 * k, 1 - 0.26 * k);
-    gl.uniform1f(sh.u.uShadowFar, r0);
+    gl.uniform1f(sh.u.uShadowFar, shadowR);
     gl.enable(gl.BLEND); gl.blendFunc(gl.DST_COLOR, gl.ZERO);
     gl.enable(gl.STENCIL_TEST); gl.stencilFunc(gl.EQUAL, 0, 0xff); gl.stencilOp(gl.KEEP, gl.KEEP, gl.INCR);
     for (const c of drawn) {
@@ -482,7 +485,7 @@ function render(now) {
 }
 function shadowDir(T) {
   const d = T.night > 0.5 ? [0.3, 0.9, 0.2] : T.dir.slice();
-  if (d[1] < 0.42) { const h = Math.hypot(d[0], d[2]); const s = Math.sqrt(1 - 0.42 * 0.42) / h; d[0] *= s; d[2] *= s; d[1] = 0.42; }
+  if (d[1] < 0.3) { const h = Math.hypot(d[0], d[2]); const s = Math.sqrt(1 - 0.3 * 0.3) / h; d[0] *= s; d[2] *= s; d[1] = 0.3; }
   return d;
 }
 

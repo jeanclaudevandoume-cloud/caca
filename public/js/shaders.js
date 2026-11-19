@@ -89,11 +89,11 @@ void main() {
     col = mix(body, refl * (0.55 + 0.45 * (1.0 - uNight)), win * (0.85 + 0.15 * glass));
     if (glass > 0.5) col = mix(col, col * 0.75 + refl * 0.25, 1.0 - win);
     // far away the windows merge, so the glow gets a little brighter and whiter to stay readable
-    emis = mix(vec3(1.0, 0.78, 0.45), warm, k) * lit * win * smoothstep(0.05, 0.6, uNight) * mix(0.95, 1.05, k);
+    emis = mix(vec3(1.0, 0.78, 0.45), warm, k) * lit * win * smoothstep(0.05, 0.6, uNight) * mix(0.7, 1.05, k);
   } else if (vMat == 2) {
     col += base * 0.18 * sun;                                             // leaves glow a bit in the sun
   } else if (vMat == 4) {
-    col = base * 0.65;
+    col = mix(base, vec3(0.92, 0.93, 0.95), 1.0 - uNight) * 0.65;   // lamps and lanterns look like frosted glass by day
     emis = base * vec3(1.0, 0.85, 0.6) * 1.4 * uNight;
   } else if (vMat == 3) {
     col += uSunCol * pow(max(dot(reflect(dir, n), uSunDir), 0.0), 24.0) * 0.35;
@@ -431,7 +431,9 @@ void main() {
         vec2 d1 = p.xz - (cc - 4.7), d2 = p.xz - (cc + 4.7);
         float lamp = (exp(-dot(d1, d1) * 0.016) + exp(-dot(d2, d2) * 0.016)) * uNight * (1.0 - smoothstep(900.0, 2600.0, t));
         vec3 lc = mix(vec3(1.0, 0.7, 0.4), vec3(0.95, 0.9, 0.8), float(lh & 1u));
-        col += lc * 0.75 * (1.0 - exp(-lamp * (0.5 + 0.3 * float((lh >> 1u) & 3u) / 3.0)));
+        // from altitude the pools merge into a soft street glow instead of a polka-dot grid
+        float pool = mix(1.0 - exp(-lamp * (0.5 + 0.3 * float((lh >> 1u) & 3u) / 3.0)), 0.12 * uNight, smoothstep(1.5, 6.0, w));
+        col += lc * 0.75 * pool;
       }
     }
   } else col *= 1.0 - 0.6 * uNight;
