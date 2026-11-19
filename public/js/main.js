@@ -171,7 +171,7 @@ async function loadManifest() {
   return r.json();
 }
 let layoutStage = null;
-let groundTex = null, groundExt = 0;
+let groundTex = null, groundExt = 0, tallRegions = new Set();
 function onLayout(lt, ground) {
   const nl = finishLayout(lt);
   const old = L;
@@ -186,6 +186,12 @@ function onLayout(lt, ground) {
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   groundExt = ground.ext;
+  // regions that can hold skyline buildings (so empty ones are never requested)
+  tallRegions = new Set(['0_0']);
+  for (let i = 0; i < L.count; i++) {
+    const bx = L.blocks[2 * i], bz = L.blocks[2 * i + 1];
+    if (zoneLevel(bx, bz) >= 2) tallRegions.add(regionKey(regionOf(bx), regionOf(bz)));
+  }
   if (old && layoutStage) flushChanged(old, layoutStage.oldC);
   layoutStage = null;
   $('#count').textContent = L.n.toLocaleString() + ' homes';
@@ -270,7 +276,7 @@ function stream(now) {
       const custom = customFor(w.cx, w.cz);
       if (custom === undefined) continue;          // still downloading
       c.stale = false;
-      send({ type: 'chunk', cx: w.cx, cz: w.cz, lod: w.lod, custom }, c, w.lod);
+      send({ type: 'chunk', cx: w.cx, cz: w.cz, lod: w.lod, custom, lite: quality.s < 0.7 }, c, w.lod);
       budget--;
     }
   }
@@ -288,7 +294,7 @@ function stream(now) {
   const sseen = new Set();
   for (let dz = -rn; dz <= rn; dz++) for (let dx = -rn; dx <= rn; dx++) {
     const rx = crx + dx, rz = crz + dz;
-    if (Math.abs(rx) > lim || Math.abs(rz) > lim) continue;
+    if (Math.abs(rx) > lim || Math.abs(rz) > lim || !tallRegions.has(regionKey(rx, rz))) continue;
     const ox = (rx * REGION + 7.5) * PITCH, oz = (rz * REGION + 7.5) * PITCH;
     const dh = Math.max(0, Math.hypot(ox - cam.x, oz - cam.z) - R * 0.7);
     const d = Math.hypot(dh, cam.y);
@@ -297,7 +303,7 @@ function stream(now) {
     sseen.add(key);
     let s = skies.get(key);
     if (!s) { s = { rx, rz, g: null, req: 0, loaded: false }; skies.set(key, s); }
-    s.seen = now;
+    s.seen = now; s.d = d;
     if ((!s.loaded || s.stale) && !s.req && budget > 0) { s.stale = false; send({ type: 'sky', rx, rz }, s, 0); budget--; }
   }
   for (const [key, s] of skies) if (!sseen.has(key) && now - s.seen > 5000) { if (s.req) { const r = reqs.get(s.req); if (r) r.dead = true; } release(s.g); skies.delete(key); }
@@ -329,6 +335,7 @@ function setTod(t) { tod = t; }
 // ---------------- frame ----------------
 let VP = null, invVP = null, PL = null;
 let lastFrame = performance.now(), frameAcc = 0, frameN = 0, lastGov = performance.now();
+let lastSig = '', lastActive = 0, lastRender = 0;
 const refresh = { samples: [], ms: 16.7 };
 function resize() {
   const pr = Math.min(window.devicePixelRatio || 1, quality.pr);
@@ -346,6 +353,11 @@ function frame(now) {
   updateFly(now);
   resize();
   stream(now);
+  // when nothing moves and nothing is loading, draw at ~12 fps (water and clouds still drift)
+  const sig = `${cam.x},${cam.y},${cam.z},${cam.yaw},${cam.pitch},${tod},${canvas.width},${canvas.height},${reqs.size},${pin ? 1 : 0}`;
+  if (sig !== lastSig || fly) { lastSig = sig; lastActive = now; }
+  if (now - lastActive > 1500 && now - lastRender < 80 && !params.has('shot')) return;
+  lastRender = now;
   render(now);
   if (showTags) tags(now);
   if (params.has('debug')) $('#debug').textContent = `${stats.fps} fps · ${(stats.tris / 1000) | 0}k tris · ${stats.draws} draws · ${stats.sky} sky · ${stats.chunks} chunks · ${stats.mb} MB · pr ${quality.pr.toFixed(2)} s ${quality.s.toFixed(2)}`;
@@ -386,8 +398,8 @@ function render(now) {
   gl.uniform4f(geo.u.uLod, fadeA, fadeB, 0, 0);
   const R = CHUNK * PITCH * 0.75;
   const drawn = [];
-  for (const c of chunks.values()) {
-    if (!c.g) continue;
+  const order = [...chunks.values()].filter((c) => c.g).sort((a, b) => a.d - b.d);   // front to back: less overdraw
+  for (const c of order) {
     bytes += c.g.bytes;
     const ox = (c.cx * CHUNK + 1.5) * PITCH, oz = (c.cz * CHUNK + 1.5) * PITCH;
     const hy = c.g.ymax / 2;
@@ -400,8 +412,7 @@ function render(now) {
   }
   gl.uniform4f(geo.u.uLod, fadeA, fadeB, 1, 0);
   const RS = REGION * PITCH * 0.75;
-  for (const s of skies.values()) {
-    if (!s.g) continue;
+  for (const s of [...skies.values()].filter((x) => x.g).sort((a, b) => a.d - b.d)) {
     bytes += s.g.bytes;
     const ox = (s.rx * REGION + 7.5) * PITCH, oz = (s.rz * REGION + 7.5) * PITCH;
     const hy = s.g.ymax / 2;
@@ -445,7 +456,7 @@ function render(now) {
   draws++;
 
   // projected planar shadows on the ground (stencil: each pixel darkened once)
-  if (T.night < 0.6 && drawn.length) {
+  if (T.night < 0.6 && drawn.length && quality.s >= 0.7) {
     const sh = P.shadow;
     gl.useProgram(sh.p);
     gl.uniformMatrix4fv(sh.u.uVP, false, VP);
@@ -698,8 +709,11 @@ function homeView(p) {
     const y = Math.max(top + 30, maxH + 14);
     return { x: f.x + 10, y, z: f.z + face * (24 + (y - top) * 0.75), yaw: 0, pitch: 0, bx, bz, slot, zone, tx: f.x, tz: f.z, ty: top / 0.6 };
   }
-  const dist = 30;
-  return { x: f.x + 5, y: 12, z: f.z + face * (f.d / 2 + dist), yaw: 0, pitch: -0.2, bx, bz, slot, zone, tx: f.x, tz: f.z, ty: top };
+  const dist = 26;
+  const x = f.x + 5, z = f.z + face * (f.d / 2 + dist);
+  let y = 11;
+  for (let k = 0.15; k < 0.9; k += 0.05) y = Math.max(y, heightAt(x + (f.x - x) * k, z + (f.z - z) * k) + 5 + 12 * k);
+  return { x, y, z, yaw: 0, pitch: -0.2, bx, bz, slot, zone, tx: f.x, tz: f.z, ty: top };
 }
 function lookAtYaw(v) {
   const dx = v.tx - v.x, dz = v.tz - v.z;

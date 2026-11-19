@@ -31,12 +31,10 @@ export const isqrt = (n) => Math.floor(Math.sqrt(n));
 
 // ---- static city structure (pure functions of block coordinates) ----
 
-// The river: a gentle zig-zag running west-east, ~9 blocks south of the plaza.
-export function riverZ(bx) {
-  const t = mod(bx + 12, 48);
-  const tri = t < 24 ? t - 12 : 36 - t;
-  return 9 + fdiv(tri, 2);
-}
+// The river: a smooth meander (6 * sin, rounded, period 48 blocks) ~9 blocks south of the plaza.
+// The ground shader holds the same table.
+const RIV = [0,1,2,2,3,4,4,5,5,6,6,6,6,6,6,6,5,5,4,4,3,2,2,1,0,-1,-2,-2,-3,-4,-4,-5,-5,-6,-6,-6,-6,-6,-6,-6,-5,-5,-4,-4,-3,-2,-2,-1];
+export const riverZ = (bx) => 9 + RIV[mod(bx, 48)];
 // Three blocks wide; the union with the next column keeps the water continuous at every step.
 export function isRiver(bx, bz) {
   const a = riverZ(bx), b = riverZ(bx + 1);
@@ -91,11 +89,12 @@ export function zoneLevel(bx, bz) {
   const hx = fdiv(bx + 16, 32) * 32, hz = fdiv(bz + 16, 32) * 32;
   const hh = hash3(hx, hz, 5);
   if (hh % 4 !== 0) {
-    const dx = bx - hx - ((hh >>> 4) % 7 - 3), dz = bz - hz - ((hh >>> 8) % 7 - 3);
-    const dh2 = dx * dx + dz * dz;
-    if (dh2 < 4 + (j >> 3)) return 3;
-    if (dh2 < 20 + (j >> 1)) return 2;
-    if (dh2 < 64 + j) return 1;
+    // hubs: jittered off the lattice and of three sizes, so the far field does not read as a grid
+    const dx = bx - hx - ((hh >>> 4) % 13 - 6), dz = bz - hz - ((hh >>> 8) % 13 - 6);
+    const dh2 = dx * dx + dz * dz, sz = (hh >>> 12) % 3;
+    if (dh2 < (sz ? 3 + 2 * sz : 1) + (j >> 3)) return 3;
+    if (dh2 < 10 + 8 * sz + (j >> 1)) return 2;
+    if (dh2 < 36 + 22 * sz + j) return 1;
   }
   return 0;
 }

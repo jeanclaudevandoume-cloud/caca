@@ -37,9 +37,9 @@ void main() {
   vec2 cc = floor((p.xz + 24.0) / 192.0) * 192.0 + 72.0;
   float dc = length(vec3(cc.x, 0.0, cc.y) - uCam);
   if (uLod.z < 0.5) {
-    if (tall) { if (dc > uLod.x) { gl_Position = vec4(0.0, 0.0, -2.0, 0.0); return; } }
+    if (tall) { if (dc > uLod.x) { gl_Position = vec4(0.0, 0.0, 2.0, 1.0); return; } }
     else p.y *= 1.0 - smoothstep(uLod.x, uLod.y, d);
-  } else if (dc <= uLod.x) { gl_Position = vec4(0.0, 0.0, -2.0, 0.0); return; }
+  } else if (dc <= uLod.x) { gl_Position = vec4(0.0, 0.0, 2.0, 1.0); return; }
   if (mat == 2 && p.y > 2.0) p.xz += sin(uTime * 1.3 + p.x * 0.11 + p.z * 0.07) * 0.06 * (p.y - 2.0) / 6.0;
   vW = p; vN = aN; vUV = aUV; vCol = aCol; vMat = mat;
   gl_Position = uVP * vec4(p, 1.0);
@@ -88,12 +88,13 @@ void main() {
     vec3 body = mix(col, col * 0.92 + refl * 0.08, glass);
     col = mix(body, refl * (0.55 + 0.45 * (1.0 - uNight)), win * (0.85 + 0.15 * glass));
     if (glass > 0.5) col = mix(col, col * 0.75 + refl * 0.25, 1.0 - win);
-    emis = warm * lit * win * smoothstep(0.15, 0.7, uNight) * mix(0.55, 1.7, k);
+    // far away the windows merge, so the glow gets a little brighter and whiter to stay readable
+    emis = mix(vec3(1.0, 0.78, 0.45), warm, k) * lit * win * smoothstep(0.05, 0.6, uNight) * mix(0.95, 1.05, k);
   } else if (vMat == 2) {
     col += base * 0.18 * sun;                                             // leaves glow a bit in the sun
   } else if (vMat == 4) {
     col = base * 0.65;
-    emis = base * vec3(1.0, 0.85, 0.6) * 2.2 * uNight;
+    emis = base * vec3(1.0, 0.85, 0.6) * 1.4 * uNight;
   } else if (vMat == 3) {
     col += uSunCol * pow(max(dot(reflect(dir, n), uSunDir), 0.0), 24.0) * 0.35;
   } else if (vMat == 6) {
@@ -159,7 +160,8 @@ uint hash3(int a, int b, int c) {
 }
 int fdiv(int a, int b) { return a >= 0 ? a / b : -((-a + b - 1) / b); }
 int imod(int a, int b) { return a - b * fdiv(a, b); }
-int riverZ(int bx) { int t = imod(bx + 12, 48); int tri = t < 24 ? t - 12 : 36 - t; return 9 + fdiv(tri, 2); }
+const int RIV[48] = int[48](0,1,2,2,3,4,4,5,5,6,6,6,6,6,6,6,5,5,4,4,3,2,2,1,0,-1,-2,-2,-3,-4,-4,-5,-5,-6,-6,-6,-6,-6,-6,-6,-5,-5,-4,-4,-3,-2,-2,-1);
+int riverZ(int bx) { return 9 + RIV[imod(bx, 48)]; }
 bool isRiver(int bx, int bz) { int a = riverZ(bx), b = riverZ(bx + 1); return (bz >= a - 1 && bz <= a + 1) || (bz >= b - 1 && bz <= b + 1); }
 int bayHalf(int bx) { return min(3 + fdiv((bx - 24) * 3, 4), 18); }
 bool bayAt(int bx, int bz) { return bx >= 24 && bz >= 2 - bayHalf(bx) && bz <= 2 + bayHalf(bx); }
@@ -202,9 +204,7 @@ vec3 asphalt(vec2 q, float t) {
 // Distance from the river's smooth centreline (the block-wise river is a staircase; the water
 // inside it is drawn as a smooth band, the rest of the river blocks become embankment parks).
 float riverDist(vec2 p) {
-  float t = mod(p.x / 48.0 + 0.5 + 12.0, 48.0);
-  float tri = t < 24.0 ? t - 12.0 : 36.0 - t;
-  return abs(p.y - (9.0 + tri * 0.5 - 0.25) * 48.0);
+  return abs(p.y - (9.0 + 6.0 * sin(6.2831853 * (p.x / 48.0 + 0.5) / 48.0)) * 48.0);
 }
 vec2 cover(vec2 x, vec2 h, float w) { return max(min(x + w * 0.5, h) - max(x - w * 0.5, -h), 0.0) / w; }
 
@@ -217,10 +217,10 @@ float bayE(vec2 p) {
   return u < 23.5 ? -1e9 : ((min(3.0 + (u - 24.0) * 0.75, 18.0) - 0.45) - abs(p.y / 48.0 - 2.0)) * 48.0;
 }
 vec4 riverCol(vec2 p, vec3 dir, float t, float w, vec3 grass) {
-  float rd = min(riverDist(p), 50.0 - bayE(p));
-  if (rd < 50.0) return vec4(water(p, dir, t, RIVERC), 1.0);
-  if (rd < 53.0) return vec4(0.74, 0.72, 0.68, 0.0);
-  float path = step(abs(rd - 60.0), 1.4) * (1.0 - smoothstep(0.5, 2.5, w));
+  float rd = min(riverDist(p), 44.0 - bayE(p));
+  if (rd < 44.0) return vec4(water(p, dir, t, RIVERC), 1.0);
+  if (rd < 47.0) return vec4(0.74, 0.72, 0.68, 0.0);
+  float path = step(abs(rd - 54.0), 1.4) * (1.0 - smoothstep(0.5, 2.5, w));
   return vec4(mix(grass * 1.04, vec3(0.86, 0.79, 0.62), path), 0.0);
 }
 
@@ -228,7 +228,7 @@ vec4 riverCol(vec2 p, vec3 dir, float t, float w, vec3 grass) {
 vec4 bayCol(vec2 p, vec3 dir, float t, float w, vec3 grass) {
   float u = p.x / 48.0;
   bool port = u > 24.5 && u < 40.5 && p.y < 96.0;
-  float e = port ? 1.0 : max(bayE(p), 50.0 - riverDist(p));     // metres inside the water line
+  float e = port ? 1.0 : max(bayE(p), 44.0 - riverDist(p));     // metres inside the water line
   if (port || e > 0.0 || u > 50.0) return vec4(water(p, dir, t, vec3(0.08, 0.38, 0.55)), 1.0);
   if (e > -3.0) return vec4(0.74, 0.72, 0.68, 0.0);
   float path = step(abs(e + 9.0), 1.4) * (1.0 - smoothstep(0.5, 2.5, w));
@@ -366,6 +366,8 @@ vec4 groundBase(vec2 p, vec3 dir, float t, float w) {
     if (k == 4u || k2 == 4u || kx == 4u || kz == 4u) return riverCol(p, dir, t, w, grass);
     return vec4(water(p, dir, t, RIVERC), 1.0);
   }
+  // along the bay shore the street gives way to a promenade that follows the smooth shoreline
+  if ((k == 9u || kx == 9u || kz == 9u || k2 == 9u) && p.x < uTown.z - 200.0 && bayE(p) > -60.0) return bayCol(p, dir, t, w, grass);
   bool hwy = (k == 7u || kx == 7u || kz == 7u || k2 == 7u);
   if (countryish(k) && countryish(kx) && countryish(kz) && countryish(k2) && !hwy) {
     if (k == 8u && kx == 8u && kz == 8u && k2 == 8u) return vec4(0.62, 0.62, 0.6, 2.0);
@@ -422,14 +424,14 @@ void main() {
     if (uNight > 0.2) {
       col *= 1.0 - 0.55 * uNight;
       if (g.a == 0.0) {
-        // pools of street light at block corners, each lamp a little different
-        vec2 q = p.xz + 24.0;
-        vec2 cid = floor(q / 48.0) * 2.0 + step(24.0, mod(q, 48.0));
-        uint lh = h2(ivec2(cid));
-        vec2 cd = abs(mod(q, 48.0) - 24.0) - 19.3;
-        float lamp = exp(-dot(cd, cd) * 0.018) * uNight * (1.0 - smoothstep(900.0, 2600.0, t)) * float((lh & 7u) != 0u);
-        vec3 lc = mix(vec3(1.0, 0.68, 0.36), vec3(0.95, 0.9, 0.8), float((lh >> 3u) & 1u));
-        col += lc * lamp * (0.55 + 0.35 * float((lh >> 4u) & 3u) / 3.0);
+        // pools of street light: each intersection cell holds its two corner lamps; cell edges fall
+        // in the middle of blocks where the light is ~0, so there are no seams
+        vec2 cc = floor(p.xz / 48.0) * 48.0 + 24.0;
+        uint lh = h2(ivec2(cc));
+        vec2 d1 = p.xz - (cc - 4.7), d2 = p.xz - (cc + 4.7);
+        float lamp = (exp(-dot(d1, d1) * 0.016) + exp(-dot(d2, d2) * 0.016)) * uNight * (1.0 - smoothstep(900.0, 2600.0, t));
+        vec3 lc = mix(vec3(1.0, 0.7, 0.4), vec3(0.95, 0.9, 0.8), float(lh & 1u));
+        col += lc * 0.75 * (1.0 - exp(-lamp * (0.5 + 0.3 * float((lh >> 1u) & 3u) / 3.0)));
       }
     }
   } else col *= 1.0 - 0.6 * uNight;

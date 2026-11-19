@@ -197,8 +197,16 @@ const LEAVES = [0x4caf50, 0x3f9b46, 0x66bb4a, 0x2e8b57, 0x7cc142, 0x58a55c];
 const BLOSSOM = [0xff9ec7, 0xffc0d9, 0xf6e27f];
 const TRUNK = 0x7a5233;
 
+let LITE = false;     // low-quality chunks: cheaper trees and fewer props
 export function tree(mb, x, z, s, h, lod) {
   const kind = h % 7;
+  if (LITE) {
+    const c = kind === 6 ? BLOSSOM[(h >>> 3) % 3] : LEAVES[(h >>> 3) % LEAVES.length];
+    mb.cyl(x, 0, z, 0.25 * s, 1.6 * s, 0.25 * s, 3, TRUNK, M.PLAIN, h & 255, false);
+    if (kind < 2) mb.cyl(x, 1.0 * s, z, 2.2 * s, 6 * s, 0, 4, shade(c, 0.85), M.LEAF, h & 255);
+    else mb.ell(x, 3.6 * s, z, 2.3 * s, 2.0 * s, 2.3 * s, 4, 1, c, M.LEAF, h & 255);
+    return;
+  }
   const c = kind === 6 ? BLOSSOM[(h >>> 3) % 3] : LEAVES[(h >>> 3) % LEAVES.length];
   const a = h & 255;
   const sides = lod ? 5 : 6;
@@ -348,10 +356,10 @@ export function home(mb, bx, bz, f, r, lod) {
     if (!lod) {
       const sg = r.hash & 1 ? 1 : -1;
       const spots = r.tree ? [-3 * sg, 0] : [-3 * sg, 0, 3 * sg];
-      if (r.tree) tree(mb, f.x + 3 * sg, backZ, 0.8 + ((r.hash >>> 23) % 4) * 0.12, r.hash >>> 9, 0);
+      if (r.tree && !LITE) tree(mb, f.x + 3 * sg, backZ, 0.8 + ((r.hash >>> 23) % 4) * 0.12, r.hash >>> 9, 0);
       for (let i = 0; i < r.garden.length && i < spots.length; i++) gardenItem(mb, r.garden[i], f.x + spots[i], backZ, r.hash >>> (i * 3));
       // hedge between neighbours
-      if ((r.slot & 3) !== 3) {
+      if ((r.slot & 3) !== 3 && !LITE) {
         mb.cast = false;
         mb.box(f.x + 4.8, 0, f.z - f.d / 2 + 1, f.x + 5.2, 0.8, f.z + f.d / 2 - 1, 0x4e9a46, 0x5aaa50, M.LEAF, a);
         mb.cast = true;
@@ -384,36 +392,67 @@ export function home(mb, bx, bz, f, r, lod) {
     const top = r.floors * FLOOR_H;
     const roofC = [0x8d9199, 0x6f747d, 0xa9a39a, 0x7f8a86][(r.hash >>> 21) & 3];
     let base = 0;
+    const fz = f.face < 0 ? z0 : z1, fs = f.face < 0 ? -1 : 1;     // street-facing wall
+    const sign = ACCENT_SIGN[(r.hash >>> 13) % ACCENT_SIGN.length];
     if (tower) {
       const pod = CITY[(r.hash >>> 5) % CITY.length];
       mb.box(f.x - 4.8, 0, f.z - 9.4, f.x + 4.8, 2 * FLOOR_H, f.z + 9.4, pod, shade(pod, 0.85), M.WIN, a);
       base = 2 * FLOOR_H;
+      if (!lod) {                               // lobby glass and a lit sign over the entrance
+        mb.cast = false;
+        const pz = f.face < 0 ? f.z - 9.4 : f.z + 9.4;
+        mb.cbox(f.x, 0, pz + fs * 0.05, 7, 3.4, 0.3, 0x9fc4dd, M.GLASS, a);
+        mb.cbox(f.x, 4.2, pz + fs * 0.25, 5, 0.9, 0.3, sign, M.LIGHT, a);
+        mb.cast = true;
+      }
     } else if (!lod) {
+      // shopfront: glass ground floor, a coloured awning fixed to the wall and a lit sign
       mb.cast = false;
-      mb.cbox(f.x, 3.0, f.face < 0 ? z0 - 0.5 : z1 + 0.5, w - 0.6, 0.2, 1.0, ROOF[r.roof], M.PLAIN, a);
+      mb.cbox(f.x, 0, fz + fs * 0.06, w - 1.2, 2.8, 0.25, shade(0x9fc4dd, 0.9 + ((r.hash >>> 3) & 3) * 0.05), M.GLASS, a);
+      mb.box(x0 + 0.3, 2.9, f.face < 0 ? z0 - 1.3 : z1, x1 - 0.3, 3.1, f.face < 0 ? z0 : z1 + 1.3, ROOF[r.roof], ROOF[r.roof], M.PLAIN, a);
+      if ((r.hash >>> 17) % 3) mb.cbox(f.x, 3.3, fz + fs * 0.15, Math.min(5, w - 2), 0.8, 0.25, sign, M.LIGHT, a);
       mb.cast = true;
     }
     if (top > base) mb.box(x0, base, z0, x1, top, z1, r.wall, roofC, r.mat, a, base / FLOOR_H);
     let roofTop = top;
-    if (r.crown === 1) {
+    const crown = tower && r.floors >= 45 ? 5 : r.crown;
+    if (crown === 1) {
       const t2 = top + 3 * FLOOR_H;
       mb.box(x0 + 1.4, top, z0 + (tower ? 2.5 : 1.4), x1 - 1.4, t2, z1 - (tower ? 2.5 : 1.4), shade(r.wall, 1.06), roofC, r.mat, a, r.floors);
       roofTop = t2;
-    } else if (r.crown === 2 && tower) {
+    } else if (crown === 2 && tower) {
       mb.cbox(f.x, top, f.z, 0.4, 14, 0.4, 0xd0d4dc, M.METAL, a);
-      mb.cbox(f.x, top + 13.4, f.z, 0.7, 0.7, 0.7, 0xff4040, M.LIGHT, a);
-    } else if (r.crown === 3 && tower) {
-      mb.gable(x0, z0, x1, z1, top, 4, shade(r.wall, 0.7), shade(r.wall, 0.7), a, false);
-    } else if (r.crown === 4 && tower) {
+      mb.cbox(f.x, top + 13.4, f.z, 0.7, 0.7, 0.7, 0xff3030, M.LIGHT, a);
+    } else if (crown === 3 && tower) {
+      mb.gable(x0, z0, x1, z1, top, 4, 0xb8bec8, shade(r.wall, 0.95), a, false);
+    } else if (crown === 4 && tower) {
       const t2 = top + 2 * FLOOR_H, t3 = t2 + 2 * FLOOR_H;
       mb.box(x0 + 0.8, top, z0 + 1.6, x1 - 0.8, t2, z1 - 1.6, shade(r.wall, 1.08), roofC, r.mat, a, r.floors);
       mb.box(x0 + 1.8, t2, z0 + 3.4, x1 - 1.8, t3, z1 - 3.4, shade(r.wall, 1.16), 0xd0d4dc, r.mat, a, r.floors + 2);
       roofTop = t3;
+    } else if (crown === 5) {
+      // signature tower: stepped crown, a lit glass lantern and a spire
+      const t2 = top + 3 * FLOOR_H, t3 = t2 + 3 * FLOOR_H;
+      mb.box(x0 + 1, top, z0 + 2, x1 - 1, t2, z1 - 2, shade(r.wall, 1.1), roofC, r.mat, a, r.floors);
+      mb.box(x0 + 2.2, t2, z0 + 4.5, x1 - 2.2, t3, z1 - 4.5, 0xffc878, 0xd0d4dc, M.LIGHT, a);
+      mb.cyl(f.x, t3, f.z, 1.2, t3 + 22, 0.15, 6, 0xe8ebf0, M.METAL, a, false);
+      mb.cbox(f.x, t3 + 21.5, f.z, 0.8, 0.8, 0.8, 0xff3030, M.LIGHT, a);
+      roofTop = t3;
     }
-    if (!lod && !r.top) {
+    // aviation lights on the corners of tall roofs (red specks that make the skyline sparkle at night)
+    if (top >= 30 * FLOOR_H && crown !== 5) {
       mb.cast = false;
-      mb.cbox(f.x + 1.5, roofTop, f.z - 1, 2.2, 1.6, 2.2, 0xd6d8dc, M.METAL, a);
-      if (r.crown === 0 && !tower) mb.cyl(f.x - 2, roofTop, f.z + 1.5, 1.1, roofTop + 2.6, 1.1, 6, 0xc9c4ba, M.PLAIN, a);
+      mb.cbox(x0 + 0.4, roofTop, z0 + 0.4, 0.6, 0.6, 0.6, 0xff3030, M.LIGHT, a);
+      mb.cbox(x1 - 0.4, roofTop, z1 - 0.4, 0.6, 0.6, 0.6, 0xff3030, M.LIGHT, a);
+      mb.cast = true;
+    }
+    if (!lod && !r.top && crown !== 5) {
+      // rooftop plant: position and size vary per building so roofs don't look stamped
+      mb.cast = false;
+      const ux = ((r.hash >>> 22) % 5 - 2) * (w / 7), uz = ((r.hash >>> 25) % 5 - 2) * (d / 9);
+      const uw = 1.6 + ((r.hash >>> 28) & 3) * 0.5;
+      mb.cbox(f.x + ux, roofTop, f.z + uz, uw, 1.4 + ((r.hash >>> 6) & 1), uw * 1.3, 0xd6d8dc, M.METAL, a);
+      if (r.crown === 0 && !tower) mb.cyl(f.x - ux * 0.8, roofTop, f.z - uz - 1, 1.1, roofTop + 2.6, 1.1, 6, 0xc9c4ba, M.PLAIN, a);
       mb.cast = true;
     }
     if (r.top) shape(mb, r.shape, f.x, roofTop, f.z, tower ? 0.85 : 0.75, r.color, a, lod);
@@ -426,7 +465,8 @@ export function chunkOrigin(cx, cz) {
   return [(cx * CHUNK + 1.5) * PITCH, (cz * CHUNK + 1.5) * PITCH];
 }
 
-export function buildChunk(L, cx, cz, lod, customs) {
+export function buildChunk(L, cx, cz, lod, customs, lite = false) {
+  LITE = lite;
   const [ox, oz] = chunkOrigin(cx, cz);
   const mb = new MB(ox, oz, lod ? 2048 : 8192);
   const f = F;
@@ -449,8 +489,8 @@ export function buildChunk(L, cx, cz, lod, customs) {
             // street trees along the outer sidewalks
             for (let t = -16; t <= 16; t += 8) {
               const hh = hash3(bx * 8 + t, bz, 61);
-              if (hh % 3) { tree(mb, X + t, Z - 19, 0.6, hh, 0); }
-              if ((hh >>> 4) % 3) { tree(mb, X + t, Z + 19, 0.6, hh >>> 7, 0); }
+              if (hh % 3 && (!LITE || t === 0)) { tree(mb, X + t, Z - 19, 0.6, hh, 0); }
+              if ((hh >>> 4) % 3 && (!LITE || t === 0)) { tree(mb, X + t, Z + 19, 0.6, hh >>> 7, 0); }
             }
           }
           lamp(mb, X - 19.3, Z - 19.3, hb & 255);
@@ -558,6 +598,7 @@ function plaza(mb, X, Z, lod) {
   }
 }
 
+const ACCENT_SIGN = [0xff5d8f, 0x3ad6ff, 0xffd23f, 0x7dff9a, 0xff8a3d, 0xc58bff];
 const BOX_COLS = [0xd8563b, 0x2a6fb5, 0xf0a030, 0x2a9d6f, 0x1fb5ad, 0xc2304f, 0x7b4b94, 0xe8e4dc];
 function port(mb, L, bx, bz, X, Z, lod) {
   const lane = portLane(bx, bz);     // 0 quay with cranes (water to +z), 1 containers, 2 warehouses
@@ -657,9 +698,15 @@ export function buildSkyline(L, rx, rz) {
       plotFrame(bx, bz, s, zone, f);
       const top = r.floors * FLOOR_H;
       mb.box(f.x - r.w / 2, 0, f.z - r.d / 2, f.x + r.w / 2, top, f.z + r.d / 2, r.wall, 0x8d9199, r.mat, r.hash & 255);
-      if (r.crown === 1) mb.box(f.x - r.w / 2 + 1.4, top, f.z - r.d / 2 + 2, f.x + r.w / 2 - 1.4, top + 3 * FLOOR_H, f.z + r.d / 2 - 2, r.wall, 0x8d9199, r.mat, r.hash & 255, r.floors);
-      else if (r.crown === 2 && zone === 3) mb.cbox(f.x, top, f.z, 0.5, 14, 0.5, 0xd0d4dc, M.METAL, r.hash & 255);
-      else if (r.crown === 3 && zone === 3) mb.gable(f.x - r.w / 2, f.z - r.d / 2, f.x + r.w / 2, f.z + r.d / 2, top, 4, shade(r.wall, 0.7), shade(r.wall, 0.7), r.hash & 255, false);
+      const sig = zone === 3 && r.floors >= 45;
+      if (r.crown === 1 && !sig) mb.box(f.x - r.w / 2 + 1.4, top, f.z - r.d / 2 + 2, f.x + r.w / 2 - 1.4, top + 3 * FLOOR_H, f.z + r.d / 2 - 2, r.wall, 0x8d9199, r.mat, r.hash & 255, r.floors);
+      if (top >= 30 * FLOOR_H && !sig) mb.cbox(f.x - r.w / 2 + 0.4, top, f.z - r.d / 2 + 0.4, 0.9, 0.9, 0.9, 0xff3030, M.LIGHT, r.hash & 255);
+      if (sig) {
+        mb.box(f.x - r.w / 2 + 1, top, f.z - r.d / 2 + 2, f.x + r.w / 2 - 1, top + 3 * FLOOR_H, f.z + r.d / 2 - 2, r.wall, 0x8d9199, r.mat, r.hash & 255, r.floors);
+        mb.box(f.x - r.w / 2 + 2.2, top + 3 * FLOOR_H, f.z - r.d / 2 + 4.5, f.x + r.w / 2 - 2.2, top + 6 * FLOOR_H, f.z + r.d / 2 - 4.5, 0xffc878, 0xd0d4dc, M.LIGHT, r.hash & 255);
+        mb.cyl(f.x, top + 6 * FLOOR_H, f.z, 1.2, top + 6 * FLOOR_H + 22, 0.15, 4, 0xe8ebf0, M.METAL, r.hash & 255, false);
+      } else if (r.crown === 2 && zone === 3) mb.cbox(f.x, top, f.z, 0.5, 14, 0.5, 0xd0d4dc, M.METAL, r.hash & 255);
+      else if (r.crown === 3 && zone === 3) mb.gable(f.x - r.w / 2, f.z - r.d / 2, f.x + r.w / 2, f.z + r.d / 2, top, 4, 0xb8bec8, shade(r.wall, 0.95), r.hash & 255, false);
       else if (r.crown === 4 && zone === 3) mb.box(f.x - r.w / 2 + 0.8, top, f.z - r.d / 2 + 1.6, f.x + r.w / 2 - 0.8, top + 4 * FLOOR_H, f.z + r.d / 2 - 1.6, r.wall, 0x8d9199, r.mat, r.hash & 255, r.floors);
     }
   }
