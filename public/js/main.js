@@ -466,7 +466,7 @@ function render(now) {
   gl.useProgram(geo.p);
   setCommonU(geo.u, T, time, fogD);
   gl.uniformMatrix4fv(geo.u.uVP, false, VP);
-  const fadeA = r1 * 0.72, fadeB = r1 * 0.96, shadowR = quality.s < 0.7 ? 120 : 650 * quality.s;
+  const fadeA = r1 * 0.72, fadeB = r1 * 0.96, shadowR = quality.s < 0.7 ? 50 : 650 * quality.s;
   gl.uniform4f(geo.u.uLod, fadeA, fadeB, 0, 0);
   const R = CHUNK * PITCH * 0.75;
   const drawn = DRAWN;
@@ -483,7 +483,8 @@ function render(now) {
     gl.bindVertexArray(c.g.vao);
     gl.drawElements(gl.TRIANGLES, c.g.n, c.g.it, 0);
     tris += c.g.n / 3; draws++;
-    if (hyp2(ox - cam.x, oz - cam.z) < shadowR) drawn.push(c);
+    // shadows: distance to the chunk's bounding square, not its centre (no corner gaps, no chunk-sized pops)
+    if (hyp2(Math.max(0, Math.abs(ox - cam.x) - 96), Math.max(0, Math.abs(oz - cam.z) - 96)) < shadowR) drawn.push(c);
   }
   gl.uniform4f(geo.u.uLod, fadeA, fadeB, 1, 2);    // skyline tiles are stored at 1/32 m
   const RS = SKY * PITCH * 0.75;
@@ -540,7 +541,7 @@ function render(now) {
 
   // projected planar shadows on the ground (stencil: each pixel darkened once)
   const shDir = shadowDir(T);
-  if (T.night < 0.6 && drawn.length && PROBE !== 'full') {   // low quality casts too, from the nearest chunks only
+  if (T.night < 0.6 && drawn.length && quality.s >= 0.7 && PROBE !== 'full') {   // low quality: painted ground shadows instead (cast shadows cost 25-45% more tris there)
     const sh = P.shadow;
     gl.useProgram(sh.p);
     gl.uniformMatrix4fv(sh.u.uVP, false, VP);

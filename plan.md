@@ -159,6 +159,15 @@ log the round below. A new reviewer each round; never coach it toward a score.
 | meta 3 | — | — | The loop stopped changing what the owner sees: phone vantage r9→r12 only 7% of pixels moved (mostly roof hue). Causes: no grounding/eave shade on low, single boxes, generic-suburb identity, LITE strips craft, palette drifted to mud, tests became proxies (tri budgets, palette compliance). Direction: a "diorama" pass baked into geometry so the low preset gets it. Process: grade the low preset first (≥40%), gating question "would the owner still call these houses cheap?", ≤1 metric-only acceptance, one structural-bet slot judged by phone A/B, frozen cameras. |
 | 12→13 changes | | | Half-res footprint fix (uPx): crosswalks/lane lines back at half res (visual check). Diorama pass: baked eave shade band (vertex colours, every preset), light corner boards (outward faces only), fascia kept on lite, bigger door, house shadows on the phone preset from the nearest 120 m, roof saturation OVERRIDE to S ≤ .60. A/B on lowclose/lowdrone/house: visible (eave band, corner boards, shadows, warmer roofs) but pixel change below the 25% bar (lowclose 9%, phone 4%). Cost: phone 50k→70k tris (budget raised to 75k as an explicit trade-off), phone frame 1.16×; portrait 71k ≤ 75k; suburb chunk 34.9k, lite 9.0k. |
 
+| 13 (revised process) | 6.5 | 5.5 | Low preset graded first. Gating question: owner would still call the houses cheap on a phone — YES (LITE strips the craft, one box + garage, eave band too weak). Phone shadows were camera-lucky: culled by chunk-centre distance, so houses near chunk corners cast nothing. Suburb 502k and hub 532k/37 MB over budget. Verdict on the diorama pass: revise. |
+| 13→14 changes | | | Shadow culling uses distance to the chunk's bounding square (bug fix). Correct phone shadows cost 25–45% more tris (corner camera 94.5k), so cast shadows on the low preset were reverted to the painted ground shadows; corner boards dropped on lite. Measured: phone 55.4k, lowclose 63.9k, portrait 68.4k, chunk-corner camera 70.9k — all within budget; phone frame 83 ms (r12 77 ms). |
+
+### Where this stands (honest)
+After 8 strict rounds and 3 meta-reviews, Looks sits around 5.5–6.5 on the strict rubric and Optimization 6.5–8.
+The meta-reviews agree that incremental detail on flat procedural boxes has hit its ceiling around 6–6.5;
+reaching 9 needs a structural art change (a real house kit with varied massing on every preset, or a deliberate
+stylization such as a miniature/diorama look), judged on the phone by the owner.
+
 ### Next steps, in priority order
 1. Precompute the block order at build time (compact binary in `public/town/`), so clients don't run `buildLayout` (scaling to 10M on phones).
 2. Merge skyline regions per distance ring; reuse matrix/array buffers per frame.

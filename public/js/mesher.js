@@ -431,8 +431,8 @@ export function home(mb, bx, bz, f, r, lod) {
         mb.boxEave(x0, 0, z0, x1, top, z1, r.wall, r.roofType === 2 ? 0x8c8f93 : -1, M.WIN, wa);
         mb.cast = false;                            // light corner boards
         const cb = 0xeeeae2;
-        // corner boards: only the two outward faces of each corner (4 tris per corner)
-        for (const [cx, cz, sx, sz] of [[x0, z0, -1, -1], [x1, z0, 1, -1], [x0, z1, -1, 1], [x1, z1, 1, 1]]) {
+        // corner boards: only the two outward faces of each corner (4 tris per corner); not on lite (phone budget)
+        if (!LITE) for (const [cx, cz, sx, sz] of [[x0, z0, -1, -1], [x1, z0, 1, -1], [x0, z1, -1, 1], [x1, z1, 1, 1]]) {
           mb.wq(Math.min(cx, cx - sx * 0.22), Math.max(cx, cx - sx * 0.22), 0.45, top, cz + sz * 0.03, sz, cb, M.PLAIN, a);
           mb.xq(cx + sx * 0.03, Math.min(cz, cz - sz * 0.22), Math.max(cz, cz - sz * 0.22), 0.45, top, sx, cb, M.PLAIN, a);
         }
