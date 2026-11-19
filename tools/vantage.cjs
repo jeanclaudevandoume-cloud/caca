@@ -27,9 +27,16 @@ const V = {
   const names = only.length ? only : Object.keys(V);
   fs.mkdirSync(`shots/${tag}`, { recursive: true });
   const b = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--enable-precise-memory-info'] });
-  const doProbe = process.env.PROBE !== '0';
+  const probeAll = process.env.PROBE === '1';   // default: probe only the low-preset vantages (high ones are very slow here)
   const perf = {};
   const out = {};
+  const save = () => {
+    let prev = {}, pp = {};
+    try { prev = JSON.parse(fs.readFileSync(`shots/${tag}/stats.json`, 'utf8')); } catch { /* first run */ }
+    try { pp = JSON.parse(fs.readFileSync(`shots/${tag}/perf.json`, 'utf8')); } catch { /* first run */ }
+    fs.writeFileSync(`shots/${tag}/stats.json`, JSON.stringify({ ...prev, ...out }, null, 1));
+    if (Object.keys(perf).length) fs.writeFileSync(`shots/${tag}/perf.json`, JSON.stringify({ ...pp, ...perf }, null, 1));
+  };
   for (const n of names) {
     const [q, w = 1100, h = 620] = V[n];
     const p = await b.newPage({ viewport: { width: w, height: h } });
@@ -43,7 +50,7 @@ const V = {
     await p.waitForTimeout(800);
     await p.screenshot({ path: `shots/${tag}/${n}.png` });
     out[n] = await p.evaluate(() => { const s = window.__town.stats; return { tris: s.tris, draws: s.draws, sky: s.sky, mb: s.mb }; });
-    if (doProbe) {
+    if (probeAll || q.includes('q=low')) {
       // pass timings (relative, this machine) + allocated bytes per frame from Chrome's sampling heap profiler
       const t = await p.evaluate(() => window.__town.probe(6));
       const cdp = await p.context().newCDPSession(p);
@@ -65,15 +72,8 @@ const V = {
       console.log(n, 'perf', JSON.stringify(perf[n]));
     }
     console.log(n, JSON.stringify(out[n]));
+    save();
     await p.close();
-  }
-  let prev = {};
-  try { prev = JSON.parse(fs.readFileSync(`shots/${tag}/stats.json`, 'utf8')); } catch { /* first run */ }
-  fs.writeFileSync(`shots/${tag}/stats.json`, JSON.stringify({ ...prev, ...out }, null, 1));   // merge partial runs
-  if (doProbe) {
-    let pp = {};
-    try { pp = JSON.parse(fs.readFileSync(`shots/${tag}/perf.json`, 'utf8')); } catch { /* first run */ }
-    fs.writeFileSync(`shots/${tag}/perf.json`, JSON.stringify({ ...pp, ...perf }, null, 1));
   }
   await b.close();
 })();
