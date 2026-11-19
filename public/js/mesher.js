@@ -82,6 +82,23 @@ export class MB {
     this.tri(i, i + 1, i + 2);
   }
   // Axis-aligned box without a bottom. Walls get window uv (u metres, v floors from vb).
+  // Residential walls with baked shade: the 0.7 m under the eaves darkens to 60% (vertex colours),
+  // so the shade under the roof works on every preset with zero shader cost.
+  boxEave(x0, y0, z0, x1, y1, z1, c, top, m, a) {
+    const ys = y1 - 0.7, cd = shade(c, 0.6);
+    this.box(x0, y0, z0, x1, ys, z1, c, -1, m, a);
+    const v0 = (ys - y0) / FLOOR_H, v1 = (y1 - y0) / FLOOR_H, sp = 2.6;
+    const uw = Math.max(1, Math.round((x1 - x0) / sp)) * sp, ud = Math.max(1, Math.round((z1 - z0) / sp)) * sp;
+    const g = (px0, pz0, px1, pz1, nx, nz, u1) => {
+      const i = this.v(px0, ys, pz0, 0, v0, nx, 0, nz, m, c, a);
+      this.v(px1, ys, pz1, u1, v0, nx, 0, nz, m, c, a);
+      this.v(px1, y1, pz1, u1, v1, nx, 0, nz, m, cd, a);
+      this.v(px0, y1, pz0, 0, v1, nx, 0, nz, m, cd, a);
+      this.tri(i, i + 1, i + 2); this.tri(i, i + 2, i + 3);
+    };
+    g(x0, z1, x1, z1, 0, 1, uw); g(x1, z0, x0, z0, 0, -1, uw); g(x1, z1, x1, z0, 1, 0, ud); g(x0, z0, x0, z1, -1, 0, ud);
+    if (top >= 0) this.q(x0, y1, z1, x1, y1, z1, x1, y1, z0, x0, y1, z0, 0, 1, 0, 0, 0, 0, 0, M.PLAIN, top, a);
+  }
   box(x0, y0, z0, x1, y1, z1, c, top, m, a, vb = 0) {
     const v0 = vb, v1 = vb + (y1 - y0) / FLOOR_H, w = x1 - x0, d = z1 - z0;
     // centre the window grid on each wall so no window is cut at a corner
@@ -366,9 +383,9 @@ const DOORS = [0x2f4d7a, 0x7e2d2d, 0x2e5a45, 0x2b2b2b, 0xd9a441];
 // Front door: frame, inset door, step, optional canopy and a porch light.
 function door(mb, x, zw, fs, r, rc, a) {
   const cast = mb.cast; mb.cast = false;
-  mb.wq(x - 0.5, x + 0.5, 0, 2.1, zw + fs * 0.04, fs, DOORS[(r.hash >>> 19) % 5], M.PLAIN, a);
+  mb.wq(x - 0.6, x + 0.6, 0, 2.3, zw + fs * 0.04, fs, DOORS[(r.hash >>> 19) % 5], M.PLAIN, a);
   if (!LITE) {
-    mb.wq(x - 0.75, x + 0.75, 0, 2.5, zw + fs * 0.02, fs, 0xf2eee6, M.PLAIN, a);
+    mb.wq(x - 0.85, x + 0.85, 0, 2.7, zw + fs * 0.02, fs, 0xf2eee6, M.PLAIN, a);
     mb.cbox(x, 0, zw + fs * 0.55, 1.8, 0.18, 1.0, 0xbdb8ae, M.PLAIN, a);
     mb.cbox(x + 0.95, 2.05, zw + fs * 0.1, 0.22, 0.3, 0.12, 0xffe2a8, M.LIGHT, a);
   }
@@ -404,7 +421,14 @@ export function home(mb, bx, bz, f, r, lod) {
     } else {
       const top = r.floors * FLOOR_H;
       const rc = ROOF[r.roof];
-      mb.box(x0, 0, z0, x1, top, z1, r.wall, r.roofType === 2 ? 0x8c8f93 : -1, M.WIN, wa);
+      if (lod) mb.box(x0, 0, z0, x1, top, z1, r.wall, r.roofType === 2 ? 0x8c8f93 : -1, M.WIN, wa);
+      else {
+        mb.boxEave(x0, 0, z0, x1, top, z1, r.wall, r.roofType === 2 ? 0x8c8f93 : -1, M.WIN, wa);
+        mb.cast = false;                            // light corner boards
+        const cb = 0xeeeae2;
+        for (const [cx, cz] of [[x0, z0], [x1, z0], [x0, z1], [x1, z1]]) mb.box(cx - 0.1, 0.45, cz - 0.1, cx + 0.1, top, cz + 0.1, cb, -1, M.PLAIN, a);
+        mb.cast = true;
+      }
       if (!lod && !LITE) {                          // plinth: a darker base 8 cm proud of the wall (lite: the shader's plinth band)
         const pc = shade(r.wall, 0.7);
         mb.box(x0 - 0.08, 0, z0 - 0.08, x1 + 0.08, 0.5, z1 + 0.08, pc, -1, M.PLAIN, a);
@@ -415,7 +439,7 @@ export function home(mb, bx, bz, f, r, lod) {
         mb.q(x0 - o, top - 0.01, z0 - o, x1 + o, top - 0.01, z0 - o, x1 + o, top - 0.01, z1 + o, x0 - o, top - 0.01, z1 + o, 0, -1, 0, 0, 0, 0, 0, M.PLAIN, shade(r.wall, 0.75), a);
         mb.cast = true;
       }
-      if (r.roofType === 0) mb.gable(x0 - o, z0 - o, x1 + o, z1 + o, top, 2.6, rc, r.wall, a, mainW > r.d, !lod && !LITE, shade(rc, 0.6));
+      if (r.roofType === 0) mb.gable(x0 - o, z0 - o, x1 + o, z1 + o, top, 2.6, rc, r.wall, a, mainW > r.d, !lod, shade(rc, 0.6));
       else if (r.roofType === 1) mb.hip(x0 - o, z0 - o, x1 + o, z1 + o, top, 2.4, rc, a);
       else if (!lod) {                               // flat roof: parapet around a grey membrane
         const pc = shade(r.wall, 0.8), cap = 0xd9d3c7;      // parapet sides darker than the wall, light coping on top
@@ -464,7 +488,8 @@ export function home(mb, bx, bz, f, r, lod) {
     } else {
       const top = r.floors * FLOOR_H;
       const rc = ROOF[r.roof];
-      mb.box(x0, 0, z0, x1, top, z1, r.wall, r.roofType === 2 ? 0x9a9c9e : -1, M.WIN, wa);
+      if (lod) mb.box(x0, 0, z0, x1, top, z1, r.wall, r.roofType === 2 ? 0x9a9c9e : -1, M.WIN, wa);
+      else mb.boxEave(x0, 0, z0, x1, top, z1, r.wall, r.roofType === 2 ? 0x9a9c9e : -1, M.WIN, wa);
       if (r.roofType === 0) mb.gable(x0 - 0.2, z0 - 0.4, x1 + 0.2, z1 + 0.4, top, 2.2, rc, r.wall, a, false, !lod);
       else {
         // cornice: a light band that overhangs the street wall

@@ -19,6 +19,8 @@ const V = {
   house: ['q=high&t=10&notags&cam=2200,5,1272,-0.25,-0.1'],
   portrait: ['q=low&t=10&notags', 390, 844],
   downtownlow: ['q=low&t=10&notags', 844, 390],
+  lowclose: ['q=low&t=10&notags&cam=2200,5,1272,-0.25,-0.1', 844, 390],
+  lowdrone: ['q=low&t=10&notags&cam=2184,30,1300,0,-0.45', 844, 390],
   phonefull: ['q=low&t=10&notags&fullres&cam=2184,7,1260,0,-0.05', 844, 390],
   portraitfull: ['q=low&t=10&notags&fullres', 390, 844],
 };

@@ -29,6 +29,10 @@ Palettes (town.js): WALL `e8c9a0 d99a6c b8c9a3 9fb7c9 e6b8a2 f1e4c8 c98f5e 8fa89
 CITY `c9a27e 8e9aa6 d8c3a0 5f6b78 b5876a e0d6c4 4a5560`; GLASS dark blues/teals/bronzes only;
 ROOF `b4533a 4b5663 3a3e45 5e7a48 3f8c84 9a3c31 7a5638 2f4d7a`.
 
+### OVERRIDE (meta-review 3): roof saturation
+Roofs S ≤ 0.60 (was 0.45), V ≤ 0.42. Clamping to 0.45 turned terracotta into mud/mauve and suburb saturation fell
+below target while the image got less vibrant; the goal says "vibrant".
+
 ## Light (AD)
 
 - Noon key `sun ≈ [1.3, 1.15, 0.95]`, sky ambient `≈ [0.30, 0.38, 0.55]`: lit/shade ratio ≥ 3.5:1.
@@ -79,7 +83,18 @@ build; 10 = also clear margin under budget.
 1. Boot cost (layout/data at 1M and 10M). 2. Low-preset tris/draws per vantage. 3. Fill cost of
 full-screen passes. 4. Per-frame allocations. 5. LOD artifacts/pops. 6. GPU memory.
 
-## Process
+## Process (revised after meta-review 3)
+
+- **Grade the low preset first.** `phone`, `portrait`, `lowclose` and `lowdrone` are what the owner sees; together
+  they weigh at least 40% of Looks.
+- **Gating question each round:** "Would the owner still call these houses cheap on a phone?" (yes/no, with the
+  phone shot).
+- At most 1 of the 5 fixes may be accepted on a metric alone; every Looks fix names a vantage where it changes
+  ≥ 5% of pixels, shown as a cropped before/after.
+- One "structural bet" slot per round: a larger change judged by A/B on the phone vantages.
+- Vantage cameras are frozen; if one must move, both builds are re-captured.
+
+## Process (earlier rules, still in force)
 
 - The reviewer sees before/after images of the fixed vantage set (`tools/vantage.cjs`,
   `tools/sheet.py`), not the previous scores. Every sub-score change must cite a vantage pair.

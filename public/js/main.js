@@ -466,7 +466,7 @@ function render(now) {
   gl.useProgram(geo.p);
   setCommonU(geo.u, T, time, fogD);
   gl.uniformMatrix4fv(geo.u.uVP, false, VP);
-  const fadeA = r1 * 0.72, fadeB = r1 * 0.96, shadowR = 650 * quality.s;
+  const fadeA = r1 * 0.72, fadeB = r1 * 0.96, shadowR = quality.s < 0.7 ? 230 : 650 * quality.s;
   gl.uniform4f(geo.u.uLod, fadeA, fadeB, 0, 0);
   const R = CHUNK * PITCH * 0.75;
   const drawn = DRAWN;
@@ -540,7 +540,7 @@ function render(now) {
 
   // projected planar shadows on the ground (stencil: each pixel darkened once)
   const shDir = shadowDir(T);
-  if (T.night < 0.6 && drawn.length && quality.s >= 0.7 && PROBE !== 'full') {
+  if (T.night < 0.6 && drawn.length && PROBE !== 'full') {   // low quality casts too, from the nearest chunks only
     const sh = P.shadow;
     gl.useProgram(sh.p);
     gl.uniformMatrix4fv(sh.u.uVP, false, VP);
@@ -578,11 +578,12 @@ function setFull(u, T, time, fogD, r1) {
   gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, groundTex); gl.uniform1i(u.uGround, 0);
   const shDir = shadowDir(T);
   gl.uniform4f(u.uFar, r1 * 0.72, r1 * 0.96, quality.s > 0.7 ? 1 : 0, 5 / shDir[1] * 0.5);
+  gl.uniform1f(u.uPx, halfActive ? 0.5 : 1);
 }
 
 // Low quality: run the expensive ground/sky shader at half resolution into a texture
 // (a quarter of the fragments), then upsample it where no geometry was drawn.
-let halfRT = null;
+let halfRT = null, halfActive = false;
 function halfGround(W, H, T, time, fogD, r1) {
   const w = Math.max(1, W >> 1), h = Math.max(1, H >> 1);
   if (!halfRT || halfRT.w !== w || halfRT.h !== h) {
@@ -604,7 +605,9 @@ function halfGround(W, H, T, time, fogD, r1) {
   gl.disable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE); gl.disable(gl.BLEND);
   const full = P.full;
   gl.useProgram(full.p);
+  halfActive = true;
   setFull(full.u, T, time, fogD, r1);
+  halfActive = false;
   gl.bindVertexArray(fullVao);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);

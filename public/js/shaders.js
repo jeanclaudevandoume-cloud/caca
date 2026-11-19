@@ -229,6 +229,7 @@ ${COMMON}
 uniform mat4 uInvVP;
 uniform usampler2D uGround;   // per-block data from town.buildGround
 uniform vec4 uTown;   // x townD2, y ground texture extent, z seaX, w seaBx
+uniform float uPx;
 uniform vec4 uFar;    // x roof fade start, y roof fade end, z quality (0 low, 1 high), w shadow len
 in vec2 vNdc;
 out vec4 o;
@@ -521,7 +522,7 @@ void main() {
   vec3 dir = normalize(p1 - p0);
   float t = dir.y < -0.0005 ? -uCam.y / dir.y : 1e5;
   vec3 p = uCam + dir * t;
-  float w = max(length(dFdx(p.xz)), length(dFdy(p.xz)));
+  float w = max(length(dFdx(p.xz)), length(dFdy(p.xz))) * uPx;   // uPx = 0.5 in the half-res pass: keep full-res footprints (road markings)
   if (dir.y > -0.0005) { o = vec4(tone(sky(dir)), 1.0); return; }
   vec4 g = groundBase(p.xz, dir, t, min(w, 400.0));
   vec3 col = g.rgb;
