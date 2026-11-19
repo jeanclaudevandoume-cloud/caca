@@ -806,7 +806,7 @@ const SHIPS = ships();
 // ---------- skyline: one mesh per data region, tall buildings as boxes ----------
 // Skyline tile = 2x2 data regions (32x32 blocks, ~1.5 km), stored at 1/32 m so it fits int16.
 export const SKY = 2 * REGION;
-export function buildSkyline(L, sx, sz) {
+export function buildSkyline(L, sx, sz, lite = false) {
   const ox = (sx * SKY + SKY / 2 - 0.5) * PITCH, oz = (sz * SKY + SKY / 2 - 0.5) * PITCH;
   const mb = new MB(ox, oz, 4096);
   mb.sc = 32;
@@ -828,10 +828,11 @@ export function buildSkyline(L, sx, sz) {
     const occ = occupied(L, bx, bz);
     for (let s = 0; s < occ; s++) {
       const r = recipe(bx, bz, s, zone, null);
-      if (r.height < 6 * FLOOR_H) continue;
+      if (r.height < (lite ? 12 : 6) * FLOOR_H) continue;      // lite (low quality): only the real skyline
       plotFrame(bx, bz, s, zone, f);
       const top = r.floors * FLOOR_H;
       mb.box(f.x - r.w / 2, 0, f.z - r.d / 2, f.x + r.w / 2, top, f.z + r.d / 2, r.wall, 0x8d9199, r.mat, (r.hash & 0xfc) | (zone === 3 ? 0 : 3));
+      if (lite) continue;                                          // lite: plain boxes, no crowns
       const sig = zone === 3 && r.sig;
       if (r.crown === 1 && !sig) mb.box(f.x - r.w / 2 + 1.4, top, f.z - r.d / 2 + 2, f.x + r.w / 2 - 1.4, top + 3 * FLOOR_H, f.z + r.d / 2 - 2, r.wall, 0x8d9199, r.mat, (r.hash & 0xfc) | (zone === 3 ? 0 : 3), r.floors);
       if (top >= 30 * FLOOR_H && !sig) mb.cbox(f.x - r.w / 2 + 0.4, top, f.z - r.d / 2 + 0.4, 0.9, 0.9, 0.9, 0xff3030, M.LIGHT, r.hash & 255);

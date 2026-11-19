@@ -133,7 +133,7 @@ void main() {
     refl *= 1.0 - 0.35 * k * max(smoothstep(0.86, 0.92, fy), (1.0 - smoothstep(0.0, 0.12, (f.x - mx) / (1.0 - 2.0 * mx))) * step(0.0, dot(n, uSunDir)));
     if (glass < 0.5 && (cell >> 12u) % 8u == 0u) refl = mix(refl, vec3(0.91, 0.86, 0.78) * 0.8 * (amb + uSunCol * 0.3), step(fy, 0.55) * k);
     refl *= mix(1.0, 0.6, smoothstep(0.86, 0.9, fy) * k);
-    float share = 30.0 + float(ih(seed * 31u + 7u) % 120u);           // 12%..59% of windows lit
+    float share = 18.0 + float(ih(seed * 31u + 7u) % 82u);            // 7%..39% of windows lit
     float towerGlow = glass > 0.5 ? (0.25 + 0.75 * float(ih(seed * 77u + 3u) & 255u) / 255.0) * 0.6 : 1.0;
     // floor bands stay visible further than single windows, so far towers read striped, not flat
     float kf = clamp(1.8 - fwidth(v) * 1.2, 0.0, 1.0);
@@ -250,8 +250,8 @@ uvec4 cellAt(int bx, int bz) {
 bool isWater(uint k) { return k == 3u || k == 4u || k == 9u; }
 bool countryish(uint k) { return k == 6u || k == 8u || isWater(k); }
 
-const vec3 ROOF[8] = vec3[8](vec3(0.549,0.247,0.173), vec3(0.294,0.337,0.388), vec3(0.227,0.243,0.271), vec3(0.369,0.478,0.282),
-  vec3(0.184,0.408,0.384), vec3(0.478,0.184,0.149), vec3(0.478,0.337,0.22), vec3(0.184,0.302,0.478));
+const vec3 ROOF[8] = vec3[8](vec3(0.416,0.188,0.11), vec3(0.294,0.337,0.388), vec3(0.227,0.243,0.271), vec3(0.306,0.416,0.235),
+  vec3(0.184,0.408,0.384), vec3(0.361,0.141,0.118), vec3(0.4,0.275,0.188), vec3(0.184,0.302,0.478));
 
 uint h2(ivec2 p) { uint h = uint(p.x) * 0x8da6b343u ^ uint(p.y) * 0xd8163841u; h ^= h >> 13u; h *= 0x5bd1e995u; return h ^ (h >> 15u); }
 float vnoise(vec2 p) {

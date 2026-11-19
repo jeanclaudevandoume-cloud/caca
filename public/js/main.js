@@ -116,13 +116,13 @@ function planes(m) {
 const inFrustum = (pl, x, y, z, r) => pl.every((p) => p[0] * x + p[1] * y + p[2] * z + p[3] > -r);
 
 // ---------------- state ----------------
-const HOME = { x: 150, y: 60, z: 420, yaw: -0.3, pitch: -0.1 };   // ART.md: ~120 m in, mid-rises with signs in front of the core
+const HOME = { x: -30, y: 70, z: 560, yaw: 0.06, pitch: -0.15 };   // ART.md: down the central avenue, over the bridge, into the core
 const cam = { ...HOME };
 const PRESETS = { low: { s: 0.55, pr: 1 }, mid: { s: 0.8, pr: 1.5 }, high: { s: 1, pr: 2 } };
 const isPhone = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) || Math.min(screen.width, screen.height) < 600;
 const quality = { mode: qParam, ...(qParam === 'high' ? PRESETS.high : qParam === 'low' ? PRESETS.low : isPhone ? PRESETS.low : PRESETS.mid) };
 quality.maxS = quality.s; quality.maxPr = quality.pr;
-const radii = () => ({ r0: 320 * Math.max(0.6, quality.s), r1: 1100 * quality.s, rs: Math.min(5000, 7000 * quality.s * quality.s) });
+const radii = () => ({ r0: 320 * Math.max(0.6, quality.s), r1: 1100 * quality.s * (quality.s < 0.7 ? 0.75 : 1), rs: Math.min(5000, 7000 * quality.s * quality.s) });
 const stats = { tris: 0, draws: 0, sky: 0, chunks: 0, mb: 0, fps: 0, ms: 0 };
 let manifest = null, L = null, ready = false;
 const chunks = new Map();     // key -> {cx,cz,lod,g,want,req,seen}
@@ -322,7 +322,8 @@ function stream(now) {
     let s = skies.get(key);
     if (!s) { s = { rx, rz, g: null, req: 0, loaded: false }; skies.set(key, s); }
     s.seen = now; s.d = d;
-    if ((!s.loaded || s.stale) && !s.req && budget > 0) { s.stale = false; send({ type: 'sky', rx, rz }, s, 0); budget--; }
+    const slite = quality.s < 0.7;
+    if ((!s.loaded || s.stale || s.lite !== slite) && !s.req && budget > 0) { s.stale = false; s.lite = slite; send({ type: 'sky', rx, rz, lite: slite }, s, 0); budget--; }
   }
   for (const [key, s] of skies) if (!sseen.has(key) && now - s.seen > 5000) { if (s.req) { const r = reqs.get(s.req); if (r) r.dead = true; } release(s.g); skies.delete(key); }
 }
