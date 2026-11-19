@@ -111,7 +111,18 @@ for (const sub of ['n', 'c', 's']) {
   }
 }
 
-const manifestBody = { v: 2, n, c: cman, split, nh, sh };
+// prebuilt block order so clients skip the sort (int16 bx,bz per inhabited block)
+const ord = new Int16Array(L.count * 2);
+for (let i = 0; i < L.count * 2; i++) ord[i] = L.blocks[i];
+const ordBuf = Buffer.from(ord.buffer);
+{
+  const f = path.join(out, 'order.bin');
+  live.add(path.normalize(f));
+  let same = false;
+  try { same = fs.readFileSync(f).equals(ordBuf); } catch { /* new */ }
+  if (!same) { fs.mkdirSync(out, { recursive: true }); fs.writeFileSync(f, ordBuf); written++; } else kept++;
+}
+const manifestBody = { v: 3, n, c: cman, split, nh, sh, order: hash(ordBuf) };
 const built = hash(JSON.stringify(manifestBody) + JSON.stringify([...regions.keys()].sort()) + written);
 let prev = null;
 try { prev = JSON.parse(fs.readFileSync(path.join(out, 'manifest.json'), 'utf8')); } catch { /* first build */ }

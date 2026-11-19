@@ -7,12 +7,12 @@ import crypto from 'node:crypto';
 
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), 'public');
 const PORT = +process.env.PORT || 8080;
-const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json', '.txt': 'text/plain; charset=utf-8', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' };
+const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json', '.txt': 'text/plain; charset=utf-8', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.bin': 'application/octet-stream' };
 // LRU of prepared responses (raw + gzip + etag), bounded by bytes; reads and compression are async.
 const cache = new Map();
 let cacheBytes = 0;
 const CACHE_MAX = 64 * 1024 * 1024;
-const COMPRESS = ['.html', '.js', '.json', '.txt', '.css', '.svg'];
+const COMPRESS = ['.html', '.js', '.json', '.txt', '.css', '.svg', '.bin'];
 const pending = new Map();
 
 function prepare(file, st) {

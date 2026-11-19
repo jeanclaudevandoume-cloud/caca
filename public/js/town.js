@@ -143,13 +143,13 @@ export function roofIdx(bx, bz, slot) {
 export const districtAccent = (bx, bz) => hash3(fdiv(bx, 4), fdiv(bz, 4), 31) % 6;
 
 // Palettes (0xRRGGBB). The ground shader holds ROOF too.
-export const WALL = [0xf3e9d8, 0xe9d3b4, 0xd8dccb, 0xc9d6e0, 0xeed9c9, 0xf6f1e7, 0xd4b79a, 0xbfc8be];
+export const WALL = [0xe8c9a0, 0xd99a6c, 0xb8c9a3, 0x9fb7c9, 0xe6b8a2, 0xf1e4c8, 0xc98f5e, 0x8fa89a];   // ART.md: frozen
 // townhouses: three brick tones, then stucco
 export const TOWN = [0xa4553f, 0x8e4a3a, 0xc07a55, 0xe6dccb, 0x6b4a3e, 0xd9cfbd];
 export const ROOF = [0xb4533a, 0x4b5663, 0x3a3e45, 0x5e7a48, 0x3f8c84, 0x9a3c31, 0x7a5638, 0x2f4d7a];
-export const CITY = [0xd9d6cf, 0xc3c7cc, 0xe8dcc6, 0xb7beca, 0xf2efe8, 0xcfc2b0];
+export const CITY = [0xc9a27e, 0x8e9aa6, 0xd8c3a0, 0x5f6b78, 0xb5876a, 0xe0d6c4, 0x4a5560];   // ART.md: frozen
 export const ACCENT = [0xff6b6b, 0x1fb5ad, 0xffb627, 0x6c63ff, 0x2ec27e, 0xff8fb1];
-export const GLASS = [0x5d8fb3, 0x3fa0a8, 0x2f4a72, 0xa9c2d8, 0xc0915a, 0x4f9a72, 0xe2e6ec, 0x1f2a3a, 0x8a6a4a, 0x355f8f, 0x2c3f4f, 0xd9cbb3];
+export const GLASS = [0x4d7799, 0x2f7f86, 0x2f4a72, 0x2a4a63, 0x8a6a4a, 0x3b5a4f, 0x6b4f3a, 0x1f2a3a, 0x7a5a3e, 0x355f8f, 0x2c3f4f, 0x5a6f80];   // ART.md: dark only
 
 export const SHAPES = ['mushroom', 'dome', 'castle', 'pyramid', 'ufo', 'treehouse', 'lighthouse', 'igloo', 'rocket', 'cube'];
 export const GARDEN = ['fountain', 'pool', 'flowers', 'tree', 'car', 'trampoline', 'statue', 'bench', 'swing', 'pond', 'palm', 'tent'];
@@ -209,7 +209,7 @@ export function recipe(bx, bz, slot, zone, custom) {
 // Custom colours are owner-chosen and often neon: cap saturation and brightness so they sit in the palette.
 export function soften(c) {
   const r = ((c >> 16) & 255) / 255, g = ((c >> 8) & 255) / 255, b = (c & 255) / 255;
-  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), v = Math.min(mx, 0.82), sat = mx > 0 ? Math.min((mx - mn) / mx, 0.45) : 0;
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), v = Math.min(mx, 0.75), sat = mx > 0 ? Math.min((mx - mn) / mx, 0.32) : 0;
   const f = (x) => { const s0 = mx > mn ? (mx - x) / (mx - mn) : 0; return Math.round((v * (1 - sat * s0)) * 255); };
   return (f(r) << 16) | (f(g) << 8) | f(b);
 }
@@ -271,6 +271,20 @@ export function buildLayout(n) {
     }
     R = Math.ceil(R * 1.25);
   }
+}
+
+// Layout from the prebuilt block order (order.bin: int16 bx,bz pairs written by tools/build.mjs).
+export function layoutFromOrder(n, o) {
+  const count = o.length >> 1;
+  const blocks = new Int32Array(count * 2), start = new Int32Array(count + 1), plots = new Uint8Array(count);
+  let acc = 0, maxD2 = 0;
+  for (let i = 0; i < count; i++) {
+    const bx = o[2 * i], bz = o[2 * i + 1];
+    blocks[2 * i] = bx; blocks[2 * i + 1] = bz; plots[i] = plotsIn(bx, bz);
+    start[i] = acc; acc += plots[i]; maxD2 = bx * bx + bz * bz;
+  }
+  start[count] = acc;
+  return finishLayout({ n, count, blocks, start, plots, maxD2 });
 }
 
 // Rebuild derived fields (also used after posting a layout between threads).

@@ -57,25 +57,30 @@ function upload(m) {
 function release(g) { if (!g) return; gl.deleteVertexArray(g.vao); gl.deleteBuffer(g.vbo); gl.deleteBuffer(g.ibo); }
 
 // ---------------- matrices ----------------
+// Matrices write into preallocated arrays: the frame loop allocates nothing.
+const M_PROJ = new Float32Array(16), M_VIEW = new Float32Array(16), M_VP = new Float32Array(16), M_INV = new Float32Array(16);
+const INV64 = new Float64Array(16);
 function persp(fovy, aspect, n, f) {
-  const t = 1 / Math.tan(fovy / 2);
-  return new Float32Array([t / aspect, 0, 0, 0, 0, t, 0, 0, 0, 0, (f + n) / (n - f), -1, 0, 0, (2 * f * n) / (n - f), 0]);
+  const t = 1 / Math.tan(fovy / 2), o = M_PROJ;
+  o.fill(0); o[0] = t / aspect; o[5] = t; o[10] = (f + n) / (n - f); o[11] = -1; o[14] = (2 * f * n) / (n - f);
+  return o;
 }
 function lookDir(e, f) {
   let sx = -f[2], sz = f[0]; const sl = Math.hypot(sx, sz) || 1; sx /= sl; sz /= sl;   // side = f x up
   const ux = -sz * f[1], uy = sz * f[0] - sx * f[2], uz = sx * f[1];               // up = side x f
-  return new Float32Array([sx, ux, -f[0], 0, 0, uy, -f[1], 0, sz, uz, -f[2], 0,
-    -(sx * e[0] + sz * e[2]), -(ux * e[0] + uy * e[1] + uz * e[2]), f[0] * e[0] + f[1] * e[1] + f[2] * e[2], 1]);
+  const o = M_VIEW;
+  o[0] = sx; o[1] = ux; o[2] = -f[0]; o[3] = 0; o[4] = 0; o[5] = uy; o[6] = -f[1]; o[7] = 0; o[8] = sz; o[9] = uz; o[10] = -f[2]; o[11] = 0;
+  o[12] = -(sx * e[0] + sz * e[2]); o[13] = -(ux * e[0] + uy * e[1] + uz * e[2]); o[14] = f[0] * e[0] + f[1] * e[1] + f[2] * e[2]; o[15] = 1;
+  return o;
 }
-function mul(a, b) {
-  const o = new Float32Array(16);
+function mul(a, b, o = M_VP) {
   for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) {
     o[c * 4 + r] = a[r] * b[c * 4] + a[4 + r] * b[c * 4 + 1] + a[8 + r] * b[c * 4 + 2] + a[12 + r] * b[c * 4 + 3];
   }
   return o;
 }
 function invert(m) {
-  const inv = new Float64Array(16);
+  const inv = INV64;
   inv[0] = m[5] * m[10] * m[15] - m[5] * m[11] * m[14] - m[9] * m[6] * m[15] + m[9] * m[7] * m[14] + m[13] * m[6] * m[11] - m[13] * m[7] * m[10];
   inv[4] = -m[4] * m[10] * m[15] + m[4] * m[11] * m[14] + m[8] * m[6] * m[15] - m[8] * m[7] * m[14] - m[12] * m[6] * m[11] + m[12] * m[7] * m[10];
   inv[8] = m[4] * m[9] * m[15] - m[4] * m[11] * m[13] - m[8] * m[5] * m[15] + m[8] * m[7] * m[13] + m[12] * m[5] * m[11] - m[12] * m[7] * m[9];
@@ -93,23 +98,25 @@ function invert(m) {
   inv[11] = -m[0] * m[5] * m[11] + m[0] * m[7] * m[9] + m[4] * m[1] * m[11] - m[4] * m[3] * m[9] - m[8] * m[1] * m[7] + m[8] * m[3] * m[5];
   inv[15] = m[0] * m[5] * m[10] - m[0] * m[6] * m[9] - m[4] * m[1] * m[10] + m[4] * m[2] * m[9] + m[8] * m[1] * m[6] - m[8] * m[2] * m[5];
   const det = 1 / (m[0] * inv[0] + m[1] * inv[4] + m[2] * inv[8] + m[3] * inv[12]);
-  const o = new Float32Array(16);
+  const o = M_INV;
   for (let i = 0; i < 16; i++) o[i] = inv[i] * det;
   return o;
 }
+const PLANES = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]];
+const PLANE_IDX = [[0, 1], [0, -1], [1, 1], [1, -1], [2, 1]];
 function planes(m) {
-  const p = [];
-  for (const [i, s] of [[0, 1], [0, -1], [1, 1], [1, -1], [2, 1]]) {
+  for (let k = 0; k < 5; k++) {
+    const i = PLANE_IDX[k][0], s = PLANE_IDX[k][1];
     const a = m[3] + s * m[i], b = m[7] + s * m[4 + i], c = m[11] + s * m[8 + i], d = m[15] + s * m[12 + i];
-    const l = Math.hypot(a, b, c);
-    p.push([a / l, b / l, c / l, d / l]);
+    const l = Math.hypot(a, b, c), p = PLANES[k];
+    p[0] = a / l; p[1] = b / l; p[2] = c / l; p[3] = d / l;
   }
-  return p;
+  return PLANES;
 }
 const inFrustum = (pl, x, y, z, r) => pl.every((p) => p[0] * x + p[1] * y + p[2] * z + p[3] > -r);
 
 // ---------------- state ----------------
-const HOME = { x: 520, y: 260, z: 760, yaw: -0.6, pitch: -0.3 };
+const HOME = { x: 230, y: 95, z: 700, yaw: -0.32, pitch: -0.12 };   // ART.md: across the river into the core
 const cam = { ...HOME };
 const PRESETS = { low: { s: 0.55, pr: 1 }, mid: { s: 0.8, pr: 1.5 }, high: { s: 1, pr: 2 } };
 const isPhone = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) || Math.min(screen.width, screen.height) < 600;
@@ -229,9 +236,18 @@ function customFor(cx, cz) {
   }
   return v && v.then ? undefined : v;
 }
+// The block order is prebuilt by tools/build.mjs (order.bin), so phones don't sort the town at boot.
+async function initLayout() {
+  let order = null;
+  if (manifest.order) {
+    try { const r = await fetch(`${TOWN}order.bin?v=${manifest.order}`); if (r.ok) order = await r.arrayBuffer(); } catch { /* fall back */ }
+  }
+  if (order) workers[0].postMessage({ type: 'init', n: manifest.n, order }, [order]);
+  else workers[0].postMessage({ type: 'init', n: manifest.n });
+}
 async function boot() {
   try { manifest = await loadManifest(); } catch (e) { $('#loading').textContent = 'No town data yet. Run: npm run demo'; throw e; }
-  workers[0].postMessage({ type: 'init', n: manifest.n });
+  initLayout();
   setInterval(async () => {
     try {
       const m = await loadManifest();
@@ -239,7 +255,7 @@ async function boot() {
         const oldC = manifest.c;
         manifest = m;
         layoutStage = { oldC, flush: Object.keys(m.c || {}).filter((k) => !oldC || oldC[k] !== m.c[k]) };
-        workers[0].postMessage({ type: 'init', n: manifest.n });
+        initLayout();
         nameCache.clear(); shardCache.clear(); nameMemo.clear();
       }
     } catch { /* offline: keep the town we have */ }
@@ -314,7 +330,7 @@ function stream(now) {
 // ---------------- time of day ----------------
 // keys: 0 noon, 1 sunset, 2 night, 3 dawn (cycle of 4)
 const KEYS = [
-  { top: [0.22, 0.5, 0.93], hor: [0.72, 0.87, 1.0], sun: [1.1, 1.0, 0.88], sky: [0.42, 0.52, 0.7], gnd: [0.36, 0.33, 0.28], fog: [0.75, 0.86, 0.98], el: 0.72, night: 0 },
+  { top: [0.16, 0.42, 0.88], hor: [0.66, 0.8, 0.96], sun: [1.3, 1.15, 0.95], sky: [0.3, 0.38, 0.55], gnd: [0.3, 0.27, 0.22], fog: [0.7, 0.8, 0.93], el: 0.72, night: 0 },
   { top: [0.22, 0.3, 0.62], hor: [1.0, 0.64, 0.42], sun: [1.05, 0.7, 0.42], sky: [0.42, 0.46, 0.62], gnd: [0.36, 0.3, 0.28], fog: [0.84, 0.66, 0.6], el: 0.12, night: 0.25 },
   { top: [0.015, 0.025, 0.08], hor: [0.06, 0.08, 0.18], sun: [0.22, 0.28, 0.42], sky: [0.26, 0.31, 0.5], gnd: [0.12, 0.12, 0.16], fog: [0.06, 0.08, 0.16], el: 0.9, night: 1 },
   { top: [0.3, 0.42, 0.75], hor: [1.0, 0.78, 0.62], sun: [1.0, 0.78, 0.56], sky: [0.45, 0.48, 0.65], gnd: [0.4, 0.34, 0.3], fog: [0.92, 0.8, 0.72], el: 0.14, night: 0.2 },
@@ -328,7 +344,7 @@ function todState(t) {
   for (const k of ['top', 'hor', 'sun', 'sky', 'gnd', 'fog']) o[k] = L3(a[k], b[k]);
   o.night = a.night + (b.night - a.night) * s;
   const el = a.el + (b.el - a.el) * s;
-  const az = 2.2 + t * 0.9;
+  const az = 2.65 + t * 0.9;     // ~25° off the street grid so neighbouring faces read lit / unlit
   o.dir = [Math.cos(el) * Math.cos(az), Math.sin(el), Math.cos(el) * Math.sin(az)];
   return o;
 }
@@ -366,6 +382,8 @@ function frame(now) {
   if (params.has('debug')) $('#debug').textContent = `${stats.fps} fps · ${(stats.tris / 1000) | 0}k tris · ${stats.draws} draws · ${stats.sky} sky · ${stats.chunks} chunks · ${stats.mb} MB · pr ${quality.pr.toFixed(2)} s ${quality.s.toFixed(2)}`;
 }
 
+const ORDER = [], DRAWN = [], SKYORD = [];
+const byDist = (a, b) => a.d - b.d;
 function render(now) {
   const time = frozenT ?? (now - t0) / 1000;
   const W = canvas.width, H = canvas.height;
@@ -378,7 +396,7 @@ function render(now) {
   invVP = invert(VP);
   PL = planes(VP);
   const { r0, r1 } = radii();
-  const fogD = Math.max(2600, 3200 + cam.y * 5) * (0.75 + 0.25 * quality.s);
+  const fogD = Math.max(3600, 4500 + cam.y * 5) * (0.75 + 0.25 * quality.s);
 
   gl.clearColor(T.fog[0], T.fog[1], T.fog[2], 1);
   gl.clearStencil(0);
@@ -391,6 +409,7 @@ function render(now) {
     gl.uniform3fv(u.uFogCol, T.fog); gl.uniform3fv(u.uSkyTop, T.top); gl.uniform3fv(u.uSkyHor, T.hor);
     gl.uniform1f(u.uFogD, fogD); gl.uniform1f(u.uNight, T.night); gl.uniform1f(u.uTime, time);
     gl.uniform3f(u.uCam, cam.x, cam.y, cam.z);
+    if (u.uLowQ) gl.uniform1f(u.uLowQ, quality.s < 0.7 ? 1 : 0);
   };
   let tris = 0, draws = 0, sky = 0, bytes = 0;
   const geo = P.geo;
@@ -400,9 +419,12 @@ function render(now) {
   const fadeA = r1 * 0.72, fadeB = r1 * 0.96, shadowR = 650 * quality.s;
   gl.uniform4f(geo.u.uLod, fadeA, fadeB, 0, 0);
   const R = CHUNK * PITCH * 0.75;
-  const drawn = [];
-  const order = [...chunks.values()].filter((c) => c.g).sort((a, b) => a.d - b.d);   // front to back: less overdraw
-  for (const c of order) {
+  const drawn = DRAWN;
+  drawn.length = 0;
+  ORDER.length = 0;                                   // front to back: less overdraw (reused arrays)
+  for (const c of chunks.values()) if (c.g) ORDER.push(c);
+  ORDER.sort(byDist);
+  for (const c of ORDER) {
     bytes += c.g.bytes;
     const ox = (c.cx * CHUNK + 1.5) * PITCH, oz = (c.cz * CHUNK + 1.5) * PITCH;
     const hy = c.g.ymax / 2;
@@ -415,7 +437,10 @@ function render(now) {
   }
   gl.uniform4f(geo.u.uLod, fadeA, fadeB, 1, 2);    // skyline tiles are stored at 1/32 m
   const RS = SKY * PITCH * 0.75;
-  for (const s of [...skies.values()].filter((x) => x.g).sort((a, b) => a.d - b.d)) {
+  SKYORD.length = 0;
+  for (const s of skies.values()) if (s.g) SKYORD.push(s);
+  SKYORD.sort(byDist);
+  for (const s of SKYORD) {
     bytes += s.g.bytes;
     const ox = (s.rx * SKY + SKY / 2 - 0.5) * PITCH, oz = (s.rz * SKY + SKY / 2 - 0.5) * PITCH;
     const hy = s.g.ymax * 0.5;

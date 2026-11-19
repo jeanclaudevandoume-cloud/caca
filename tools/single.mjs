@@ -27,15 +27,18 @@ for (const sub of ['n', 'c', 's']) {
   for (const f of fs.readdirSync(d)) files[`${sub}/${f}`] = fs.readFileSync(path.join(d, f), 'utf8');
 }
 files['manifest.json'] = fs.readFileSync(path.join(townDir, 'manifest.json'), 'utf8');
+const bins = {};
+if (fs.existsSync(path.join(townDir, 'order.bin'))) bins['order.bin'] = fs.readFileSync(path.join(townDir, 'order.bin')).toString('base64');
 
 const prelude = `
 const WORKER_URL = URL.createObjectURL(new Blob([document.getElementById('worker-src').textContent], { type: 'text/javascript' }));
-const TOWN_FILES = JSON.parse(document.getElementById('town-data').textContent);
+const TOWN_ALL = JSON.parse(document.getElementById('town-data').textContent), TOWN_FILES = TOWN_ALL.f, TOWN_BIN = TOWN_ALL.b;
 const netFetch = window.fetch.bind(window);
 window.fetch = (u, o) => {
   const s = String(u), i = s.indexOf('town/');
   if (i < 0) return netFetch(u, o);
   const p = s.slice(i + 5).split('?')[0];
+  if (p in TOWN_BIN) return Promise.resolve(new Response(Uint8Array.from(atob(TOWN_BIN[p]), (c) => c.charCodeAt(0)), { status: 200 }));
   return Promise.resolve(p in TOWN_FILES ? new Response(TOWN_FILES[p], { status: 200 }) : new Response('', { status: 404 }));
 };
 `;
@@ -47,7 +50,7 @@ const tag = '<script type="module" src="js/main.js"></script>';
 if (!html.includes(tag)) throw new Error('index.html script tag not found');
 html = html.replace(tag, () =>
   `<script type="text/plain" id="worker-src">${safe(workerSrc)}</script>\n` +
-  `<script type="application/json" id="town-data">${safe(JSON.stringify(files))}</script>\n` +
+  `<script type="application/json" id="town-data">${safe(JSON.stringify({ f: files, b: bins }))}</script>\n` +
   `<script type="module">${safe(bundle)}</script>`);
 fs.mkdirSync(path.dirname(out), { recursive: true });
 fs.writeFileSync(out, html);

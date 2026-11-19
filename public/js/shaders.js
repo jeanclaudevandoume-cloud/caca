@@ -5,13 +5,12 @@
 
 const COMMON = /* glsl */ `
 uniform vec3 uSunDir, uSunCol, uSkyCol, uGndCol, uFogCol, uSkyTop, uSkyHor;
-uniform float uFogD, uNight, uTime;
+uniform float uFogD, uNight, uTime, uLowQ;
 uniform vec3 uCam;
 // ACES filmic fit: rich mid-tones, highlights roll off instead of clipping to neon
 vec3 tone(vec3 x) {
-  x *= 0.9;
   x = clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
-  return clamp(mix(vec3(dot(x, vec3(0.3, 0.59, 0.11))), x, 1.18), 0.0, 1.0);   // keep it vibrant after the curve
+  return clamp(mix(vec3(dot(x, vec3(0.3, 0.59, 0.11))), x, 1.08), 0.0, 1.0);   // keep it vibrant after the curve
 }
 vec3 fogMix(vec3 col, vec3 dir, float dist) {
   float f = 1.0 - exp(-pow(dist / (uFogD * 1.4), 1.6));
@@ -69,8 +68,13 @@ void main() {
   vec3 key = uSunCol * mix(vec3(1.0), vec3(1.25, 0.95, 0.7), sunset);        // low sun is warm
   // contact + canyon occlusion: walls darken toward the street, tall city walls more so
   float wall = 1.0 - abs(n.y);
-  float ao = mix(1.0, mix(0.62, 1.0, smoothstep(0.0, 4.0 + 10.0 * float(vMat == 5), vW.y)), wall);
-  vec3 col = base * (amb * ao + key * sun * mix(1.0, 0.85, wall));
+  uint sa = uint(vCol.a * 255.0 + 0.5);
+  bool city = vMat == 5 || (vMat == 1 && (sa & 3u) == 3u);
+  // canyon shade: city walls darken strongly toward the street (no building-on-building shadows otherwise)
+  float ao = mix(1.0, city ? mix(0.45, 1.0, smoothstep(0.0, 30.0, vW.y)) : mix(0.62, 1.0, smoothstep(0.0, 4.0, vW.y)), wall);
+  float avert = mix(1.0, 0.8, wall * step(dot(n, uSunDir), 0.0));             // faces turned from the sun
+  float jitter = city ? 0.85 + 0.15 * float((sa * 2654435761u) >> 24u) / 255.0 : 1.0;   // neighbours separate
+  vec3 col = base * jitter * (amb * ao * avert + key * sun);
   vec3 emis = vec3(0.0);
   uint seedAll = uint(vCol.a * 255.0 + 0.5);
   if (vMat == 1 || vMat == 5) {
@@ -80,7 +84,7 @@ void main() {
     vec2 g = vec2(u / sp, v);
     vec2 f = fract(g);
     vec2 w = fwidth(g);
-    float k = clamp(1.4 - max(w.x, w.y) * 1.7, 0.0, 1.0);               // fade detail at distance: no moire
+    float k = clamp(1.4 - max(w.x, w.y) * mix(1.7, 2.8, uLowQ), 0.0, 1.0);   // fade detail at distance: no moire (earlier on low: no MSAA)
     uint style = glass > 0.5 ? 0u : (seedAll & 3u);
     uint seed = seedAll >> 2;
     float my0Panel = 0.3;
@@ -130,8 +134,11 @@ void main() {
     if (glass < 0.5 && (cell >> 12u) % 8u == 0u) refl = mix(refl, vec3(0.91, 0.86, 0.78) * 0.8 * (amb + uSunCol * 0.3), step(fy, 0.55) * k);
     refl *= mix(1.0, 0.6, smoothstep(0.86, 0.9, fy) * k);
     float share = 30.0 + float(ih(seed * 31u + 7u) % 120u);           // 12%..59% of windows lit
-    float towerGlow = glass > 0.5 ? 0.25 + 1.5 * float(ih(seed * 77u + 3u) & 255u) / 255.0 : 1.0;
-    float lit = mix(share / 256.0, float(float(cell & 255u) < share), k);
+    float towerGlow = glass > 0.5 ? 0.25 + 0.75 * float(ih(seed * 77u + 3u) & 255u) / 255.0 : 1.0;
+    // floor bands stay visible further than single windows, so far towers read striped, not flat
+    float kf = clamp(1.4 - fwidth(v) * 2.2, 0.0, 1.0);
+    float band = float(float(ih(uint(int(floor(v)) + 64) * 7919u + seed * 31u) & 255u) < share * 1.3) * 0.75 + 0.1;
+    float lit = mix(mix(share / 256.0, band * share / 160.0, kf), float(float(cell & 255u) < share), k);
     vec3 warm = mix(vec3(1.0, 0.7, 0.38), vec3(0.8, 0.88, 1.0), float((cell >> 8u & 7u) == 0u) * k);
     vec3 body = mix(col, col * 0.85 + refl * 0.1, glass);
     if (facade == 1u) body = mix(body, vec3(0.17, 0.2, 0.25) * (amb + key * 0.4), 0.8);   // dark fins

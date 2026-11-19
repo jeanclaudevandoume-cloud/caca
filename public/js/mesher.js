@@ -442,7 +442,7 @@ export function home(mb, bx, bz, f, r, lod) {
           mb.box(x1 - 0.25, top + 0.4, z0, x1, top + 0.9, z1, cc, cc, M.PLAIN, a);
           if (!LITE) {
             const hz = f.face < 0 ? z1 - 3 : z0 + 3;
-            if (r.hash & 128) mb.cbox(f.x + (r.hash & 64 ? 2 : -2), top + 0.4, hz, 2.4, 2.6, 2.4, shade(r.wall, 0.92), 0x6f6a64, M.PLAIN, a);
+            if (r.hash & 128) mb.cbox(f.x + (r.hash & 64 ? 2 : -2), top + 0.4, hz, 2.4, 2.6, 2.4, shade(r.wall, 0.92), M.PLAIN, a, 0x6f6a64);
             else mb.cyl(f.x + (r.hash & 64 ? 2 : -2), top + 0.4, hz, 1.1, top + 2.8, 1.1, 6, 0x8a6a4a, M.PLAIN, a);
           }
         }
@@ -472,7 +472,7 @@ export function home(mb, bx, bz, f, r, lod) {
       const pod = CITY[(r.hash >>> 5) % CITY.length];
       mb.box(f.x - 4.8, 0, f.z - 9.4, f.x + 4.8, 2 * FLOOR_H, f.z + 9.4, pod, shade(pod, 0.85), M.WIN, a & 0xfc);
       base = 2 * FLOOR_H;
-      if (!lod) {                               // lobby glass and a lit sign over the entrance
+      if (!lod && !LITE) {                      // lobby glass and a lit sign over the entrance
         mb.cast = false;
         const pz = f.face < 0 ? f.z - 9.4 : f.z + 9.4;
         mb.cbox(f.x, 0, pz + fs * 0.05, 7, 3.4, 0.3, 0x9fc4dd, M.GLASS, a);
@@ -530,7 +530,7 @@ export function home(mb, bx, bz, f, r, lod) {
       mb.cbox(x1 - 0.4, roofTop, z1 - 0.4, 0.6, 0.6, 0.6, 0xff3030, M.LIGHT, a);
       mb.cast = true;
     }
-    if (!lod && !r.top && crown !== 5) {
+    if (!lod && !LITE && !r.top && crown !== 5) {
       // rooftop plant: position and size vary per building so roofs don't look stamped
       mb.cast = false;
       const ux = ((r.hash >>> 22) % 5 - 2) * (w / 7), uz = ((r.hash >>> 25) % 5 - 2) * (d / 9);
@@ -543,12 +543,15 @@ export function home(mb, bx, bz, f, r, lod) {
     if (!tower && !lod) {
       // Tokyo-style street face: a vertical lit sign, balconies and air-conditioner boxes
       mb.cast = false;
-      if (r.hash & 2) mb.cbox(x1 - 0.4, 4.2, fz + fs * 0.45, 0.25, 3.5, 0.6, ACCENT_SIGN[(r.hash >>> 9) % ACCENT_SIGN.length], M.LIGHT, a);
-      if (r.hash & 4) {
-        const bz0 = f.face < 0 ? z0 - 1.0 : z1, bz1 = bz0 + 1.0;
-        for (let fl = 2; fl < r.floors; fl++) mb.box(x0 + 1.2, fl * FLOOR_H - 0.1, bz0, x1 - 1.2, fl * FLOOR_H + 0.08, bz1, 0xe8e6e0, 0xe8e6e0, M.PLAIN, a);
+      if (r.hash & 2) {                          // stacked projecting signs over floors 2-5
+        const n = 1 + ((r.hash >>> 5) % 3);
+        for (let i = 0; i < n; i++) mb.cbox(i & 1 ? x0 + 0.4 : x1 - 0.4, 4.2 + i * 4.0, fz + fs * 0.45, 0.25, 3.5, 0.6, ACCENT_SIGN[((r.hash >>> 9) + i * 3) % ACCENT_SIGN.length], M.LIGHT, a);
       }
-      for (let i = 0; i < 2; i++) mb.cbox(i ? x1 - 1.4 : x0 + 1.4, FLOOR_H * (2 + i * 2) + 0.3, fz + fs * 0.25, 0.8, 0.6, 0.4, 0xd8d8d4, M.METAL, a);
+      if (r.hash & 4 && !LITE) {
+        const bz0 = f.face < 0 ? z0 - 1.0 : z1, bz1 = bz0 + 1.0;
+        for (let fl = 2; fl < Math.min(r.floors, 6); fl++) mb.box(x0 + 1.2, fl * FLOOR_H - 0.1, bz0, x1 - 1.2, fl * FLOOR_H + 0.08, bz1, 0xe8e6e0, 0xe8e6e0, M.PLAIN, a);
+      }
+      if (!LITE) for (let i = 0; i < 2; i++) mb.cbox(i ? x1 - 1.4 : x0 + 1.4, FLOOR_H * (2 + i * 2) + 0.3, fz + fs * 0.25, 0.8, 0.6, 0.4, 0xd8d8d4, M.METAL, a);
       mb.cast = true;
     }
   }
@@ -579,6 +582,15 @@ export function buildChunk(L, cx, cz, lod, customs, lite = false) {
           plotFrame(bx, bz, s, zone, f);
           const spec = cus ? cus[lineIndex(bx, bz, s)] : null;
           home(mb, bx, bz, f, recipe(bx, bz, s, zone, spec), lod);
+        }
+        if (!lod && !LITE && zone === 2) {
+          // overhead wires spanning the street in front of mid-rise blocks (a Tokyo staple)
+          for (const wx of [-12, 12]) {
+            mb.cast = false;
+            mb.box(X + wx - 0.03, 7.5, Z - 28, X + wx + 0.03, 7.56, Z - 20, 0x1a1a1a, 0x1a1a1a, M.PLAIN, 0);
+            mb.box(X - 28, 7.2, Z + wx - 0.03, X - 20, 7.26, Z + wx + 0.03, 0x1a1a1a, 0x1a1a1a, M.PLAIN, 0);
+            mb.cast = true;
+          }
         }
         if (!lod && !LITE && zone <= 1) {
           for (let s = 0; s < occ; s++) {
