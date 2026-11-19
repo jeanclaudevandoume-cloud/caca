@@ -1,7 +1,7 @@
 // Follower Town — GL setup, camera, streaming, time of day, search, fly-to, tags, quality.
 import {
   PITCH, CHUNK, REGION, FLOOR_H, K, fdiv, finishLayout, plotOf, plotFrame, recipe, zoneLevel, cellKind, kindAt,
-  occupied, slotAt, plotIndex, regionKey, regionOf, lineIndex, normName, shardFor,
+  occupied, slotAt, plotIndex, homeRect, regionKey, regionOf, lineIndex, normName, shardFor,
 } from './town.js';
 import { MB, M } from './mesher.js';
 import { GEO_VS, GEO_FS, SHADOW_VS, SHADOW_FS, FULL_VS, FULL_FS } from './shaders.js';
@@ -52,7 +52,7 @@ function upload(m) {
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
   gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, m.ib, gl.STATIC_DRAW);
   gl.bindVertexArray(null);
-  return { vao, vbo, ibo, n: m.ib.length, ns: m.ns, ymax: m.ymax, bytes: m.vb.byteLength + m.ib.byteLength };
+  return { vao, vbo, ibo, n: m.ib.length, ns: m.ns, ymax: m.ymax, it: m.ib.BYTES_PER_ELEMENT === 2 ? gl.UNSIGNED_SHORT : gl.UNSIGNED_INT, bytes: m.vb.byteLength + m.ib.byteLength };
 }
 function release(g) { if (!g) return; gl.deleteVertexArray(g.vao); gl.deleteBuffer(g.vbo); gl.deleteBuffer(g.ibo); }
 
@@ -115,7 +115,7 @@ const PRESETS = { low: { s: 0.55, pr: 1 }, mid: { s: 0.8, pr: 1.5 }, high: { s: 
 const isPhone = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) || Math.min(screen.width, screen.height) < 600;
 const quality = { mode: qParam, ...(qParam === 'high' ? PRESETS.high : qParam === 'low' ? PRESETS.low : isPhone ? PRESETS.low : PRESETS.mid) };
 quality.maxS = quality.s; quality.maxPr = quality.pr;
-const radii = () => ({ r0: 320 * Math.max(0.6, quality.s), r1: 1400 * quality.s, rs: 7000 * quality.s });
+const radii = () => ({ r0: 320 * Math.max(0.6, quality.s), r1: 1400 * quality.s, rs: 7000 * quality.s * quality.s });
 const stats = { tris: 0, draws: 0, sky: 0, chunks: 0, mb: 0, fps: 0, ms: 0 };
 let manifest = null, L = null, ready = false;
 const chunks = new Map();     // key -> {cx,cz,lod,g,want,req,seen}
@@ -134,7 +134,7 @@ const reqs = new Map();
 let nextId = 1;
 function onWorker(e) {
   const m = e.data;
-  if (m.type === 'layout') { onLayout(m.layout); return; }
+  if (m.type === 'layout') { onLayout(m.layout, m.ground); return; }
   const r = reqs.get(m.id);
   reqs.delete(m.id);
   if (r) r.w.load--;
@@ -171,11 +171,21 @@ async function loadManifest() {
   return r.json();
 }
 let layoutStage = null;
-function onLayout(lt) {
+let groundTex = null, groundExt = 0;
+function onLayout(lt, ground) {
   const nl = finishLayout(lt);
   const old = L;
   L = nl;
-  for (let i = 1; i < workers.length; i++) workers[i].postMessage({ type: 'init', manifest, layout: lt, flush: layoutStage ? layoutStage.flush : [] });
+  for (let i = 1; i < workers.length; i++) workers[i].postMessage({ type: 'init', layout: lt });
+  if (!groundTex) groundTex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, groundTex);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8UI, ground.size, ground.size, 0, gl.RGBA_INTEGER, gl.UNSIGNED_BYTE, ground.data);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  groundExt = ground.ext;
   if (old && layoutStage) flushChanged(old, layoutStage.oldC);
   layoutStage = null;
   $('#count').textContent = L.n.toLocaleString() + ' homes';
@@ -198,10 +208,24 @@ function flushChanged(old, oldC) {
     if (far || changed.has(regionKey(regionOf(bx), regionOf(bz)))) c.stale = true;
   }
   for (const s of skies.values()) s.stale = true;
+  for (const k of changed) customCache.delete(k);
+}
+// custom-home files: fetched once here and handed to whichever worker meshes the chunk
+const customCache = new Map();   // regionKey -> object | null | Promise
+function customFor(cx, cz) {
+  const key = regionKey(regionOf(cx * CHUNK), regionOf(cz * CHUNK));
+  if (!manifest.c || !manifest.c[key]) return null;
+  const v = customCache.get(key);
+  if (v === undefined) {
+    customCache.set(key, fetch(`${TOWN}c/${key}.json?v=${manifest.c[key]}`).then((r) => (r.ok ? r.json() : null)).catch(() => null)
+      .then((j) => { customCache.set(key, j); }));
+    return undefined;
+  }
+  return v && v.then ? undefined : v;
 }
 async function boot() {
   try { manifest = await loadManifest(); } catch (e) { $('#loading').textContent = 'No town data yet. Run: npm run demo'; throw e; }
-  workers[0].postMessage({ type: 'init', manifest });
+  workers[0].postMessage({ type: 'init', n: manifest.n });
   setInterval(async () => {
     try {
       const m = await loadManifest();
@@ -209,8 +233,8 @@ async function boot() {
         const oldC = manifest.c;
         manifest = m;
         layoutStage = { oldC, flush: Object.keys(m.c || {}).filter((k) => !oldC || oldC[k] !== m.c[k]) };
-        workers[0].postMessage({ type: 'init', manifest, flush: layoutStage.flush });
-        nameCache.clear();
+        workers[0].postMessage({ type: 'init', n: manifest.n });
+        nameCache.clear(); shardCache.clear(); nameMemo.clear();
       }
     } catch { /* offline: keep the town we have */ }
   }, 5 * 60 * 1000);
@@ -229,7 +253,7 @@ function stream(now) {
   for (let dz = -n; dz <= n; dz++) for (let dx = -n; dx <= n; dx++) {
     const cx = ccx + dx, cz = ccz + dz;
     const ox = (cx * CHUNK + 1.5) * PITCH, oz = (cz * CHUNK + 1.5) * PITCH;
-    const d = Math.hypot(ox - cam.x, oz - cam.z) - C * 0.7;
+    const d = Math.hypot(Math.max(0, Math.hypot(ox - cam.x, oz - cam.z) - C * 0.7), cam.y);
     if (d > r1) continue;
     want.push({ cx, cz, d, lod: d < r0 ? 0 : 1 });
   }
@@ -243,8 +267,10 @@ function stream(now) {
     if (!c) { c = { cx: w.cx, cz: w.cz, g: null, lod: -1, req: 0, loaded: false }; chunks.set(key, c); }
     c.seen = now; c.want = w.lod; c.d = w.d;
     if ((c.lod !== w.lod || c.stale) && !c.req && budget > 0) {
+      const custom = customFor(w.cx, w.cz);
+      if (custom === undefined) continue;          // still downloading
       c.stale = false;
-      send({ type: 'chunk', cx: w.cx, cz: w.cz, lod: w.lod }, c, w.lod);
+      send({ type: 'chunk', cx: w.cx, cz: w.cz, lod: w.lod, custom }, c, w.lod);
       budget--;
     }
   }
@@ -264,8 +290,9 @@ function stream(now) {
     const rx = crx + dx, rz = crz + dz;
     if (Math.abs(rx) > lim || Math.abs(rz) > lim) continue;
     const ox = (rx * REGION + 7.5) * PITCH, oz = (rz * REGION + 7.5) * PITCH;
-    const d = Math.hypot(ox - cam.x, oz - cam.z) - R * 0.7;
-    if (d > rs || d + R * 1.4 < r1 * 0.72) continue;
+    const dh = Math.max(0, Math.hypot(ox - cam.x, oz - cam.z) - R * 0.7);
+    const d = Math.hypot(dh, cam.y);
+    if (d > rs || Math.hypot(dh + R * 1.4, cam.y) < r1 * 0.72) continue;
     const key = rx + ',' + rz;
     sseen.add(key);
     let s = skies.get(key);
@@ -280,7 +307,7 @@ function stream(now) {
 // keys: 0 noon, 1 sunset, 2 night, 3 dawn (cycle of 4)
 const KEYS = [
   { top: [0.22, 0.5, 0.93], hor: [0.72, 0.87, 1.0], sun: [1.05, 0.98, 0.88], sky: [0.5, 0.6, 0.78], gnd: [0.42, 0.38, 0.32], fog: [0.75, 0.86, 0.98], el: 0.95, night: 0 },
-  { top: [0.24, 0.3, 0.6], hor: [1.0, 0.62, 0.4], sun: [1.05, 0.62, 0.36], sky: [0.42, 0.38, 0.55], gnd: [0.4, 0.3, 0.25], fog: [0.95, 0.68, 0.55], el: 0.12, night: 0.25 },
+  { top: [0.22, 0.3, 0.62], hor: [1.0, 0.64, 0.42], sun: [1.05, 0.7, 0.42], sky: [0.42, 0.46, 0.62], gnd: [0.36, 0.3, 0.28], fog: [0.84, 0.66, 0.6], el: 0.12, night: 0.25 },
   { top: [0.015, 0.025, 0.08], hor: [0.06, 0.08, 0.18], sun: [0.22, 0.28, 0.42], sky: [0.22, 0.27, 0.45], gnd: [0.1, 0.1, 0.14], fog: [0.06, 0.08, 0.16], el: 0.9, night: 1 },
   { top: [0.3, 0.42, 0.75], hor: [1.0, 0.78, 0.62], sun: [1.0, 0.78, 0.56], sky: [0.45, 0.48, 0.65], gnd: [0.4, 0.34, 0.3], fog: [0.92, 0.8, 0.72], el: 0.14, night: 0.2 },
 ];
@@ -367,7 +394,7 @@ function render(now) {
     if (!inFrustum(PL, ox, hy, oz, Math.hypot(R, hy))) continue;
     gl.uniform3f(geo.u.uOrigin, ox, 0, oz);
     gl.bindVertexArray(c.g.vao);
-    gl.drawElements(gl.TRIANGLES, c.g.n, gl.UNSIGNED_INT, 0);
+    gl.drawElements(gl.TRIANGLES, c.g.n, c.g.it, 0);
     tris += c.g.n / 3; draws++;
     if (c.lod === 0) drawn.push(c);
   }
@@ -379,14 +406,14 @@ function render(now) {
     const ox = (s.rx * REGION + 7.5) * PITCH, oz = (s.rz * REGION + 7.5) * PITCH;
     const hy = s.g.ymax / 2;
     if (!inFrustum(PL, ox, hy, oz, Math.hypot(RS, hy))) continue;
-    if (Math.hypot(ox - cam.x, oz - cam.z) + RS < fadeA) continue;
+    if (Math.hypot(Math.hypot(ox - cam.x, oz - cam.z) + RS, cam.y) < fadeA) continue;
     gl.uniform3f(geo.u.uOrigin, ox, 0, oz);
     gl.bindVertexArray(s.g.vao);
-    gl.drawElements(gl.TRIANGLES, s.g.n, gl.UNSIGNED_INT, 0);
+    gl.drawElements(gl.TRIANGLES, s.g.n, s.g.it, 0);
     tris += s.g.n / 3; draws++; sky++;
   }
 
-  if (pin) {
+  if (pin && L) {
     if (!pinMesh) {
       const mb = new MB(0, 0, 256);
       mb.cyl(0, 0, 0, 0.01, 5, 1.6, 10, 0xff4f7b, M.LIGHT, 0, false);
@@ -396,10 +423,10 @@ function render(now) {
     }
     const d = Math.hypot(pin.x - cam.x, pin.y - cam.y, pin.z - cam.z);
     const sc = Math.max(1, d / 60);
-    gl.uniform4f(geo.u.uLod, 1e9, 1e9, 0, sc);
+    gl.uniform4f(geo.u.uLod, 1e9, 2e9, 0, sc);
     gl.uniform3f(geo.u.uOrigin, pin.x, pin.y + sc * (1.5 + Math.sin(time * 3) * 0.6), pin.z);
     gl.bindVertexArray(pinMesh.vao);
-    gl.drawElements(gl.TRIANGLES, pinMesh.n, gl.UNSIGNED_INT, 0);
+    gl.drawElements(gl.TRIANGLES, pinMesh.n, pinMesh.it, 0);
     draws++;
   }
 
@@ -408,7 +435,8 @@ function render(now) {
   gl.useProgram(full.p);
   setCommon(full.u);
   gl.uniformMatrix4fv(full.u.uInvVP, false, invVP);
-  gl.uniform4f(full.u.uTown, L ? L.townD2 : 100, L ? L.maxD2 : 0, L ? L.seaX : 1e9, L ? L.seaBx : 1e6);
+  gl.uniform4f(full.u.uTown, L ? L.townD2 : 100, groundExt, L ? L.seaX : 1e9, L ? L.seaBx : 1e6);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, groundTex); gl.uniform1i(full.u.uGround, 0);
   const shDir = shadowDir(T);
   gl.uniform4f(full.u.uFar, fadeA, fadeB, quality.s > 0.7 ? 1 : 0, 5 / shDir[1] * 0.5);
   gl.depthFunc(gl.LEQUAL); gl.depthMask(false); gl.disable(gl.CULL_FACE);
@@ -432,7 +460,7 @@ function render(now) {
       if (!c.g.ns) continue;
       gl.uniform3f(sh.u.uOrigin, (c.cx * CHUNK + 1.5) * PITCH, 0, (c.cz * CHUNK + 1.5) * PITCH);
       gl.bindVertexArray(c.g.vao);
-      gl.drawElements(gl.TRIANGLES, c.g.ns, gl.UNSIGNED_INT, 0);
+      gl.drawElements(gl.TRIANGLES, c.g.ns, c.g.it, 0);
       tris += c.g.ns / 3; draws++;
     }
     gl.disable(gl.STENCIL_TEST); gl.disable(gl.BLEND);
@@ -473,9 +501,9 @@ function governor(now) {
 
 // ---------------- heights & picking ----------------
 const nameCache = new Map();
-function customFor() { return null; }   // the main thread only needs heights; customs are cosmetic here
+const nameMemo = new Map();      // 'bx,bz,slot' -> name, so tags never blink between scans
 function homeTop(bx, bz, slot, zone) {
-  const r = recipe(bx, bz, slot, zone, customFor());
+  const r = recipe(bx, bz, slot, zone, null);
   if (zone >= 2) return r.floors * FLOOR_H + (r.crown === 1 ? 3 * FLOOR_H : r.crown === 4 && zone === 3 ? 4 * FLOOR_H : 0);
   return r.floors * FLOOR_H + (r.roofType === 2 ? 0.6 : 2.6);
 }
@@ -488,8 +516,8 @@ function heightAt(x, z) {
   const s = slotAt(zone, x - bx * PITCH, z - bz * PITCH);
   if (s < 0 || plotIndex(L, bx, bz, s) < 0) return 0;
   const f = plotFrame(bx, bz, s, zone);
-  const r = recipe(bx, bz, s, zone, null);
-  if (Math.abs(x - f.x) > r.w / 2 + 0.5) return 0;
+  const q = homeRect(f, recipe(bx, bz, s, zone, null));
+  if (x < q[0] - 0.5 || x > q[2] + 0.5 || z < q[1] - 0.5 || z > q[3] + 0.5) return 0;
   return homeTop(bx, bz, s, zone);
 }
 function pick(px, py) {
@@ -520,7 +548,7 @@ async function nameOf(bx, bz, slot) {
   const key = regionKey(regionOf(bx), regionOf(bz));
   let lines = nameCache.get(key);
   if (!lines) {
-    lines = fetch(`${TOWN}n/${key}.txt?v=${manifest.built}`).then((r) => (r.ok ? r.text() : '')).then((t) => t.split('\n')).catch(() => []);
+    lines = fetch(`${TOWN}n/${key}.txt?v=${(manifest.nh && manifest.nh[key]) || manifest.built}`).then((r) => (r.ok ? r.text() : '')).then((t) => t.split('\n')).catch(() => []);
     nameCache.set(key, lines);
   }
   if (lines.then) { lines = await lines; nameCache.set(key, lines); }
@@ -553,7 +581,12 @@ function tags(now) {
       list.sort((a, b) => a.d - b.d);
     }
     tagList = list.slice(0, 40);
-    for (const t of tagList) nameOf(t.bx, t.bz, t.s).then((n) => { t.name = n; });
+    for (const t of tagList) {
+      const key = t.bx + ',' + t.bz + ',' + t.s;
+      if (nameMemo.has(key)) t.name = nameMemo.get(key);
+      else nameOf(t.bx, t.bz, t.s).then((n) => { nameMemo.set(key, n); t.name = n; });
+    }
+    if (nameMemo.size > 5000) nameMemo.clear();
   }
   const W = innerWidth, H = innerHeight;
   const placed = [];
@@ -663,7 +696,7 @@ function homeView(p) {
     let maxH = top;
     for (let dz = -45; dz <= 45; dz += 7.5) for (let dx = -45; dx <= 45; dx += 7.5) maxH = Math.max(maxH, heightAt(f.x + dx, f.z + dz + face * 20));
     const y = Math.max(top + 30, maxH + 14);
-    return { x: f.x + 8, y, z: f.z + face * (14 + (y - top) * 0.35), yaw: 0, pitch: 0, bx, bz, slot, zone, tx: f.x, tz: f.z, ty: top / 0.6 };
+    return { x: f.x + 10, y, z: f.z + face * (24 + (y - top) * 0.75), yaw: 0, pitch: 0, bx, bz, slot, zone, tx: f.x, tz: f.z, ty: top / 0.6 };
   }
   const dist = 30;
   return { x: f.x + 5, y: 12, z: f.z + face * (f.d / 2 + dist), yaw: 0, pitch: -0.2, bx, bz, slot, zone, tx: f.x, tz: f.z, ty: top };
@@ -703,7 +736,7 @@ function updateFly(now) {
 const shardCache = new Map();
 async function shard(norm) {
   const key = shardFor(norm, manifest.split);
-  if (!shardCache.has(key)) shardCache.set(key, fetch(`${TOWN}s/${key}.json?v=${manifest.built}`).then((r) => (r.ok ? r.json() : [])).catch(() => []));
+  if (!shardCache.has(key)) shardCache.set(key, fetch(`${TOWN}s/${key}.json?v=${(manifest.sh && manifest.sh[key]) || manifest.built}`).then((r) => (r.ok ? r.json() : [])).catch(() => []));
   return shardCache.get(key);
 }
 async function findName(q) {

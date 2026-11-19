@@ -8,8 +8,13 @@
 // Index buffer: caster triangles first (count `ns`), then non-casters.
 import {
   PITCH, FLOOR_H, K, hash3, mod, fdiv, kindAt, cellKind, zoneLevel, plotsIn, plotFrame, recipe, occupied,
-  ROOF, CITY, avenueX, avenueZ, isRiver, regionOf, regionKey, lineIndex, CHUNK, REGION,
+  ROOF, CITY, avenueX, avenueZ, isRiver, portLane, bayHalf, regionOf, regionKey, lineIndex, CHUNK, REGION,
 } from './town.js';
+
+// Trig rounded to 1e-7 so every JS engine builds byte-identical geometry (positions are then
+// quantised to 1/64 m, so an ulp of difference between engines can no longer flip a value).
+const rcos = (a) => Math.round(Math.cos(a) * 1e7) / 1e7;
+const rsin = (a) => Math.round(Math.sin(a) * 1e7) / 1e7;
 
 export const M = { PLAIN: 0, WIN: 1, LEAF: 2, METAL: 3, LIGHT: 4, GLASS: 5, WATER: 6 };
 const TALL = 8;
@@ -95,8 +100,8 @@ export class MB {
     const ny = slope / Math.hypot(1, slope), nh = 1 / Math.hypot(1, slope);
     for (let i = 0; i < sides; i++) {
       const t0 = (i / sides) * Math.PI * 2, t1 = ((i + 1) / sides) * Math.PI * 2, tm = (t0 + t1) / 2;
-      const c0 = Math.cos(t0), s0 = Math.sin(t0), c1 = Math.cos(t1), s1 = Math.sin(t1);
-      const nx = Math.cos(tm) * nh, nz = Math.sin(tm) * nh;
+      const c0 = rcos(t0), s0 = rsin(t0), c1 = rcos(t1), s1 = rsin(t1);
+      const nx = rcos(tm) * nh, nz = rsin(tm) * nh;
       const u = r0 * (t1 - t0);
       if (r1 > 0.001) {
         this.q(x + c1 * r0, y0, z + s1 * r0, x + c0 * r0, y0, z + s0 * r0, x + c0 * r1, y1, z + s0 * r1, x + c1 * r1, y1, z + s1 * r1,
@@ -112,7 +117,7 @@ export class MB {
       const ic = this.v(x, y1, z, 0, 0, 0, 1, 0, M.PLAIN, capC, a);
       for (let i = 0; i <= sides; i++) {
         const t = (i / sides) * Math.PI * 2;
-        this.v(x + Math.cos(t) * r1, y1, z + Math.sin(t) * r1, 0, 0, 0, 1, 0, M.PLAIN, capC, a);
+        this.v(x + rcos(t) * r1, y1, z + rsin(t) * r1, 0, 0, 0, 1, 0, M.PLAIN, capC, a);
       }
       for (let i = 0; i < sides; i++) this.tri(ic, ic + 2 + i, ic + 1 + i);
     }
@@ -123,10 +128,10 @@ export class MB {
     const r0 = half ? rings : 0, rows = half ? rings : rings * 2;
     for (let j = 0; j <= rows; j++) {
       const phi = ((j + (half ? rings : 0)) / (rings * 2)) * Math.PI;   // 0 = bottom pole
-      const sy = -Math.cos(phi), sr = Math.sin(phi);
+      const sy = -rcos(phi), sr = rsin(phi);
       for (let i = 0; i <= sides; i++) {
         const t = (i / sides) * Math.PI * 2;
-        const nx = Math.cos(t) * sr, nz = Math.sin(t) * sr;
+        const nx = rcos(t) * sr, nz = rsin(t) * sr;
         this.v(x + nx * rx, y + sy * ry, z + nz * rz, 0, 0, nx, sy, nz, m, c, a);
       }
     }
@@ -177,7 +182,7 @@ export class MB {
     }
   }
   finish() {
-    const ib = new Uint32Array(this.nc + this.no);
+    const ib = this.nv <= 65535 ? new Uint16Array(this.nc + this.no) : new Uint32Array(this.nc + this.no);
     ib.set(this.ic.subarray(0, this.nc)); ib.set(this.io.subarray(0, this.no), this.nc);
     return { vb: this.buf.slice(0, this.nv * 16), ib, ns: this.nc, nv: this.nv, ymax: this.ymax };
   }
@@ -224,7 +229,7 @@ export function shape(mb, name, x, y, z, s, c, a, lod) {
       mb.ell(x, y + 3.2 * s, z, 4.4 * s, 3.0 * s, 4.4 * s, sd, lod ? 2 : 4, c, M.PLAIN, a, true);
       if (!lod) for (let i = 0; i < 5; i++) {
         const t = i * 1.257 + 0.4;
-        mb.ell(x + Math.cos(t) * 2.7 * s, y + 5.0 * s, z + Math.sin(t) * 2.7 * s, 0.6 * s, 0.5 * s, 0.6 * s, 5, 2, white, M.PLAIN, a);
+        mb.ell(x + rcos(t) * 2.7 * s, y + 5.0 * s, z + rsin(t) * 2.7 * s, 0.6 * s, 0.5 * s, 0.6 * s, 5, 2, white, M.PLAIN, a);
       }
       break;
     case 'dome':
@@ -246,7 +251,7 @@ export function shape(mb, name, x, y, z, s, c, a, lod) {
       if (!lod) mb.pyramid(x, y + 6.2 * s, z, 1.6 * s, 1.6 * s, 1.3 * s, 0xffd34d, a);
       break;
     case 'ufo':
-      for (let i = 0; i < 3 && !lod; i++) { const t = i * 2.094; mb.cbox(x + Math.cos(t) * 3 * s, y, z + Math.sin(t) * 3 * s, 0.3, 2.2 * s, 0.3, 0x9aa3b0, M.METAL, a); }
+      for (let i = 0; i < 3 && !lod; i++) { const t = i * 2.094; mb.cbox(x + rcos(t) * 3 * s, y, z + rsin(t) * 3 * s, 0.3, 2.2 * s, 0.3, 0x9aa3b0, M.METAL, a); }
       mb.cyl(x, y + 2.0 * s, z, 1.5 * s, y + 3.0 * s, 5.5 * s, sd, shade(c, 0.85), M.METAL, a, false);
       mb.cyl(x, y + 3.0 * s, z, 5.5 * s, y + 3.8 * s, 2.5 * s, sd, c, M.METAL, a);
       mb.ell(x, y + 3.8 * s, z, 2.4 * s, 2.0 * s, 2.4 * s, sd, lod ? 2 : 3, 0x9ff6ff, M.LIGHT, a, true);
@@ -276,7 +281,7 @@ export function shape(mb, name, x, y, z, s, c, a, lod) {
       mb.cyl(x, y + 1.5 * s, z, 1.8 * s, y + 11 * s, 1.8 * s, sd, white, M.WIN, a, false);
       mb.cyl(x, y + 11 * s, z, 1.8 * s, y + 15 * s, 0, sd, c, M.PLAIN, a);
       for (let i = 0; i < 3; i++) {
-        const t = i * 2.094, cx = Math.cos(t), cz = Math.sin(t);
+        const t = i * 2.094, cx = rcos(t), cz = rsin(t);
         mb.fq(x + cx * 1.6 * s, y, z + cz * 1.6 * s, x + cx * 3.6 * s, y, z + cz * 3.6 * s, x + cx * 1.8 * s, y + 5 * s, z + cz * 1.8 * s, x + cx * 1.7 * s, y + 5 * s, z + cz * 1.7 * s, M.PLAIN, c, a);
         mb.fq(x + cx * 3.6 * s, y, z + cz * 3.6 * s, x + cx * 1.6 * s, y, z + cz * 1.6 * s, x + cx * 1.7 * s, y + 5 * s, z + cz * 1.7 * s, x + cx * 1.8 * s, y + 5 * s, z + cz * 1.8 * s, M.PLAIN, c, a);
       }
@@ -301,7 +306,7 @@ function gardenItem(mb, item, x, z, h) {
     case 'tree': tree(mb, x, z, 0.9, h >>> 2, 0); break;
     case 'palm':
       mb.cyl(x, 0, z, 0.25, 5.5, 0.18, 5, 0x9a7a52, M.PLAIN, a, false);
-      for (let i = 0; i < 5; i++) { const t = i * 1.2566; mb.fq(x, 5.6, z, x + Math.cos(t + 0.3) * 0.6, 5.6, z + Math.sin(t + 0.3) * 0.6, x + Math.cos(t) * 3, 4.6, z + Math.sin(t) * 3, x + Math.cos(t - 0.3) * 0.6, 5.6, z + Math.sin(t - 0.3) * 0.6, M.LEAF, 0x3fae49, a); }
+      for (let i = 0; i < 5; i++) { const t = i * 1.2566; mb.fq(x, 5.6, z, x + rcos(t + 0.3) * 0.6, 5.6, z + rsin(t + 0.3) * 0.6, x + rcos(t) * 3, 4.6, z + rsin(t) * 3, x + rcos(t - 0.3) * 0.6, 5.6, z + rsin(t - 0.3) * 0.6, M.LEAF, 0x3fae49, a); }
       break;
     case 'car': mb.cbox(x, 0.25, z, 1.8, 0.8, 4.2, c, M.METAL, a); mb.cbox(x, 1.05, z + 0.2, 1.6, 0.6, 2.2, 0x2b3240, M.GLASS, a); break;
     case 'trampoline': mb.cyl(x, 0, z, 1.6, 0.9, 1.6, 8, 0x2a2a30, M.PLAIN, a, true, 0x1e1e24); break;
@@ -407,8 +412,8 @@ export function home(mb, bx, bz, f, r, lod) {
     }
     if (!lod && !r.top) {
       mb.cast = false;
-      mb.cbox(f.x + 1.5, roofTop, f.z - 1, 2.2, 1.6, 2.2, 0xb8bcc4, M.METAL, a);
-      if (r.crown === 0 && !tower) mb.cyl(f.x - 2, roofTop, f.z + 1.5, 1.1, roofTop + 2.6, 1.1, 6, 0x8a6a4a, M.PLAIN, a);
+      mb.cbox(f.x + 1.5, roofTop, f.z - 1, 2.2, 1.6, 2.2, 0xd6d8dc, M.METAL, a);
+      if (r.crown === 0 && !tower) mb.cyl(f.x - 2, roofTop, f.z + 1.5, 1.1, roofTop + 2.6, 1.1, 6, 0xc9c4ba, M.PLAIN, a);
       mb.cast = true;
     }
     if (r.top) shape(mb, r.shape, f.x, roofTop, f.z, tower ? 0.85 : 0.75, r.color, a, lod);
@@ -515,10 +520,7 @@ export function buildChunk(L, cx, cz, lod, customs) {
   }
   // ships moored at the port (belong to whichever chunk holds their centre)
   const x0 = cx * CHUNK * PITCH - 24, x1 = x0 + CHUNK * PITCH, z0 = cz * CHUNK * PITCH - 24, z1 = z0 + CHUNK * PITCH;
-  for (let s = 0; s < 5; s++) {
-    const sx = L.seaX + (s < 3 ? 22 : 150 + s * 40), sz = s < 3 ? (-8 + s * 3) * PITCH + 10 : (-20 + s * 6) * PITCH;
-    if (sx >= x0 && sx < x1 && sz >= z0 && sz < z1) ship(mb, sx, sz, hash3(s, L.seaBx, 71), lod);
-  }
+  for (const [sx, sz, h] of SHIPS) if (sx >= x0 && sx < x1 && sz >= z0 && sz < z1) ship(mb, sx, sz, h, lod);
   return mb.finish();
 }
 
@@ -550,7 +552,7 @@ function plaza(mb, X, Z, lod) {
   if (!lod) {
     for (let i = 0; i < 8; i++) {
       const t = (i / 8) * Math.PI * 2 + 0.39;
-      tree(mb, X + Math.cos(t) * 15, Z + Math.sin(t) * 15, 0.9, i * 7 + 13, 0);
+      tree(mb, X + rcos(t) * 15, Z + rsin(t) * 15, 0.9, i * 7 + 13, 0);
     }
     mb.cyl(X + 13, 0, Z - 13, 3, 0.7, 3, 12, 0xe8e4dc, M.PLAIN, 0, true, 0x6fd3f7);
   }
@@ -558,9 +560,9 @@ function plaza(mb, X, Z, lod) {
 
 const BOX_COLS = [0xd8563b, 0x2a6fb5, 0xf0a030, 0x2a9d6f, 0x1fb5ad, 0xc2304f, 0x7b4b94, 0xe8e4dc];
 function port(mb, L, bx, bz, X, Z, lod) {
-  const lane = bx - (L.seaBx - 3);   // 0 warehouses, 1 containers, 2 quay with cranes
+  const lane = portLane(bx, bz);     // 0 quay with cranes (water to +z), 1 containers, 2 warehouses
   const hb = hash3(bx, bz, 81);
-  if (lane === 0) {
+  if (lane === 2) {
     const c = (hb & 1) ? 0xe6e1d6 : 0xc9d2da;
     mb.box(X - 18, 0, Z - 16, X + 18, 9, Z + 16, c, -1, M.PLAIN, 0);
     for (let i = 0; i < 6; i++) {                     // sawtooth roof
@@ -570,7 +572,7 @@ function port(mb, L, bx, bz, X, Z, lod) {
       mb.ft(X - 18, 9, z0, X - 18, 9, z1, X - 18, 12, z1, M.PLAIN, c, 0);
       mb.ft(X + 18, 9, z1, X + 18, 9, z0, X + 18, 12, z1, M.PLAIN, c, 0);
     }
-    if (!lod) for (let i = 0; i < 4; i++) mb.cbox(X - 21, 0, Z - 12 + i * 8, 2.4, 2.6, 6, BOX_COLS[(hb >>> i) & 7], M.METAL, 0);
+    if (!lod) for (let i = 0; i < 4; i++) mb.cbox(X - 12 + i * 8, 0, Z + 19, 6, 2.6, 2.4, BOX_COLS[(hb >>> i) & 7], M.METAL, 0);
   } else if (lane === 1) {
     const step = lod ? 2 : 1;
     for (let r = 0; r < 6; r += step) for (let c = 0; c < 3; c++) {
@@ -583,42 +585,51 @@ function port(mb, L, bx, bz, X, Z, lod) {
       }
     }
   } else {
-    // quay: two gantry cranes per block
-    for (const oz of [-10, 10]) {
-      const cz = Z + oz;
-      const c = 0xe2492e;
-      mb.box(X + 6, 0, cz - 6, X + 7.2, 30, cz - 4.8, c, c, M.METAL, 0);
-      mb.box(X + 6, 0, cz + 4.8, X + 7.2, 30, cz + 6, c, c, M.METAL, 0);
-      mb.box(X + 20.8, 0, cz - 6, X + 22, 30, cz - 4.8, c, c, M.METAL, 0);
-      mb.box(X + 20.8, 0, cz + 4.8, X + 22, 30, cz + 6, c, c, M.METAL, 0);
-      mb.box(X + 6, 30, cz - 6, X + 22, 32, cz + 6, c, c, M.METAL, 0);
-      mb.box(X - 8, 32, cz - 1.2, X + 62, 34.5, cz + 1.2, 0xf0f0ec, 0xf0f0ec, M.METAL, 0);
-      mb.box(X + 11, 34.5, cz - 2, X + 17, 38, cz + 2, 0xf0f0ec, 0xd0d4dc, M.WIN, 0);
+    // quay: two gantry cranes per block, booms reaching out over the moored ships
+    for (const ox of [-10, 10]) {
+      const cx = X + ox, c = 0xe2492e;
+      mb.box(cx - 6, 0, Z + 6, cx - 4.8, 30, Z + 7.2, c, c, M.METAL, 0);
+      mb.box(cx + 4.8, 0, Z + 6, cx + 6, 30, Z + 7.2, c, c, M.METAL, 0);
+      mb.box(cx - 6, 0, Z + 20.8, cx - 4.8, 30, Z + 22, c, c, M.METAL, 0);
+      mb.box(cx + 4.8, 0, Z + 20.8, cx + 6, 30, Z + 22, c, c, M.METAL, 0);
+      mb.box(cx - 6, 30, Z + 6, cx + 6, 32, Z + 22, c, c, M.METAL, 0);
+      mb.box(cx - 1.2, 32, Z - 8, cx + 1.2, 34.5, Z + 62, 0xf0f0ec, 0xf0f0ec, M.METAL, 0);
+      mb.box(cx - 2, 34.5, Z + 11, cx + 2, 38, Z + 17, 0xf0f0ec, 0xd0d4dc, M.WIN, 0);
+      if (!lod) mb.cbox(cx, 38, Z + 14, 0.6, 0.6, 0.6, 0xff4040, M.LIGHT, 0);
     }
   }
 }
 
+// Container ship lying along x (bow toward +x).
 function ship(mb, x, z, h, lod) {
-  const L = 140 + (h % 5) * 12, W = 22;
-  const hull = [0x1f3b63, 0x8e2b2b, 0x23614f, 0x2b2f3a][h & 3];
-  const x0 = x - W / 2, x1 = x + W / 2, z0 = z - L / 2, z1 = z + L / 2;
-  // hull with a pointed bow
-  mb.box(x0, -2, z0, x1, 7, z1 - 16, hull, 0x9b4535, M.PLAIN, 0);
-  mb.fq(x1, -2, z1 - 16, x, -2, z1, x, 7, z1, x1, 7, z1 - 16, M.PLAIN, hull, 0);
-  mb.fq(x, -2, z1, x0, -2, z1 - 16, x0, 7, z1 - 16, x, 7, z1, M.PLAIN, hull, 0);
-  mb.ft(x1, 7, z1 - 16, x, 7, z1, x0, 7, z1 - 16, M.PLAIN, 0x9b4535, 0);
-  mb.box(x0 + 1, 7, z0 + 2, x1 - 1, 22, z0 + 14, 0xf2f2ee, 0xd0d4dc, M.WIN, 0);
-  mb.box(x - 2, 22, z0 + 6, x + 2, 28, z0 + 10, hull, 0x2b2f3a, M.PLAIN, 0);
+  const Ln = 140 + (h % 5) * 12, W = 22;
+  const hull = [0x1f3b63, 0x8e2b2b, 0x23614f, 0x2b2f3a][h & 3], deck = 0x9b4535;
+  const x0 = x - Ln / 2, x1 = x + Ln / 2, z0 = z - W / 2, z1 = z + W / 2, xb = x1 - 16;
+  mb.box(x0, -2, z0, xb, 7, z1, hull, deck, M.PLAIN, 0);
+  mb.fq(xb, -2, z1, x1, -2, z, x1, 7, z, xb, 7, z1, M.PLAIN, hull, 0);
+  mb.fq(x1, -2, z, xb, -2, z0, xb, 7, z0, x1, 7, z, M.PLAIN, hull, 0);
+  mb.ft(xb, 7, z1, x1, 7, z, xb, 7, z0, M.PLAIN, deck, 0);
+  mb.box(x0 + 2, 7, z0 + 1, x0 + 14, 22, z1 - 1, 0xf2f2ee, 0xd0d4dc, M.WIN, 0);
+  mb.box(x0 + 6, 22, z - 2, x0 + 10, 28, z + 2, hull, 0x2b2f3a, M.PLAIN, 0);
   const rows = lod ? 4 : 8;
   for (let r = 0; r < rows; r++) {
-    const zz = z0 + 18 + (r * (L - 40)) / rows, len = (L - 40) / rows - 0.6;
+    const xx = x0 + 18 + (r * (Ln - 40)) / rows, len = (Ln - 40) / rows - 0.6;
     const n = 1 + (hash3(h, r, 3) % 3);
     for (let s = 0; s < n; s++) {
       const col = BOX_COLS[(hash3(h, r, s) >>> 3) & 7];
-      mb.box(x0 + 1.5, 7 + s * 2.6, zz, x1 - 1.5, 9.6 + s * 2.6, zz + len, col, s === n - 1 ? shade(col, 0.9) : -1, M.METAL, 0);
+      mb.box(xx, 7 + s * 2.6, z0 + 1.5, xx + len, 9.6 + s * 2.6, z1 - 1.5, col, s === n - 1 ? shade(col, 0.9) : -1, M.METAL, 0);
     }
   }
 }
+
+// Ships: moored along the quay, plus a few at anchor out in the channel.
+export function ships() {
+  const out = [];
+  for (let bx = 26; bx <= 38; bx += 4) out.push([bx * PITCH + 24, (1 - bayHalf(bx)) * PITCH + 24 + 15, hash3(bx, 7, 71)]);
+  for (let i = 0; i < 4; i++) out.push([(48 + i * 14) * PITCH, (2 + (i & 1 ? 7 : -6)) * PITCH, hash3(i, 9, 72)]);
+  return out;
+}
+const SHIPS = ships();
 
 // ---------- skyline: one mesh per data region, tall buildings as boxes ----------
 export function buildSkyline(L, rx, rz) {
@@ -647,6 +658,8 @@ export function buildSkyline(L, rx, rz) {
       const top = r.floors * FLOOR_H;
       mb.box(f.x - r.w / 2, 0, f.z - r.d / 2, f.x + r.w / 2, top, f.z + r.d / 2, r.wall, 0x8d9199, r.mat, r.hash & 255);
       if (r.crown === 1) mb.box(f.x - r.w / 2 + 1.4, top, f.z - r.d / 2 + 2, f.x + r.w / 2 - 1.4, top + 3 * FLOOR_H, f.z + r.d / 2 - 2, r.wall, 0x8d9199, r.mat, r.hash & 255, r.floors);
+      else if (r.crown === 2 && zone === 3) mb.cbox(f.x, top, f.z, 0.5, 14, 0.5, 0xd0d4dc, M.METAL, r.hash & 255);
+      else if (r.crown === 3 && zone === 3) mb.gable(f.x - r.w / 2, f.z - r.d / 2, f.x + r.w / 2, f.z + r.d / 2, top, 4, shade(r.wall, 0.7), shade(r.wall, 0.7), r.hash & 255, false);
       else if (r.crown === 4 && zone === 3) mb.box(f.x - r.w / 2 + 0.8, top, f.z - r.d / 2 + 1.6, f.x + r.w / 2 - 0.8, top + 4 * FLOOR_H, f.z + r.d / 2 - 1.6, r.wall, 0x8d9199, r.mat, r.hash & 255, r.floors);
     }
   }

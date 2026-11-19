@@ -47,7 +47,7 @@ Frame rates in this container are software rendering and mean nothing.
 | hub mid-rise street | `q=high&t=10&notags&cam=3000,7,3000,0.9,-0.05` |
 | mid altitude | `q=high&t=10&notags&cam=-900,450,-900,2.356,-0.45` |
 | very high | `q=high&t=10&notags&cam=0,2500,-2500,3.14159,-0.75` |
-| port | `cam=portX-300,95,-440,2.136,-0.26` (`portX = __town.layout.portX`, 11040 at 1M) |
+| port on the bay | `q=high&t=10&notags&cam=1250,140,350,0.5,-0.25` |
 | suburban custom home | `q=high&u=maxramen95643&instant&t=10` |
 | downtown penthouse | `q=high&u=lunacat&instant&t=10` |
 | low-end phone | `q=low&t=10&notags` at `844 390` |
@@ -56,7 +56,7 @@ Frame rates in this container are software rendering and mean nothing.
 
 | File | Role |
 |---|---|
-| `public/js/town.js` | All rules: `hash3`, `riverZ`/`isRiver`, avenues, lakes, `cellKind`, `zoneLevel`, `kindAt` (adds country, highways, port, sea), plot frames, `recipe`, `roofIdx`, layout order, data keys. |
+| `public/js/town.js` | All rules: `hash3`, `riverZ`/`isRiver`, the bay and port (`bayAt`, `portLane`), avenues, lakes, `cellKind`, `zoneLevel`, `kindAt` (adds country, highways, open sea), plot frames, `homeRect`, `recipe`, `roofIdx`, layout order, `buildGround` (data texture for the ground shader), data keys. |
 | `public/js/mesher.js` | `MB` builder + homes, customs, garden items, trees, lamps, parks, avenues, bridges, beacon, port, ships, skyline. |
 | `public/js/worker.js` | Layout + chunk/skyline meshing off the main thread; fetches custom files. |
 | `public/js/shaders.js` | Geometry (windows, night lights, canyon AO, fog), planar shadows, full-screen sky + ground. |
@@ -70,10 +70,13 @@ Frame rates in this container are software rendering and mean nothing.
 2. **Append-only growth.** Blocks are ordered by squared distance from the plaza (ties by
    hash); follower #n gets plot #n forever. `cellKind`, `zoneLevel`, `plotsIn` depend only on
    block coordinates. Country, highways, port and sea move outward as the town grows.
-3. **The ground shader mirrors `town.js` by hand** (`hash3`, `riverZ`, `isRiver`, `lakeAt`,
-   `cellKind`, `kindAt`, `zoneLevel`, `roofIdx`, plot layout, `ROOF`). Change both together.
+3. **The ground shader reads per-block facts from a data texture** built by `buildGround`
+   (kind, zone, inhabited, avenues, district roof colours). It still mirrors by hand: `hash3`
+   (per-slot roof pick), `riverZ`/`isRiver` and `bayHalf`/`bayAt`/`portLane` (outside the
+   texture), plot layout and `ROOF`. Change both together.
 4. **Vertex format** (`MB.v` ↔ `upload()`): int16 xyz ×64, uint8 u (m ×8), uint8 v (floors ×4,
    max 63), int8 normal, uint8 material (low 3 bits, +8 = tall), rgba8 (alpha = per-home byte).
+   Index buffers are 16-bit when a mesh has < 65,536 vertices.
 5. **Data:** 16 slots per block in region files (`lineIndex`), regions are 16×16 blocks.
    Mid-rise blocks hold 16 plots, all others 8.
 6. No dependencies, build step, textures or model files.
@@ -125,3 +128,5 @@ log the round below. A new reviewer each round; never coach it toward a score.
 |---|---|---|---|
 | 1 (earlier session) | 6.5 | 5.5 | Code from that session was never pushed. |
 | 2 (earlier session) | — | — | Reviewer died on a usage limit. |
+| 3 | 7 | 6 | First review of this implementation. Bugs: tag blink, window speckle, footprint-less heights, undefined smoothstep on the pin, unclear penthouse framing. Looks: black night, grey downtown, spreadsheet from above, port far from the core, flat sunset. Opt: per-pixel rule hashing, altitude-blind LOD, Uint32 indices, global cache busting, duplicate custom fetches, sync server. |
+| 3→4 changes | | | Bay + container port 1.2 km east of the plaza (river mouth), smooth river/bay shores with embankment parks, landmark tower cluster, warmer glass, light roof clutter, skyline crowns; per-building lit-window share, emissive lamps, lamp pools only on town streets; rim light at sunset. Ground data texture (no per-pixel rule hashing), horizon-only sky blend, 3D-distance LOD, Uint16 indices, per-file content hashes, customs fetched once, async LRU server, rounded trig. Tag name memo, footprint heights, pin fix, penthouse framing, search icon. Low quality: 257k→138k tris, 63→35 draws. |

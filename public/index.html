@@ -16,10 +16,8 @@
   #brand b span { color: var(--accent); }
   #count { display: block; font-size: 12px; opacity: .7; }
   #find { pointer-events: auto; position: relative; flex: 0 1 360px; margin-left: auto; margin-right: auto; }
-  #search { width: 100%; border: 0; border-radius: 14px; padding: 12px 14px 12px 40px; font: inherit; background: var(--card); backdrop-filter: blur(8px); box-shadow: 0 4px 18px rgba(20,40,80,.18); outline: none; }
+  #search { width: 100%; border: 0; border-radius: 14px; padding: 12px 14px 12px 40px; font: inherit; background: var(--card) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' fill='none' stroke='%23687089' stroke-width='2.2' stroke-linecap='round'%3E%3Ccircle cx='7.5' cy='7.5' r='5.5'/%3E%3Cpath d='M11.6 11.6 16 16'/%3E%3C/svg%3E") no-repeat 13px center; backdrop-filter: blur(8px); box-shadow: 0 4px 18px rgba(20,40,80,.18); outline: none; }
   #search:focus { box-shadow: 0 0 0 3px rgba(255,79,123,.45), 0 4px 18px rgba(20,40,80,.18); }
-  #find::before { content: ""; position: absolute; left: 14px; top: 50%; width: 12px; height: 12px; margin-top: -8px; border: 2px solid #687089; border-radius: 50%; }
-  #find::after { content: ""; position: absolute; left: 25px; top: 50%; width: 6px; height: 2px; margin-top: 4px; background: #687089; transform: rotate(45deg); }
   #sugg { list-style: none; margin: 6px 0 0; padding: 6px; background: var(--card); backdrop-filter: blur(8px); border-radius: 14px; box-shadow: 0 8px 24px rgba(20,40,80,.22); }
   #sugg li { padding: 8px 10px; border-radius: 9px; cursor: pointer; display: flex; justify-content: space-between; gap: 12px; }
   #sugg li small { opacity: .55; }
@@ -49,7 +47,7 @@
     #brand { padding: 6px 10px; }
     #brand b { font-size: 14px; }
     #find { flex: 1 1 200px; }
-    #search { padding: 10px 12px 10px 38px; }
+    #search { padding: 10px 12px 10px 38px; background-position: 11px center; }
     #tools { right: 8px; bottom: max(8px, env(safe-area-inset-bottom)); flex-direction: row; }
     #tools button { width: 40px; height: 40px; font-size: 17px; }
     #card { left: 8px; bottom: calc(max(8px, env(safe-area-inset-bottom)) + 50px); max-width: calc(100vw - 16px); }

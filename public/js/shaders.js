@@ -1,5 +1,7 @@
-// GLSL. The ground shader mirrors town.js (hash3, riverZ, cellKind, zoneLevel, kindAt,
-// plot layout, roofIdx, ROOF palette) by hand. Change one, change the other.
+// GLSL. Per-block facts (kind, zone, inhabited, avenues, roof colours) come to the ground
+// shader in a data texture built by town.js (buildGround). What the shader still mirrors by
+// hand: hash3 (per-slot roof pick), riverZ/isRiver, bayHalf/bayAt/portLane (outside the
+// texture), plot layout and the ROOF palette. Change one, change the other.
 
 const COMMON = /* glsl */ `
 uniform vec3 uSunDir, uSunCol, uSkyCol, uGndCol, uFogCol, uSkyTop, uSkyHor;
@@ -29,11 +31,11 @@ void main() {
   vec3 p = aPos / 64.0 * (uLod.w > 0.0 ? uLod.w : 1.0) + uOrigin;
   bool tall = aMat >= 7.5;
   int mat = int(aMat + 0.5) & 7;
-  float d = length(p.xz - uCam.xz);
+  float d = length(p - uCam);
   // tall buildings hand over to the skyline per chunk (same chunk grid as main.js), so every
   // vertex of a building makes the same decision and no slivers appear
   vec2 cc = floor((p.xz + 24.0) / 192.0) * 192.0 + 72.0;
-  float dc = length(cc - uCam.xz);
+  float dc = length(vec3(cc.x, 0.0, cc.y) - uCam);
   if (uLod.z < 0.5) {
     if (tall) { if (dc > uLod.x) { gl_Position = vec4(0.0, 0.0, -2.0, 0.0); return; } }
     else p.y *= 1.0 - smoothstep(uLod.x, uLod.y, d);
@@ -60,6 +62,7 @@ void main() {
   float wall = 1.0 - abs(n.y);
   float ao = mix(1.0, mix(0.62, 1.0, smoothstep(0.0, 4.0 + 10.0 * float(vMat == 5), vW.y)), wall);
   vec3 col = base * (amb * ao + uSunCol * sun * mix(1.0, 0.85, wall));
+  vec3 emis = vec3(0.0);
   if (vMat == 1 || vMat == 5) {
     float glass = float(vMat == 5);
     float u = vUV.x / 8.0, v = vUV.y / 4.0;
@@ -67,34 +70,39 @@ void main() {
     vec2 g = vec2(u / sp, v);
     vec2 f = fract(g);
     vec2 w = fwidth(g);
-    float k = clamp(1.6 - max(w.x, w.y) * 3.0, 0.0, 1.0);               // fade pattern at distance: no moire
+    float k = clamp(1.4 - max(w.x, w.y) * 1.7, 0.0, 1.0);               // fade pattern at distance: no moire
     float mx = mix(0.22, 0.08, glass), my0 = mix(0.32, 0.12, glass), my1 = mix(0.82, 0.92, glass);
     float win = smoothstep(mx - w.x, mx + w.x, f.x) * (1.0 - smoothstep(1.0 - mx - w.x, 1.0 - mx + w.x, f.x))
               * smoothstep(my0 - w.y, my0 + w.y, f.y) * (1.0 - smoothstep(my1 - w.y, my1 + w.y, f.y));
     float avgWin = mix(0.33, 0.7, glass);
     win = mix(avgWin, win, k) * step(0.3, v);
-    // day: windows reflect the sky; night: some are lit warm
+    // day: windows reflect the sky; night: some are lit (each building has its own share)
     vec3 refl = mix(vec3(0.18, 0.26, 0.36), uSkyHor, 0.35 + 0.35 * (1.0 - abs(dir.y)));
     refl += uSunCol * pow(max(dot(reflect(dir, n), uSunDir), 0.0), 40.0) * 0.8 * glass;
-    uint cell = ih(uint(int(floor(g.x)) + 4096) * 7919u + uint(int(floor(g.y))) * 104729u + uint(vCol.a * 255.0) * 2654435761u + uint(floor(vW.x * 0.5)) * 31u);
-    float lit = float((cell & 255u) < 80u);
-    // far away the pattern is filtered: keep the average dim so towers read as dark masses with sparkle
-    lit = mix(0.16, lit, k);
-    vec3 warm = mix(vec3(1.0, 0.72, 0.42), vec3(0.85, 0.9, 1.0), float((cell >> 8u & 7u) == 0u));
-    vec3 wc = mix(refl * (0.55 + 0.45 * (1.0 - uNight)), warm * 1.25, lit * uNight);
+    uint seed = uint(vCol.a * 255.0 + 0.5);
+    uint face = uint(dot(step(0.5, abs(n)), vec3(1.0, 2.0, 3.0)) + 3.0 * step(0.0, n.x + n.z));
+    uint cell = ih(uint(int(floor(g.x)) + 4096) * 7919u + uint(int(floor(g.y)) + 64) * 104729u + seed * 2654435761u + face * 40503u);
+    float share = 30.0 + float(ih(seed * 31u + 7u) % 120u);           // 12%..59% of windows lit
+    float lit = mix(share / 256.0, float(float(cell & 255u) < share), k);
+    vec3 warm = mix(vec3(1.0, 0.7, 0.38), vec3(0.8, 0.88, 1.0), float((cell >> 8u & 7u) == 0u) * k);
     vec3 body = mix(col, col * 0.92 + refl * 0.08, glass);
-    col = mix(body, wc, win * (0.85 + 0.15 * glass));
+    col = mix(body, refl * (0.55 + 0.45 * (1.0 - uNight)), win * (0.85 + 0.15 * glass));
     if (glass > 0.5) col = mix(col, col * 0.75 + refl * 0.25, 1.0 - win);
+    emis = warm * lit * win * smoothstep(0.15, 0.7, uNight) * mix(0.55, 1.7, k);
   } else if (vMat == 2) {
     col += base * 0.18 * sun;                                             // leaves glow a bit in the sun
   } else if (vMat == 4) {
-    col = base * (0.65 + 1.4 * uNight);
+    col = base * 0.65;
+    emis = base * vec3(1.0, 0.85, 0.6) * 2.2 * uNight;
   } else if (vMat == 3) {
     col += uSunCol * pow(max(dot(reflect(dir, n), uSunDir), 0.0), 24.0) * 0.35;
   } else if (vMat == 6) {
     col = mix(base, uSkyHor, 0.35) + uSunCol * pow(max(dot(reflect(dir, n), uSunDir), 0.0), 60.0);
   }
-  col *= 1.0 - 0.6 * uNight * (1.0 - float(vMat == 4));
+  // warm rim on edges turned toward a low sun keeps shapes readable at sunset
+  float rim = pow(1.0 - abs(dot(n, dir)), 3.0) * max(dot(n, uSunDir) + 0.2, 0.0) * (1.0 - uSunDir.y) * (1.0 - uNight);
+  col += uSunCol * rim * 0.22;
+  col = col * (1.0 - 0.62 * uNight) + emis;
   o = vec4(fogMix(col, dir, dist), 1.0);
 }`;
 
@@ -130,12 +138,15 @@ void main() {
   gl_Position = vec4(p, 1.0, 1.0);
 }`;
 
+
 export const FULL_FS = /* glsl */ `#version 300 es
 precision highp float;
 precision highp int;
+precision highp usampler2D;
 ${COMMON}
 uniform mat4 uInvVP;
-uniform vec4 uTown;   // x townD2, y maxD2, z seaX, w seaBx
+uniform usampler2D uGround;   // per-block data from town.buildGround
+uniform vec4 uTown;   // x townD2, y ground texture extent, z seaX, w seaBx
 uniform vec4 uFar;    // x roof fade start, y roof fade end, z quality (0 low, 1 high), w shadow len
 in vec2 vNdc;
 out vec4 o;
@@ -150,56 +161,22 @@ int fdiv(int a, int b) { return a >= 0 ? a / b : -((-a + b - 1) / b); }
 int imod(int a, int b) { return a - b * fdiv(a, b); }
 int riverZ(int bx) { int t = imod(bx + 12, 48); int tri = t < 24 ? t - 12 : 36 - t; return 9 + fdiv(tri, 2); }
 bool isRiver(int bx, int bz) { int a = riverZ(bx), b = riverZ(bx + 1); return (bz >= a - 1 && bz <= a + 1) || (bz >= b - 1 && bz <= b + 1); }
-bool lakeAt(int bx, int bz) {
-  if (bx * bx + bz * bz <= 400) return false;
-  int cx = fdiv(bx, 9), cz = fdiv(bz, 9);
-  uint hl = hash3(cx, cz, 9);
-  if (hl % 100u >= 35u) return false;
-  int lx = cx * 9 + 2 + int((hl >> 8u) % 5u), lz = cz * 9 + 2 + int((hl >> 12u) % 5u);
-  if (bx == lx && bz == lz) return true;
-  if (((hl >> 16u) & 1u) == 1u && bx == lx + 1 && bz == lz) return true;
-  if (((hl >> 17u) & 1u) == 1u && bx == lx && bz == lz + 1) return true;
-  return false;
-}
+int bayHalf(int bx) { return min(3 + fdiv((bx - 24) * 3, 4), 18); }
+bool bayAt(int bx, int bz) { return bx >= 24 && bz >= 2 - bayHalf(bx) && bz <= 2 + bayHalf(bx); }
+bool portAt(int bx, int bz) { if (bx < 25 || bx > 40) return false; int e = 1 - bayHalf(bx) - bz; return e >= 0 && e <= 2; }
+
 // K: 0 HOMES 1 PLAZA 2 PARK 3 LAKE 4 RIVER 5 AVENUE 6 COUNTRY 7 HIGHWAY 8 PORT 9 SEA
-int cellKind(int bx, int bz) {
-  if (bx == 0 && bz == 0) return 1;
-  if (isRiver(bx, bz)) return 4;
-  if (imod(bx, 10) == 0 || imod(bz, 10) == 0) return 5;
-  int d2 = bx * bx + bz * bz;
-  if (d2 > 16 && hash3(bx, bz, 3) % 100u < 5u) return 2;
-  if (lakeAt(bx, bz)) return 3;
-  return 0;
+uvec4 cellAt(int bx, int bz) {
+  int e = int(uTown.y);
+  if (abs(bx) <= e && abs(bz) <= e) return texelFetch(uGround, ivec2(bx + e, bz + e), 0);
+  uint k = bx >= int(uTown.w) || bayAt(bx, bz) ? 9u : portAt(bx, bz) ? 8u : isRiver(bx, bz) ? 4u : (bx == 0 || bz == 0) ? 7u : 6u;
+  return uvec4(k, 0u, 0u, 0u);
 }
-int kindAt(int bx, int bz) {
-  int seaBx = int(uTown.w);
-  if (bx >= seaBx) return 9;
-  if (bx >= seaBx - 3 && bz >= -9 && bz <= -1) return 8;
-  int k = cellKind(bx, bz);
-  if (float(bx * bx + bz * bz) <= uTown.x || k == 4) return k;
-  if (bx == 0 || bz == 0) return 7;
-  return 6;
-}
-int zoneLevel(int bx, int bz) {
-  int j = int(hash3(bx, bz, 11) % 32u);
-  int d2 = bx * bx + bz * bz;
-  if (d2 < 36 + j) return 3;
-  if (d2 < 144 + 3 * j) return 2;
-  if (d2 < 400 + 6 * j) return 1;
-  int hx = fdiv(bx + 16, 32) * 32, hz = fdiv(bz + 16, 32) * 32;
-  uint hh = hash3(hx, hz, 5);
-  if (hh % 4u != 0u) {
-    int dx = bx - hx - (int((hh >> 4u) % 7u) - 3), dz = bz - hz - (int((hh >> 8u) % 7u) - 3);
-    int dh2 = dx * dx + dz * dz;
-    if (dh2 < 4 + (j >> 3)) return 3;
-    if (dh2 < 20 + (j >> 1)) return 2;
-    if (dh2 < 64 + j) return 1;
-  }
-  return 0;
-}
+bool isWater(uint k) { return k == 3u || k == 4u || k == 9u; }
+bool countryish(uint k) { return k == 6u || k == 8u || isWater(k); }
+
 const vec3 ROOF[8] = vec3[8](vec3(0.847,0.337,0.231), vec3(0.165,0.616,0.561), vec3(0.239,0.353,0.596), vec3(0.761,0.188,0.31),
   vec3(0.235,0.553,0.31), vec3(0.482,0.294,0.58), vec3(0.29,0.306,0.353), vec3(0.878,0.627,0.188));
-bool isWater(int k) { return k == 3 || k == 4 || k == 9; }
 
 uint h2(ivec2 p) { uint h = uint(p.x) * 0x8da6b343u ^ uint(p.y) * 0xd8163841u; h ^= h >> 13u; h *= 0x5bd1e995u; return h ^ (h >> 15u); }
 float vnoise(vec2 p) {
@@ -219,86 +196,118 @@ vec3 water(vec2 p, vec3 dir, float t, vec3 deep) {
   c += uSunCol * pow(max(dot(r, uSunDir), 0.0), 220.0) * 1.6 * (1.0 - uNight * 0.7);
   return c;
 }
-
 vec3 asphalt(vec2 q, float t) {
   return vec3(0.33, 0.35, 0.39) + (uFar.z > 0.5 && t < 300.0 ? (vnoise(q * 1.7) - 0.5) * 0.03 : 0.0);
 }
-
-// Box-filtered coverage of [-h, h] by a pixel of width w centred at x.
+// Distance from the river's smooth centreline (the block-wise river is a staircase; the water
+// inside it is drawn as a smooth band, the rest of the river blocks become embankment parks).
+float riverDist(vec2 p) {
+  float t = mod(p.x / 48.0 + 0.5 + 12.0, 48.0);
+  float tri = t < 24.0 ? t - 12.0 : 36.0 - t;
+  return abs(p.y - (9.0 + tri * 0.5 - 0.25) * 48.0);
+}
 vec2 cover(vec2 x, vec2 h, float w) { return max(min(x + w * 0.5, h) - max(x - w * 0.5, -h), 0.0) / w; }
 
+const vec3 WALK = vec3(0.78, 0.77, 0.74);
+const vec3 RIVERC = vec3(0.1, 0.42, 0.55);
+
+// River block or river crossing: smooth water band with stone edges and grassy banks.
+float bayE(vec2 p) {
+  float u = p.x / 48.0;
+  return u < 23.5 ? -1e9 : ((min(3.0 + (u - 24.0) * 0.75, 18.0) - 0.45) - abs(p.y / 48.0 - 2.0)) * 48.0;
+}
+vec4 riverCol(vec2 p, vec3 dir, float t, float w, vec3 grass) {
+  float rd = min(riverDist(p), 50.0 - bayE(p));
+  if (rd < 50.0) return vec4(water(p, dir, t, RIVERC), 1.0);
+  if (rd < 53.0) return vec4(0.74, 0.72, 0.68, 0.0);
+  float path = step(abs(rd - 60.0), 1.4) * (1.0 - smoothstep(0.5, 2.5, w));
+  return vec4(mix(grass * 1.04, vec3(0.86, 0.79, 0.62), path), 0.0);
+}
+
+// Bay: smooth shoreline inside the stepped bay blocks (straight quay walls along the port).
+vec4 bayCol(vec2 p, vec3 dir, float t, float w, vec3 grass) {
+  float u = p.x / 48.0;
+  bool port = u > 24.5 && u < 40.5 && p.y < 96.0;
+  float e = port ? 1.0 : max(bayE(p), 50.0 - riverDist(p));     // metres inside the water line
+  if (port || e > 0.0 || u > 50.0) return vec4(water(p, dir, t, vec3(0.08, 0.38, 0.55)), 1.0);
+  if (e > -3.0) return vec4(0.74, 0.72, 0.68, 0.0);
+  float path = step(abs(e + 9.0), 1.4) * (1.0 - smoothstep(0.5, 2.5, w));
+  return vec4(mix(grass * 1.04, vec3(0.86, 0.79, 0.62), path), 0.0);
+}
+
 // Colour inside a block at local position l (-20..20). w = world size of a pixel.
-vec3 blockCol(int k, int bx, int bz, vec2 l, vec2 p, float t, float hd, float w, vec3 grass) {
+vec3 blockCol(uvec4 c, int bx, int bz, vec2 l, vec2 p, float t, float w, vec3 grass) {
+  uint k = c.r;
   vec2 al = abs(l);
   bool edge = al.x > 18.0 || al.y > 18.0;   // sidewalk ring
-  vec3 walk = vec3(0.78, 0.77, 0.74);
-  if (k == 0) {
-    int zone = zoneLevel(bx, bz);
+  if (k == 0u) {
+    int zone = int(c.g & 3u);
     vec3 lot = zone == 0 ? grass : (zone == 1 ? mix(grass, vec3(0.75, 0.72, 0.66), 0.55) : vec3(0.72, 0.71, 0.69));
-    float bd2 = float(bx * bx + bz * bz);
-    if (bd2 <= uTown.y && hd > uFar.x * 0.95) {
+    if ((c.g & 4u) != 0u && t > uFar.x * 0.95) {
       // painted roofs far away (the meshes have sunk into the ground by now)
       int col = int(clamp(floor((l.x + 20.0) / 10.0), 0.0, 3.0));
       int row = zone == 2 ? int(clamp(floor((l.y + 20.0) / 10.0), 0.0, 3.0)) : (l.y < 0.0 ? 0 : 1);
       int slot = row * 4 + col;
       vec2 c0 = vec2(-15.0 + float(col) * 10.0, zone == 2 ? -15.0 + float(row) * 10.0 : -10.0 + float(row) * 20.0);
-      vec2 hs = zone == 0 ? vec2(3.7, 4.7) : (zone == 1 ? vec2(4.7, 6.7) : (zone == 2 ? vec2(4.3) : vec2(4.6, 8.5)));
+      vec2 hs = zone == 0 ? vec2(3.7, 4.7) : (zone == 1 ? vec2(4.7, 6.7) : (zone == 2 ? vec2(4.3) : vec2(4.3, 7.0)));
       float face = (zone == 2 ? (row < 2 ? -1.0 : 1.0) : (row == 0 ? -1.0 : 1.0));
       if (zone == 0) c0.y -= face * (10.0 - 3.0 - hs.y);
       if (zone == 1) c0.y -= face * (10.0 - 1.5 - hs.y);
       vec2 cv = cover(l - c0, hs, max(w, 0.8));
       float inside = cv.x * cv.y;
-      uint rh = hash3(bx, bz, slot * 7 + 100);
-      uint rb = hash3(fdiv(bx, 5), fdiv(bz, 5), 101), rv = rh % 10u;
-      uint ri = (rv < 6u ? rb : rv < 9u ? rb >> 4u : rb >> 8u) % 8u;
-      vec3 roof = zone <= 1 ? ROOF[ri] : vec3(0.55, 0.57, 0.6) * (0.9 + 0.2 * float(rh & 7u) / 7.0);
-      if (uNight > 0.3) {
-        // lit windows seen from far above: a warm speck per home, dimmer when filtered
-        float on = float((rh >> 5u) % 3u == 0u);
-        vec2 wc = cover(l - c0, vec2(1.2), max(w, 0.8));
-        roof = mix(roof * 0.6, vec3(1.0, 0.72, 0.4) * 2.2, on * uNight * wc.x * wc.y / max(inside, 0.05));
-      }
-      float fadeIn = smoothstep(uFar.x, uFar.y, hd);
+      uint rv = hash3(bx, bz, slot * 7 + 100) % 10u;
+      uint ri = rv < 6u ? (c.b & 7u) : rv < 9u ? ((c.b >> 3u) & 7u) : (c.a & 7u);
+      vec3 roof = zone <= 1 ? ROOF[ri] : vec3(0.6, 0.62, 0.65) * (0.92 + 0.03 * float(ri));
+      float fadeIn = smoothstep(uFar.x, uFar.y, t);
       // soft shadow beside each home sells the height from above
       vec2 sv = cover(l - c0 + uFar.w * vec2(0.6, 0.4), hs + 0.8, max(w, 0.8));
       lot = mix(lot, lot * 0.68, max(sv.x * sv.y - inside, 0.0) * fadeIn);
       lot = mix(lot, roof, inside * fadeIn);
+      if (uNight > 0.3) {
+        // lit windows seen from far above: a warm speck on some homes
+        float on = float(rv < 4u);
+        vec2 wc = cover(l - c0, vec2(1.6), max(w, 0.8));
+        lot += vec3(1.0, 0.7, 0.38) * 3.0 * on * uNight * wc.x * wc.y * fadeIn;
+      }
     } else if (zone == 0 && w < 0.6) {
       float py = mod(l.x + 20.0, 10.0);
       lot = mix(lot, lot * 0.86, step(abs(py - 10.0 * step(5.0, py)), 0.15));
     }
-    return edge ? mix(walk, lot, smoothstep(0.5, 3.0, w)) : lot;
+    return edge ? mix(WALK, lot, smoothstep(0.5, 3.0, w)) : lot;
   }
-  if (k == 2) {
+  if (k == 2u) {
     float path = 1.0 - step(1.6, min(al.x, al.y));
     float ring = step(abs(length(l) - 11.0), 1.2);
-    vec3 c = mix(grass * 1.05, vec3(0.86, 0.79, 0.62), max(path, ring) * (1.0 - smoothstep(1.0, 4.0, w)));
-    return edge ? walk : c;
+    // canopy texture so parks read from far away too
+    vec3 g = grass * (1.05 - 0.25 * smoothstep(0.45, 0.75, vnoise(p * 0.12)));
+    vec3 c = mix(g, vec3(0.86, 0.79, 0.62), max(path, ring) * (1.0 - smoothstep(1.0, 4.0, w)));
+    return edge ? WALK : c;
   }
-  if (k == 5) {
-    bool ax = imod(bx, 10) == 0, az = imod(bz, 10) == 0;
+  if (k == 5u) {
+    bool ax = (c.g & 8u) != 0u, az = (c.g & 16u) != 0u;
     if (ax && az) return asphalt(p, t);
     float a = abs(ax ? l.x : l.y), b = ax ? l.y : l.x;
-    vec3 c;
-    if (a < 3.6) c = grass * 0.95;
-    else if (a < 4.1) c = walk;
+    vec3 cc;
+    if (a < 3.6) cc = grass * 0.95;
+    else if (a < 4.1) cc = WALK;
     else if (a < 18.0) {
-      c = asphalt(p, t);
+      cc = asphalt(p, t);
       float lane = abs(fract((a - 4.1) / 3.475) - 0.5);
-      c = mix(c, vec3(0.93), step(0.47, lane) * step(0.5, fract(b / 5.0)) * (1.0 - smoothstep(0.3, 1.2, w)));
-    } else c = walk;
-    return c;
+      cc = mix(cc, vec3(0.93), step(0.47, lane) * step(0.5, fract(b / 5.0)) * (1.0 - smoothstep(0.3, 1.2, w)));
+    } else cc = WALK;
+    // from far away the boulevard reads as a green-lined street, not a hard grey bar
+    return mix(cc, mix(grass, vec3(0.5, 0.52, 0.52), 0.55), smoothstep(6.0, 20.0, w));
   }
-  if (k == 1) {
+  if (k == 1u) {
     float r = length(l);
-    vec3 c = mix(vec3(0.9, 0.86, 0.8), vec3(0.82, 0.74, 0.66), step(0.5, fract(r / 4.0)) * (1.0 - smoothstep(0.5, 2.0, w)));
-    return mix(c, vec3(0.95, 0.55, 0.45), step(abs(r - 17.0), 0.6));
+    vec3 cc = mix(vec3(0.9, 0.86, 0.8), vec3(0.82, 0.74, 0.66), step(0.5, fract(r / 4.0)) * (1.0 - smoothstep(0.5, 2.0, w)));
+    return mix(cc, vec3(0.95, 0.55, 0.45), step(abs(r - 17.0), 0.6));
   }
-  if (k == 8) {
+  if (k == 8u) {
     float lines = step(abs(fract((l.y + 20.0) / 6.8) - 0.5), 0.02) * (1.0 - smoothstep(0.3, 1.5, w));
     return mix(vec3(0.64, 0.64, 0.62), vec3(0.95, 0.82, 0.3), lines * 0.6);
   }
-  if (k == 7) {
+  if (k == 7u) {
     float a = bx == 0 ? al.x : al.y;
     return a < 0.4 && w < 1.0 ? vec3(0.92, 0.85, 0.5) : a < 9.0 ? asphalt(p, t) : grass;
   }
@@ -307,63 +316,62 @@ vec3 blockCol(int k, int bx, int bz, vec2 l, vec2 p, float t, float hd, float w,
   if (hw < 2u) return grass * vec3(0.62, 0.78, 0.6) * (0.85 + 0.3 * vnoise(p * 0.08));
   uint hf = hash3(bx, bz, 43);
   vec3 crops[5] = vec3[5](vec3(0.75, 0.82, 0.36), vec3(0.88, 0.78, 0.4), vec3(0.5, 0.72, 0.3), vec3(0.62, 0.78, 0.42), vec3(0.8, 0.66, 0.42));
-  vec3 c = crops[hf % 5u];
+  vec3 cc = crops[hf % 5u];
   float rows = (hf & 32u) != 0u ? l.x : l.y;
-  return c * (0.93 + 0.07 * step(0.5, fract(rows / 2.5)) * (1.0 - smoothstep(0.4, 1.2, w)));
+  return cc * (0.93 + 0.07 * step(0.5, fract(rows / 2.5)) * (1.0 - smoothstep(0.4, 1.2, w)));
 }
 
-bool countryish(int k) { return k == 6 || k == 8 || isWater(k); }
-
-// Ground colour at world xz. Returns rgb; a > 0 marks water (for the lighting below).
-vec4 groundBase(vec2 p, vec3 dir, float t, float hd, float w) {
-  // sea and coast
-  float seaX = uTown.z;
-  float portMask = smoothstep(-700.0, -500.0, p.y) * (1.0 - smoothstep(20.0, 220.0, p.y));
-  float shore = seaX + (sin(p.y * 0.0021) * 90.0 + sin(p.y * 0.0071 + 1.3) * 35.0 + 40.0) * (1.0 - portMask);
+// Ground colour at world xz. a: 0 town ground (lamps), 1 water, 2 no street lights.
+vec4 groundBase(vec2 p, vec3 dir, float t, float w) {
+  // open sea beyond the outskirts, with a wavy beach
+  float shore = uTown.z + 40.0 + sin(p.y * 0.0021) * 90.0 + sin(p.y * 0.0071 + 1.3) * 35.0;
   if (p.x > shore) {
     vec3 deep = mix(vec3(0.07, 0.36, 0.56), vec3(0.03, 0.2, 0.38), smoothstep(0.0, 1500.0, p.x - shore));
-    vec3 c = water(p, dir, t, deep);
-    c = mix(vec3(0.85, 0.95, 1.0), c, clamp(smoothstep(0.0, 6.0, p.x - shore) + portMask + smoothstep(1.0, 4.0, w), 0.0, 1.0));
+    vec3 c = mix(vec3(0.85, 0.95, 1.0), water(p, dir, t, deep), clamp(smoothstep(0.0, 6.0, p.x - shore) + smoothstep(1.0, 4.0, w), 0.0, 1.0));
     return vec4(c, 1.0);
   }
-  if (p.x > shore - 30.0 && portMask < 0.5) return vec4(mix(vec3(0.93, 0.85, 0.66), vec3(0.85, 0.78, 0.6), vnoise(p * 0.2)), 0.0);
+  if (p.x > shore - 30.0) return vec4(mix(vec3(0.93, 0.85, 0.66), vec3(0.85, 0.78, 0.6), vnoise(p * 0.2)), 2.0);
 
   int bx = int(floor((p.x + 24.0) / 48.0)), bz = int(floor((p.y + 24.0) / 48.0));
   vec2 l = p - vec2(bx, bz) * 48.0;          // -24..24
   vec2 al = abs(l);
-  int k = kindAt(bx, bz);
-  if (k == 9) k = 6;
+  uvec4 c = cellAt(bx, bz);
+  uint k = c.r;
   vec3 grass = vec3(0.42, 0.7, 0.3);
   if (uFar.z > 0.5) grass *= 0.9 + 0.2 * vnoise(p * 0.05);
-  vec3 wcol = vec3(0.1, 0.42, 0.55);
-  if (k == 3 || k == 4) return vec4(water(p, dir, t, wcol), 1.0);
+  if (k == 9u) return bx >= int(uTown.w) ? vec4(water(p, dir, t, vec3(0.08, 0.38, 0.55)), 1.0) : bayCol(p, dir, t, w, grass);
+  if (k == 3u) return vec4(water(p, dir, t, RIVERC), 1.0);
+  if (k == 4u) return riverCol(p, dir, t, w, grass);
+  float lampOk = countryish(k) ? 2.0 : 0.0;
 
-  bool inBlock = al.x < 20.0 && al.y < 20.0;
   // far away: blend block and street by how much of the pixel each covers (no shimmer)
   if (w > 2.5) {
     vec2 cv = mix(cover(l, vec2(20.0), w), vec2(40.0 / 48.0), smoothstep(10.0, 48.0, w));
-    float cb = cv.x * cv.y;
-    vec3 bc = blockCol(k, bx, bz, clamp(l, -19.9, 19.9), p, t, hd, w, grass);
-    vec3 rc = countryish(k) && !(k == 8) ? grass * vec3(1.0, 0.98, 0.85) : (k == 8 ? vec3(0.62, 0.62, 0.6) : asphalt(p, t));
-    return vec4(mix(rc, bc, cb), 0.0);
+    vec3 bc = blockCol(c, bx, bz, clamp(l, -19.9, 19.9), p, t, w, grass);
+    vec3 rc = k == 8u ? vec3(0.62, 0.62, 0.6) : countryish(k) ? grass * vec3(1.0, 0.98, 0.85) : asphalt(p, t);
+    return vec4(mix(rc, bc, cv.x * cv.y), lampOk);
   }
-  if (inBlock) return vec4(blockCol(k, bx, bz, l, p, t, hd, w, grass), 0.0);
+  if (al.x < 20.0 && al.y < 20.0) return vec4(blockCol(c, bx, bz, l, p, t, w, grass), lampOk);
 
   // road strip or intersection: look at the neighbouring blocks
   int sx = l.x >= 20.0 ? 1 : (l.x <= -20.0 ? -1 : 0);
   int sz = l.y >= 20.0 ? 1 : (l.y <= -20.0 ? -1 : 0);
-  int k2 = kindAt(bx + sx, bz + sz);
-  int kx = sx != 0 ? kindAt(bx + sx, bz) : k;
-  int kz = sz != 0 ? kindAt(bx, bz + sz) : k;
+  uint k2 = cellAt(bx + sx, bz + sz).r;
+  uint kx = sx != 0 ? cellAt(bx + sx, bz).r : k;
+  uint kz = sz != 0 ? cellAt(bx, bz + sz).r : k;
   int nn = int(sx != 0) + int(sz != 0);
   int nw = int(isWater(k)) + int(isWater(kx)) + int(isWater(kz)) + int(isWater(k2));
-  if ((nn == 1 && isWater(k) && isWater(k2)) || (nn == 2 && nw >= 3)) return vec4(water(p, dir, t, wcol), 1.0);
-  bool hwy = (k == 7 || kx == 7 || kz == 7 || k2 == 7);
-  if (countryish(k) && countryish(kx) && countryish(kz) && countryish(k2) && !hwy) {
-    if (k == 8 && kx == 8 && kz == 8 && k2 == 8) return vec4(0.62, 0.62, 0.6, 0.0);
-    return vec4(grass * vec3(1.0, 0.98, 0.85), 0.0);
+  if ((nn == 1 && isWater(k) && isWater(k2)) || (nn == 2 && nw >= 3)) {
+    if (k == 9u || k2 == 9u || kx == 9u || kz == 9u) return bayCol(p, dir, t, w, grass);
+    if (k == 4u || k2 == 4u || kx == 4u || kz == 4u) return riverCol(p, dir, t, w, grass);
+    return vec4(water(p, dir, t, RIVERC), 1.0);
   }
-  vec3 c = asphalt(p, t);
+  bool hwy = (k == 7u || kx == 7u || kz == 7u || k2 == 7u);
+  if (countryish(k) && countryish(kx) && countryish(kz) && countryish(k2) && !hwy) {
+    if (k == 8u && kx == 8u && kz == 8u && k2 == 8u) return vec4(0.62, 0.62, 0.6, 2.0);
+    return vec4(grass * vec3(1.0, 0.98, 0.85), 2.0);
+  }
+  vec3 cc = asphalt(p, t);
   if (nn == 1 && w < 1.2) {
     // centre dashes and crosswalks
     float across = sx != 0 ? l.x - 24.0 * float(sx) : l.y - 24.0 * float(sz);
@@ -371,10 +379,10 @@ vec4 groundBase(vec2 p, vec3 dir, float t, float hd, float w) {
     float fade = 1.0 - smoothstep(0.4, 1.2, w);
     float dash = step(abs(across), 0.12) * step(0.5, fract(along / 6.0)) * step(abs(along), 14.0);
     float zebra = step(14.5, abs(along)) * step(abs(along), 19.5) * step(0.5, fract(across / 1.2));
-    c = mix(c, vec3(0.95, 0.88, 0.55), dash * fade);
-    c = mix(c, vec3(0.92), zebra * fade);
+    cc = mix(cc, vec3(0.95, 0.88, 0.55), dash * fade);
+    cc = mix(cc, vec3(0.92), zebra * fade);
   }
-  return vec4(c, 0.0);
+  return vec4(cc, 0.0);
 }
 
 vec3 sky(vec3 dir) {
@@ -406,22 +414,26 @@ void main() {
   vec3 p = uCam + dir * t;
   float w = max(length(dFdx(p.xz)), length(dFdy(p.xz)));
   if (dir.y > -0.0005) { o = vec4(sky(dir), 1.0); return; }
-  float hd = length(p.xz - uCam.xz);
-  vec4 g = groundBase(p.xz, dir, t, hd, min(w, 400.0));
+  vec4 g = groundBase(p.xz, dir, t, min(w, 400.0));
   vec3 col = g.rgb;
-  if (g.a < 0.5) {
+  if (g.a != 1.0) {
     float cloud = uFar.z > 0.5 ? 0.82 + 0.18 * smoothstep(0.3, 0.7, vnoise(p.xz * 0.0018 + vec2(uTime * 0.006, 0.0))) : 1.0;
     col *= uGndCol * 0.6 + uSkyCol * 0.55 + uSunCol * max(uSunDir.y, 0.0) * 0.95 * cloud;
     if (uNight > 0.2) {
-      // pools of warm street light at block corners
-      vec2 c = abs(mod(p.xz + 24.0, 48.0) - 24.0) - 19.3;
-      float lamp = exp(-dot(c, c) * 0.02) * uNight * (1.0 - smoothstep(600.0, 1800.0, t));
       col *= 1.0 - 0.55 * uNight;
-      col += vec3(1.0, 0.7, 0.4) * lamp * 0.55;
+      if (g.a == 0.0) {
+        // pools of street light at block corners, each lamp a little different
+        vec2 q = p.xz + 24.0;
+        vec2 cid = floor(q / 48.0) * 2.0 + step(24.0, mod(q, 48.0));
+        uint lh = h2(ivec2(cid));
+        vec2 cd = abs(mod(q, 48.0) - 24.0) - 19.3;
+        float lamp = exp(-dot(cd, cd) * 0.018) * uNight * (1.0 - smoothstep(900.0, 2600.0, t)) * float((lh & 7u) != 0u);
+        vec3 lc = mix(vec3(1.0, 0.68, 0.36), vec3(0.95, 0.9, 0.8), float((lh >> 3u) & 1u));
+        col += lc * lamp * (0.55 + 0.35 * float((lh >> 4u) & 3u) / 3.0);
+      }
     }
   } else col *= 1.0 - 0.6 * uNight;
-  vec3 fd = dir;
-  o = vec4(fogMix(col, fd, t), 1.0);
-  // blend into the sky near the horizon
-  o.rgb = mix(o.rgb, sky(vec3(dir.x, 0.0005, dir.z)), smoothstep(-0.02, -0.0005, dir.y));
+  o = vec4(fogMix(col, dir, t), 1.0);
+  // blend into the sky right at the horizon (only those pixels pay for the sky)
+  if (dir.y > -0.02) o.rgb = mix(o.rgb, sky(vec3(dir.x, 0.0005, dir.z)), smoothstep(-0.02, -0.0005, dir.y));
 }`;

@@ -57,9 +57,22 @@ export function lakeAt(bx, bz) {
   return false;
 }
 
+// The bay: a static wedge of sea starting ~1.1 km east of the plaza, widening into a channel
+// that runs out to the open sea. The river flows into it.
+export const bayHalf = (bx) => Math.min(3 + fdiv((bx - 24) * 3, 4), 18);
+export const bayAt = (bx, bz) => bx >= 24 && bz >= 2 - bayHalf(bx) && bz <= 2 + bayHalf(bx);
+// Container port on the bay's north shore: lane 0 = quay, 1 = containers, 2 = warehouses (-1 = none).
+export function portLane(bx, bz) {
+  if (bx < 25 || bx > 40) return -1;
+  const e = 1 - bayHalf(bx) - bz;
+  return e >= 0 && e <= 2 ? e : -1;
+}
+
 // Static kind: never depends on follower count.
 export function cellKind(bx, bz) {
   if (bx === 0 && bz === 0) return K.PLAZA;
+  if (bayAt(bx, bz)) return K.SEA;
+  if (portLane(bx, bz) >= 0) return K.PORT;
   if (isRiver(bx, bz)) return K.RIVER;
   if (avenueX(bx) || avenueZ(bz)) return K.AVENUE;
   const d2 = bx * bx + bz * bz;
@@ -95,9 +108,8 @@ export function plotsIn(bx, bz) {
 // Kind including the follower-count dependent outskirts (country, highways, port, sea).
 export function kindAt(L, bx, bz) {
   if (bx >= L.seaBx) return K.SEA;
-  if (bx >= L.seaBx - 3 && bz >= -9 && bz <= -1) return K.PORT;
   const k = cellKind(bx, bz);
-  if (bx * bx + bz * bz <= L.townD2 || k === K.RIVER) return k;
+  if (bx * bx + bz * bz <= L.townD2 || k === K.RIVER || k === K.SEA || k === K.PORT) return k;
   if (bx === 0 || bz === 0) return K.HIGHWAY;
   return K.COUNTRY;
 }
@@ -136,7 +148,7 @@ export const WALL = [0xfff1d6, 0xffd2b8, 0xc9f0dc, 0xc7e4ff, 0xe3d4ff, 0xfff0a8,
 export const ROOF = [0xd8563b, 0x2a9d8f, 0x3d5a98, 0xc2304f, 0x3c8d4f, 0x7b4b94, 0x4a4e5a, 0xe0a030];
 export const CITY = [0xd9d6cf, 0xc3c7cc, 0xe8dcc6, 0xb7beca, 0xf2efe8, 0xcfc2b0];
 export const ACCENT = [0xff6b6b, 0x1fb5ad, 0xffb627, 0x6c63ff, 0x2ec27e, 0xff8fb1];
-export const GLASS = [0x5d8fb3, 0x3f9a9a, 0x2f4a72, 0x9fb4c8, 0xb08a5a, 0x4f8a6a, 0xd8dde4, 0x6a5f8a];
+export const GLASS = [0x5d8fb3, 0x3fa0a8, 0x2f4a72, 0xa9c2d8, 0xc0915a, 0x4f9a72, 0xe2e6ec, 0x7a6aa0, 0xd8a878, 0x355f8f];
 
 export const SHAPES = ['mushroom', 'dome', 'castle', 'pyramid', 'ufo', 'treehouse', 'lighthouse', 'igloo', 'rocket', 'cube'];
 export const GARDEN = ['fountain', 'pool', 'flowers', 'tree', 'car', 'trampoline', 'statue', 'bench', 'swing', 'pond', 'palm', 'tent'];
@@ -169,10 +181,11 @@ export function recipe(bx, bz, slot, zone, custom) {
     // towers: height tapers from the centre, with ragged variety and the odd landmark
     const d = isqrt(bx * bx + bz * bz);
     const hubFar = d > 10;
-    const maxF = hubFar ? 30 : Math.max(18, 50 - 4 * d);
+    // a landmark cluster right around the plaza, tapering steadily outward
+    const maxF = hubFar ? 30 : d <= 2 ? 60 : Math.max(18, 48 - 4 * d);
     const roll = h % 100;
-    r.floors = Math.max(8, Math.floor(maxF * (30 + (h >>> 7) % 71) / 100));
-    if (roll < 7) r.floors = Math.min(60, Math.floor(maxF * 1.2));
+    r.floors = Math.max(8, Math.floor(maxF * ((d <= 3 ? 60 : 35) + (h >>> 7) % (d <= 3 ? 41 : 66)) / 100));
+    if (roll < 6) r.floors = Math.min(60, Math.floor(maxF * 1.25));
     r.w = 7.5 + ((h >>> 3) % 5) * 0.5; r.d = 11 + ((h >>> 5) % 7);
     r.roofType = 2; r.mat = 5;
     r.wall = GLASS[(h >>> 9) % GLASS.length];
@@ -236,8 +249,8 @@ export function finishLayout(L) {
   const rB = Math.max(3, Math.ceil(Math.sqrt(L.maxD2)));
   L.rB = rB;
   L.townD2 = (rB + 1) * (rB + 1);
-  L.seaBx = rB + 7;
-  L.portX = (L.seaBx - 2) * PITCH;
+  L.seaBx = Math.max(rB + 7, 46);
+  L.portX = 32 * PITCH;
   L.seaX = L.seaBx * PITCH - 24;
   const G = 2 * rB + 3;
   L.G = G;
@@ -249,6 +262,33 @@ export function finishLayout(L) {
     }
   }
   return L;
+}
+
+// Per-block data for the ground shader (so it does not re-derive the rules per pixel).
+// RGBA8, (2*ext+1)^2 texels centred on the plaza, ext = rB + 10:
+//   R kind · G zone | inhabited<<2 | avenueX<<3 | avenueZ<<4 · B roof colours c0 | c1<<3 · A c2
+export function buildGround(L) {
+  const ext = L.rB + 10, S = 2 * ext + 1;
+  const d = new Uint8Array(S * S * 4);
+  for (let j = 0; j < S; j++) for (let i = 0; i < S; i++) {
+    const bx = i - ext, bz = j - ext, o = (j * S + i) * 4;
+    const k = kindAt(L, bx, bz);
+    const homes = k === K.HOMES;
+    const base = hash3(fdiv(bx, 5), fdiv(bz, 5), 101);
+    d[o] = k;
+    d[o + 1] = (homes ? zoneLevel(bx, bz) : 0) | (homes && bx * bx + bz * bz <= L.maxD2 ? 4 : 0) | (avenueX(bx) ? 8 : 0) | (avenueZ(bz) ? 16 : 0);
+    d[o + 2] = (base % 8) | (((base >>> 4) % 8) << 3);
+    d[o + 3] = (base >>> 8) % 8;
+  }
+  return { ext, size: S, data: d };
+}
+
+// Footprint of a regular home on its plot (matches mesher.home), world metres.
+export function homeRect(f, r) {
+  if (r.zone >= 2) return [f.x - r.w / 2, f.z - r.d / 2, f.x + r.w / 2, f.z + r.d / 2];
+  const front = f.face < 0 ? f.z - f.d / 2 : f.z + f.d / 2, setback = r.zone === 0 ? 3 : 1.5;
+  const z0 = f.face < 0 ? front + setback : front - setback - r.d;
+  return [f.x - r.w / 2, z0, f.x + r.w / 2, z0 + r.d];
 }
 
 export function layoutTransfer(L) {

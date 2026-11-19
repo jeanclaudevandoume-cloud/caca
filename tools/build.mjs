@@ -56,6 +56,8 @@ for (const [name, spec] of Object.entries(custom)) {
   nc++;
 }
 
+const hash = (t) => crypto.createHash('sha1').update(t).digest('base64url').slice(0, 10);
+
 // write helpers: only touch changed files
 let written = 0, kept = 0;
 const live = new Set();
@@ -67,12 +69,16 @@ function put(rel, text) {
   fs.writeFileSync(f, text);
   written++;
 }
-const hash = (t) => crypto.createHash('sha1').update(t).digest('base64url').slice(0, 10);
 
+// Every file's URL carries its own content hash (from the manifest), so a daily edit only
+// invalidates the files that actually changed.
+const nh = {}, sh = {};
 for (const [key, r] of regions) {
   let last = r.length;
   while (last > 0 && !r[last - 1]) last--;
-  put(`n/${key}.txt`, r.slice(0, last).join('\n'));
+  const t = r.slice(0, last).join('\n');
+  nh[key] = hash(t);
+  put(`n/${key}.txt`, t);
 }
 const cman = {};
 for (const [key, obj] of cfiles) { const t = JSON.stringify(obj); cman[key] = hash(t); put(`c/${key}.json`, t); }
@@ -88,7 +94,9 @@ function emit(key, list, len) {
     return;
   }
   list.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : a[1] - b[1]));
-  put(`s/${key}.json`, JSON.stringify(list));
+  const t = JSON.stringify(list);
+  sh[key] = hash(t);
+  put(`s/${key}.json`, t);
 }
 for (const [k, l] of shards) emit(k, l, 2);
 split.sort();
@@ -103,7 +111,7 @@ for (const sub of ['n', 'c', 's']) {
   }
 }
 
-const manifestBody = { v: 1, n, c: cman, split };
+const manifestBody = { v: 2, n, c: cman, split, nh, sh };
 const built = hash(JSON.stringify(manifestBody) + JSON.stringify([...regions.keys()].sort()) + written);
 let prev = null;
 try { prev = JSON.parse(fs.readFileSync(path.join(out, 'manifest.json'), 'utf8')); } catch { /* first build */ }
