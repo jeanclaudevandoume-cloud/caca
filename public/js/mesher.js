@@ -159,8 +159,8 @@ export class MB {
   }
   // Gable roof over [x0,x1]x[z0,z1] with ridge along x (alongX) or z.
   // Gable roof over [x0,x1]x[z0,z1], ridge along x (alongX) or z. trim adds fascia boards and a ridge cap.
-  gable(x0, z0, x1, z1, y, h, c, wallC, a, alongX, trim = false) {
-    const R = M.ROOF, fc = 0xf2eee6;
+  gable(x0, z0, x1, z1, y, h, c, wallC, a, alongX, trim = false, fc = 0xf2eee6) {
+    const R = M.ROOF;
     if (alongX) {
       const zm = (z0 + z1) / 2;
       this.fq(x0, y, z1, x1, y, z1, x1, y + h, zm, x0, y + h, zm, R, c, a);
@@ -393,8 +393,17 @@ export function home(mb, bx, bz, f, r, lod) {
       const top = r.floors * FLOOR_H;
       const rc = ROOF[r.roof];
       mb.box(x0, 0, z0, x1, top, z1, r.wall, r.roofType === 2 ? 0x8c8f93 : -1, M.WIN, wa);
-      const o = lod ? 0.4 : 0.6;
-      if (r.roofType === 0) mb.gable(x0 - o, z0 - o, x1 + o, z1 + o, top, 2.6, rc, r.wall, a, r.w > r.d, !lod);
+      if (!lod) {                                   // plinth: a darker base 8 cm proud of the wall
+        const pc = shade(r.wall, 0.7);
+        mb.box(x0 - 0.08, 0, z0 - 0.08, x1 + 0.08, 0.5, z1 + 0.08, pc, pc, M.PLAIN, a);
+      }
+      const o = lod ? 0.4 : 0.9;
+      if (r.roofType <= 1 && !lod) {                // dark soffit under the deep eaves: a shadow line under the roof
+        mb.cast = false;
+        mb.q(x0 - o, top - 0.01, z0 - o, x1 + o, top - 0.01, z0 - o, x1 + o, top - 0.01, z1 + o, x0 - o, top - 0.01, z1 + o, 0, -1, 0, 0, 0, 0, 0, M.PLAIN, 0x2e2a27, a);
+        mb.cast = true;
+      }
+      if (r.roofType === 0) mb.gable(x0 - o, z0 - o, x1 + o, z1 + o, top, 2.6, rc, r.wall, a, r.w > r.d, !lod && !LITE, shade(rc, 0.6));
       else if (r.roofType === 1) mb.hip(x0 - o, z0 - o, x1 + o, z1 + o, top, 2.4, rc, a);
       else if (!lod) {                               // flat roof: parapet around a grey membrane
         const pc = shade(r.wall, 0.92);
@@ -414,11 +423,13 @@ export function home(mb, bx, bz, f, r, lod) {
       if (r.tree && !LITE) tree(mb, f.x + 3 * sg, backZ, 0.8 + ((r.hash >>> 23) % 4) * 0.12, r.hash >>> 9, 0);
       for (let i = 0; i < r.garden.length && i < spots.length; i++) gardenItem(mb, r.garden[i], f.x + spots[i], backZ, r.hash >>> (i * 3));
       if (!LITE) {
-        // front hedge with a gap for the garden path
+        // low block garden wall with gate posts at the path (hedge on some lots)
         mb.cast = false;
-        const hz0 = front - fs * 0.35 - 0.3, hz1 = hz0 + 0.6;
-        mb.box(f.x - 4.7, 0, hz0, doorX - 0.65, 1.0, hz1, 0x3f7a3a, 0x4f8a45, M.LEAF, a);
-        mb.box(doorX + 0.65, 0, hz0, f.x + 4.7, 1.0, hz1, 0x3f7a3a, 0x4f8a45, M.LEAF, a);
+        const hz0 = front - fs * 0.35 - 0.15, hz1 = hz0 + 0.3, hedge = (r.hash >>> 24) % 3 === 0;
+        const wc = hedge ? 0x3f6a3a : 0xbdb6a8, wt = hedge ? 0x4a7a43 : 0xd2ccc0, wm = hedge ? M.LEAF : M.PLAIN, wh = hedge ? 1.0 : 1.2;
+        mb.box(f.x - 4.7, 0, hz0, doorX - 0.75, wh, hz1, wc, wt, wm, a);
+        mb.box(doorX + 0.75, 0, hz0, f.x + 4.7, wh, hz1, wc, wt, wm, a);
+        if (!hedge) { mb.cbox(doorX - 0.75, 0, (hz0 + hz1) / 2, 0.4, 1.45, 0.4, 0xa79f90, M.PLAIN, a); mb.cbox(doorX + 0.75, 0, (hz0 + hz1) / 2, 0.4, 1.45, 0.4, 0xa79f90, M.PLAIN, a); }
         mb.cast = true;
       }
     }
@@ -499,7 +510,7 @@ export function home(mb, bx, bz, f, r, lod) {
     }
     if (top > base) mb.box(x0, base, z0, x1, top, z1, r.wall, roofC, r.mat, aw, base / FLOOR_H);
     let roofTop = top;
-    const crown = tower && r.floors >= 45 ? 5 : r.crown;
+    const crown = tower && r.sig ? 5 : r.crown;
     if (crown === 1) {
       const t2 = top + 3 * FLOOR_H;
       mb.box(x0 + 1.4, top, z0 + (tower ? 2.5 : 1.4), x1 - 1.4, t2, z1 - (tower ? 2.5 : 1.4), shade(r.wall, 1.06), roofC, r.mat, aw, r.floors);
@@ -821,7 +832,7 @@ export function buildSkyline(L, sx, sz) {
       plotFrame(bx, bz, s, zone, f);
       const top = r.floors * FLOOR_H;
       mb.box(f.x - r.w / 2, 0, f.z - r.d / 2, f.x + r.w / 2, top, f.z + r.d / 2, r.wall, 0x8d9199, r.mat, (r.hash & 0xfc) | (zone === 3 ? 0 : 3));
-      const sig = zone === 3 && r.floors >= 45;
+      const sig = zone === 3 && r.sig;
       if (r.crown === 1 && !sig) mb.box(f.x - r.w / 2 + 1.4, top, f.z - r.d / 2 + 2, f.x + r.w / 2 - 1.4, top + 3 * FLOOR_H, f.z + r.d / 2 - 2, r.wall, 0x8d9199, r.mat, (r.hash & 0xfc) | (zone === 3 ? 0 : 3), r.floors);
       if (top >= 30 * FLOOR_H && !sig) mb.cbox(f.x - r.w / 2 + 0.4, top, f.z - r.d / 2 + 0.4, 0.9, 0.9, 0.9, 0xff3030, M.LIGHT, r.hash & 255);
       if (sig) {

@@ -146,8 +146,9 @@ export const districtAccent = (bx, bz) => hash3(fdiv(bx, 4), fdiv(bz, 4), 31) % 
 export const WALL = [0xe8c9a0, 0xd99a6c, 0xb8c9a3, 0x9fb7c9, 0xe6b8a2, 0xf1e4c8, 0xc98f5e, 0x8fa89a];   // ART.md: frozen
 // townhouses: three brick tones, then stucco
 export const TOWN = [0xa4553f, 0x8e4a3a, 0xc07a55, 0xe6dccb, 0x6b4a3e, 0xd9cfbd];
-export const ROOF = [0xb4533a, 0x4b5663, 0x3a3e45, 0x5e7a48, 0x3f8c84, 0x9a3c31, 0x7a5638, 0x2f4d7a];
-export const CITY = [0xc9a27e, 0x8e9aa6, 0xd8c3a0, 0x5f6b78, 0xb5876a, 0xe0d6c4, 0x4a5560];   // ART.md: frozen
+export const ROOF = [0x8c3f2c, 0x4b5663, 0x3a3e45, 0x5e7a48, 0x2f6862, 0x7a2f26, 0x7a5638, 0x2f4d7a];   // ART.md: roofs V .25-.55
+// ART.md city facades: S <= .30, V <= .85 (the palette is clamped to the table)
+export const CITY = [0xc9a27e, 0x8e9aa6, 0xd8c3a0, 0x5f6b78, 0xb5876a, 0xe0d6c4, 0x4a5560].map((c) => clampSV(c, 0.295, 0.845));
 export const ACCENT = [0xff6b6b, 0x1fb5ad, 0xffb627, 0x6c63ff, 0x2ec27e, 0xff8fb1];
 export const GLASS = [0x4d7799, 0x2f7f86, 0x2f4a72, 0x2a4a63, 0x8a6a4a, 0x3b5a4f, 0x6b4f3a, 0x1f2a3a, 0x7a5a3e, 0x355f8f, 0x2c3f4f, 0x5a6f80];   // ART.md: dark only
 
@@ -158,7 +159,7 @@ export const GARDEN = ['fountain', 'pool', 'flowers', 'tree', 'car', 'trampoline
 export function recipe(bx, bz, slot, zone, custom) {
   const h = hash3(bx * 16 + slot, bz, 21), h2 = hash3(bx, bz * 16 + slot, 22);
   const r = { zone, slot, hash: h, roof: roofIdx(bx, bz, slot), wall: 0, floors: 1, w: 7, d: 9,
-    roofType: 0, mat: 1, style: 0, garden: [], tree: false, shape: null, color: -1, top: false, crown: 0 };
+    roofType: 0, mat: 1, style: 0, sig: false, garden: [], tree: false, shape: null, color: -1, top: false, crown: 0 };
   if (zone === 0) {
     r.floors = 1 + (h & 1);
     r.w = 6.5 + ((h >>> 1) % 5) * 0.5;
@@ -180,7 +181,7 @@ export function recipe(bx, bz, slot, zone, custom) {
   } else if (zone === 2) {
     r.floors = 4 + (h % 9);
     r.w = 8.6; r.d = 8.6; r.roofType = 2;
-    r.wall = (h >>> 9) % 5 === 0 ? blend(ACCENT[districtAccent(bx, bz)], 0xf2efe8, 0.45) : CITY[(h >>> 11) % CITY.length];
+    r.wall = (h >>> 9) % 5 === 0 ? clampSV(blend(ACCENT[districtAccent(bx, bz)], CITY[(h >>> 11) % CITY.length], 0.75), 0.295, 0.845) : CITY[(h >>> 11) % CITY.length];
     r.crown = (h >>> 15) % 3;
   } else {
     // towers: height tapers from the centre, with ragged variety and the odd landmark
@@ -191,6 +192,7 @@ export function recipe(bx, bz, slot, zone, custom) {
     const roll = h % 100;
     r.floors = Math.max(8, Math.floor(maxF * ((d <= 3 ? 60 : 35) + (h >>> 7) % (d <= 3 ? 41 : 66)) / 100));
     if (roll < 6) r.floors = Math.min(60, Math.floor(maxF * 1.25));
+    r.sig = d <= 1 && roll < 6;                  // the few signature towers (lantern crown + spire)
     r.w = 7.5 + ((h >>> 3) % 5) * 0.5; r.d = 11 + ((h >>> 5) % 7);
     r.roofType = 2; r.mat = 5;
     r.wall = GLASS[(h >>> 9) % GLASS.length];
@@ -206,14 +208,15 @@ export function recipe(bx, bz, slot, zone, custom) {
   return r;
 }
 
-// Custom colours are owner-chosen and often neon: cap saturation and brightness so they sit in the palette.
-export function soften(c) {
+// Cap a colour's HSV saturation and value (hue kept).
+export function clampSV(c, smax, vmax) {
   const r = ((c >> 16) & 255) / 255, g = ((c >> 8) & 255) / 255, b = (c & 255) / 255;
-  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), v = Math.min(mx, 0.75), sat = mx > 0 ? Math.min((mx - mn) / mx, 0.32) : 0;
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), v = Math.min(mx, vmax), sat = mx > 0 ? Math.min((mx - mn) / mx, smax) : 0;
   const f = (x) => { const s0 = mx > mn ? (mx - x) / (mx - mn) : 0; return Math.round((v * (1 - sat * s0)) * 255); };
   return (f(r) << 16) | (f(g) << 8) | f(b);
 }
-
+// Custom colours are owner-chosen and often neon: cap saturation and brightness so they sit in the palette.
+export const soften = (c) => clampSV(c, 0.32, 0.75);
 export function blend(a, b, t) {
   const f = (s) => Math.round(((a >> s) & 255) * (1 - t) + ((b >> s) & 255) * t) << s;
   return f(16) | f(8) | f(0);

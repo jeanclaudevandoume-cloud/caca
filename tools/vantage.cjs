@@ -16,6 +16,9 @@ const V = {
   port: ['q=high&t=10&notags&cam=1250,140,350,0.5,-0.25'],
   custom: ['q=high&u=maxramen95643&instant&t=10'],
   phone: ['q=low&t=10&notags&cam=2184,7,1260,0,-0.05', 844, 390],
+  house: ['q=high&t=10&notags&cam=2190,3,1290,0.6,-0.08'],
+  portrait: ['q=low&t=10&notags', 390, 844],
+  downtownlow: ['q=low&t=10&notags', 844, 390],
 };
 (async () => {
   const [tag = 'cur', ...only] = process.argv.slice(2);

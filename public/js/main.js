@@ -116,7 +116,7 @@ function planes(m) {
 const inFrustum = (pl, x, y, z, r) => pl.every((p) => p[0] * x + p[1] * y + p[2] * z + p[3] > -r);
 
 // ---------------- state ----------------
-const HOME = { x: 230, y: 95, z: 700, yaw: -0.32, pitch: -0.12 };   // ART.md: across the river into the core
+const HOME = { x: 150, y: 60, z: 420, yaw: -0.3, pitch: -0.1 };   // ART.md: ~120 m in, mid-rises with signs in front of the core
 const cam = { ...HOME };
 const PRESETS = { low: { s: 0.55, pr: 1 }, mid: { s: 0.8, pr: 1.5 }, high: { s: 1, pr: 2 } };
 const isPhone = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) || Math.min(screen.width, screen.height) < 600;

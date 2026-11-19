@@ -134,13 +134,13 @@ void main() {
     if (glass < 0.5 && (cell >> 12u) % 8u == 0u) refl = mix(refl, vec3(0.91, 0.86, 0.78) * 0.8 * (amb + uSunCol * 0.3), step(fy, 0.55) * k);
     refl *= mix(1.0, 0.6, smoothstep(0.86, 0.9, fy) * k);
     float share = 30.0 + float(ih(seed * 31u + 7u) % 120u);           // 12%..59% of windows lit
-    float towerGlow = glass > 0.5 ? 0.25 + 0.75 * float(ih(seed * 77u + 3u) & 255u) / 255.0 : 1.0;
+    float towerGlow = glass > 0.5 ? (0.25 + 0.75 * float(ih(seed * 77u + 3u) & 255u) / 255.0) * 0.6 : 1.0;
     // floor bands stay visible further than single windows, so far towers read striped, not flat
-    float kf = clamp(1.4 - fwidth(v) * 2.2, 0.0, 1.0);
+    float kf = clamp(1.8 - fwidth(v) * 1.2, 0.0, 1.0);
     float band = float(float(ih(uint(int(floor(v)) + 64) * 7919u + seed * 31u) & 255u) < share * 1.3) * 0.75 + 0.1;
-    float lit = mix(mix(share / 256.0, band * share / 160.0, kf), float(float(cell & 255u) < share), k);
+    float lit = mix(mix(share / 512.0, band * share / 200.0, kf), float(float(cell & 255u) < share), k);
     vec3 warm = mix(vec3(1.0, 0.7, 0.38), vec3(0.8, 0.88, 1.0), float((cell >> 8u & 7u) == 0u) * k);
-    vec3 body = mix(col, col * 0.85 + refl * 0.1, glass);
+    vec3 body = mix(col, col * 0.85 + refl * 0.1, glass) * mix(1.0, 0.45, glass * uNight);   // glass towers are dark at night
     if (facade == 1u) body = mix(body, vec3(0.17, 0.2, 0.25) * (amb + key * 0.4), 0.8);   // dark fins
     if (facade == 2u) body = vec3(0.85, 0.8, 0.7) * (amb * ao + key * max(dot(n, uSunDir), 0.0) * 0.85);   // stone
     vec3 frameC = mix(vec3(0.95, 0.93, 0.9), vec3(0.75, 0.78, 0.8), glass) * (amb * 0.9 + uSunCol * max(dot(n, uSunDir), 0.0) * 0.8);
@@ -250,8 +250,8 @@ uvec4 cellAt(int bx, int bz) {
 bool isWater(uint k) { return k == 3u || k == 4u || k == 9u; }
 bool countryish(uint k) { return k == 6u || k == 8u || isWater(k); }
 
-const vec3 ROOF[8] = vec3[8](vec3(0.706,0.325,0.227), vec3(0.294,0.337,0.388), vec3(0.227,0.243,0.271), vec3(0.369,0.478,0.282),
-  vec3(0.247,0.549,0.518), vec3(0.604,0.235,0.192), vec3(0.478,0.337,0.22), vec3(0.184,0.302,0.478));
+const vec3 ROOF[8] = vec3[8](vec3(0.549,0.247,0.173), vec3(0.294,0.337,0.388), vec3(0.227,0.243,0.271), vec3(0.369,0.478,0.282),
+  vec3(0.184,0.408,0.384), vec3(0.478,0.184,0.149), vec3(0.478,0.337,0.22), vec3(0.184,0.302,0.478));
 
 uint h2(ivec2 p) { uint h = uint(p.x) * 0x8da6b343u ^ uint(p.y) * 0xd8163841u; h ^= h >> 13u; h *= 0x5bd1e995u; return h ^ (h >> 15u); }
 float vnoise(vec2 p) {
