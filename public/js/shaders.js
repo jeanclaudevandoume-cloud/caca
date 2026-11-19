@@ -250,8 +250,7 @@ uvec4 cellAt(int bx, int bz) {
 bool isWater(uint k) { return k == 3u || k == 4u || k == 9u; }
 bool countryish(uint k) { return k == 6u || k == 8u || isWater(k); }
 
-const vec3 ROOF[8] = vec3[8](vec3(0.416,0.188,0.11), vec3(0.294,0.337,0.388), vec3(0.227,0.243,0.271), vec3(0.306,0.416,0.235),
-  vec3(0.184,0.408,0.384), vec3(0.361,0.141,0.118), vec3(0.4,0.275,0.188), vec3(0.184,0.302,0.478));
+uniform vec3 uRoof[8];   // set from town.js ROOF (no hand-copied palette)
 
 uint h2(ivec2 p) { uint h = uint(p.x) * 0x8da6b343u ^ uint(p.y) * 0xd8163841u; h ^= h >> 13u; h *= 0x5bd1e995u; return h ^ (h >> 15u); }
 float vnoise(vec2 p) {
@@ -266,7 +265,7 @@ vec3 water(vec2 p, vec3 dir, float t, vec3 deep) {
   if (uFar.z > 0.5 && t < 1500.0) w = (sin(p.x * 0.21 + uTime * 0.9 + sin(p.y * 0.13)) + sin(p.y * 0.17 - uTime * 0.7)) * 0.5;
   vec3 n = normalize(vec3(w * 0.05, 1.0, w * 0.04));
   float fres = pow(1.0 - max(-dir.y, 0.0), 4.0);
-  vec3 c = mix(deep, uSkyHor * 0.95, 0.15 + 0.6 * fres);
+  vec3 c = mix(deep, uSkyHor * 0.95, 0.08 + 0.5 * fres);
   vec3 r = reflect(dir, n);
   c += uSunCol * pow(max(dot(r, uSunDir), 0.0), 220.0) * 1.6 * (1.0 - uNight * 0.7);
   return c;
@@ -282,7 +281,7 @@ float riverDist(vec2 p) {
 vec2 cover(vec2 x, vec2 h, float w) { return max(min(x + w * 0.5, h) - max(x - w * 0.5, -h), 0.0) / w; }
 
 const vec3 WALK = vec3(0.64, 0.63, 0.60);
-const vec3 RIVERC = vec3(0.1, 0.42, 0.55);
+const vec3 RIVERC = vec3(0.07, 0.24, 0.30);
 
 // River block or river crossing: smooth water band with stone edges and grassy banks.
 float bayE(vec2 p) {
@@ -302,7 +301,7 @@ vec4 bayCol(vec2 p, vec3 dir, float t, float w, vec3 grass) {
   float u = p.x / 48.0;
   bool port = u > 24.5 && u < 40.5 && p.y < 96.0;
   float e = port ? 1.0 : max(bayE(p), 44.0 - riverDist(p));     // metres inside the water line
-  if (port || e > 0.0 || u > 50.0) return vec4(water(p, dir, t, vec3(0.08, 0.38, 0.55)), 1.0);
+  if (port || e > 0.0 || u > 50.0) return vec4(water(p, dir, t, vec3(0.06, 0.24, 0.32)), 1.0);
   if (e > -3.0) return vec4(0.74, 0.72, 0.68, 0.0);
   float path = step(abs(e + 9.0), 1.4) * (1.0 - smoothstep(0.5, 2.5, w));
   return vec4(mix(grass * 1.04, vec3(0.86, 0.79, 0.62), path), 0.0);
@@ -331,7 +330,7 @@ vec3 blockCol(uvec4 c, int bx, int bz, vec2 l, vec2 p, float t, float w, vec3 gr
       float inside = cv.x * cv.y;
       uint rh = hash3(bx, bz, slot * 7 + 100), rv = rh % 100u;
       uint ri = rv < 45u ? (c.b & 7u) : rv < 80u ? ((c.b >> 3u) & 7u) : ((rh >> 8u) % 8u);
-      vec3 roof = zone <= 1 ? ROOF[ri] : vec3(0.6, 0.62, 0.65) * (0.92 + 0.03 * float(ri));
+      vec3 roof = zone <= 1 ? uRoof[ri] : vec3(0.6, 0.62, 0.65) * (0.92 + 0.03 * float(ri));
       float fadeIn = smoothstep(uFar.x, uFar.y, t);
       // soft shadow beside each home sells the height from above
       vec2 sv = cover(l - c0 + uFar.w * vec2(0.6, 0.4), hs + 0.8, max(w, 0.8));
@@ -439,7 +438,7 @@ vec4 groundBase(vec2 p, vec3 dir, float t, float w) {
   uint dh = hash3(fdiv(bx, 10), fdiv(bz, 10), 57);
   vec3 tint = mix(vec3(1.06, 1.0, 0.9), vec3(0.94, 0.98, 1.06), float(dh & 255u) / 255.0);
   grass *= tint;
-  if (k == 9u) return bx >= int(uTown.w) ? vec4(water(p, dir, t, vec3(0.08, 0.38, 0.55)), 1.0) : bayCol(p, dir, t, w, grass);
+  if (k == 9u) return bx >= int(uTown.w) ? vec4(water(p, dir, t, vec3(0.06, 0.24, 0.32)), 1.0) : bayCol(p, dir, t, w, grass);
   if (k == 3u) return vec4(water(p, dir, t, RIVERC), 1.0);
   if (k == 4u) return riverCol(p, dir, t, w, grass);
   float lampOk = countryish(k) ? 2.0 : 0.0;

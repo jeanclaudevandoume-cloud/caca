@@ -1,7 +1,7 @@
 // Follower Town — GL setup, camera, streaming, time of day, search, fly-to, tags, quality.
 import {
   PITCH, CHUNK, REGION, FLOOR_H, K, fdiv, finishLayout, plotOf, plotFrame, recipe, zoneLevel, cellKind, kindAt,
-  occupied, slotAt, plotIndex, homeRect, regionKey, regionOf, lineIndex, normName, shardFor,
+  occupied, slotAt, ROOF, plotIndex, homeRect, regionKey, regionOf, lineIndex, normName, shardFor,
 } from './town.js';
 import { MB, M, SKY } from './mesher.js';
 import { GEO_VS, GEO_FS, SHADOW_VS, SHADOW_FS, FULL_VS, FULL_FS } from './shaders.js';
@@ -35,6 +35,8 @@ function prog(vs, fs) {
 }
 const P = { geo: prog(GEO_VS, GEO_FS), shadow: prog(SHADOW_VS, SHADOW_FS), full: prog(FULL_VS, FULL_FS) };
 const fullVao = gl.createVertexArray();
+gl.useProgram(P.full.p);
+gl.uniform3fv(P.full.u.uRoof, new Float32Array(ROOF.flatMap((c) => [((c >> 16) & 255) / 255, ((c >> 8) & 255) / 255, (c & 255) / 255])));
 let pinMesh = null, pin = null;   // marker over the selected home
 
 function upload(m) {
@@ -117,6 +119,8 @@ const inFrustum = (pl, x, y, z, r) => pl.every((p) => p[0] * x + p[1] * y + p[2]
 
 // ---------------- state ----------------
 const HOME = { x: -30, y: 70, z: 560, yaw: 0.06, pitch: -0.15 };   // ART.md: down the central avenue, over the bridge, into the core
+// portrait phones: start closer so the bridge and water don't fill the lower half
+if (innerWidth / innerHeight < 0.75) Object.assign(HOME, { z: 525, pitch: -0.1 });
 const cam = { ...HOME };
 const PRESETS = { low: { s: 0.55, pr: 1 }, mid: { s: 0.8, pr: 1.5 }, high: { s: 1, pr: 2 } };
 const isPhone = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) || Math.min(screen.width, screen.height) < 600;

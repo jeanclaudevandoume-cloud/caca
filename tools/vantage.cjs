@@ -16,7 +16,7 @@ const V = {
   port: ['q=high&t=10&notags&cam=1250,140,350,0.5,-0.25'],
   custom: ['q=high&u=maxramen95643&instant&t=10'],
   phone: ['q=low&t=10&notags&cam=2184,7,1260,0,-0.05', 844, 390],
-  house: ['q=high&t=10&notags&cam=2190,3,1290,0.6,-0.08'],
+  house: ['q=high&t=10&notags&cam=2200,5,1272,-0.25,-0.1'],
   portrait: ['q=low&t=10&notags', 390, 844],
   downtownlow: ['q=low&t=10&notags', 844, 390],
 };
@@ -40,6 +40,8 @@ const V = {
     console.log(n, JSON.stringify(out[n]));
     await p.close();
   }
-  fs.writeFileSync(`shots/${tag}/stats.json`, JSON.stringify(out, null, 1));
+  let prev = {};
+  try { prev = JSON.parse(fs.readFileSync(`shots/${tag}/stats.json`, 'utf8')); } catch { /* first run */ }
+  fs.writeFileSync(`shots/${tag}/stats.json`, JSON.stringify({ ...prev, ...out }, null, 1));   // merge partial runs
   await b.close();
 })();

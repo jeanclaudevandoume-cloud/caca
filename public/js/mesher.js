@@ -86,11 +86,12 @@ export class MB {
     const v0 = vb, v1 = vb + (y1 - y0) / FLOOR_H, w = x1 - x0, d = z1 - z0;
     // centre the window grid on each wall so no window is cut at a corner
     const sp = m === M.GLASS ? 1.7 : 2.6, win = m === M.WIN || m === M.GLASS;
-    const ow = win ? (sp - (w % sp)) / 2 : 0, od = win ? (sp - (d % sp)) / 2 : 0;
-    this.q(x0, y0, z1, x1, y0, z1, x1, y1, z1, x0, y1, z1, 0, 0, 1, ow, v0, w + ow, v1, m, c, a);
-    this.q(x1, y0, z0, x0, y0, z0, x0, y1, z0, x1, y1, z0, 0, 0, -1, ow, v0, w + ow, v1, m, c, a);
-    this.q(x1, y0, z1, x1, y0, z0, x1, y1, z0, x1, y1, z1, 1, 0, 0, od, v0, d + od, v1, m, c, a);
-    this.q(x0, y0, z0, x0, y0, z1, x0, y1, z1, x0, y1, z0, -1, 0, 0, od, v0, d + od, v1, m, c, a);
+    // every wall holds a whole number of window cells (stretched to fit), so no window wraps a corner
+    const uw = win ? Math.max(1, Math.round(w / sp)) * sp : w, ud = win ? Math.max(1, Math.round(d / sp)) * sp : d;
+    this.q(x0, y0, z1, x1, y0, z1, x1, y1, z1, x0, y1, z1, 0, 0, 1, 0, v0, uw, v1, m, c, a);
+    this.q(x1, y0, z0, x0, y0, z0, x0, y1, z0, x1, y1, z0, 0, 0, -1, 0, v0, uw, v1, m, c, a);
+    this.q(x1, y0, z1, x1, y0, z0, x1, y1, z0, x1, y1, z1, 1, 0, 0, 0, v0, ud, v1, m, c, a);
+    this.q(x0, y0, z0, x0, y0, z1, x0, y1, z1, x0, y1, z0, -1, 0, 0, 0, v0, ud, v1, m, c, a);
     if (top >= 0) this.q(x0, y1, z1, x1, y1, z1, x1, y1, z0, x0, y1, z0, 0, 1, 0, 0, 0, 0, 0, M.PLAIN, top, a);
   }
   // Vertical quad in the plane z = zc spanning [x0,x1]x[y0,y1], facing +z (fs > 0) or -z.
@@ -372,7 +373,12 @@ function door(mb, x, zw, fs, r, rc, a) {
     mb.cbox(x + 0.95, 2.05, zw + fs * 0.1, 0.22, 0.3, 0.12, 0xffe2a8, M.LIGHT, a);
   }
   mb.cast = cast;
-  if (r.hash & 32 && !LITE) mb.cbox(x, 2.6, zw + fs * 0.5, 2.0, 0.12, 1.0, rc, M.PLAIN, a);
+  if (LITE) return;
+  if (hash3(r.hash, 7, 3) % 10 < 3) {            // porch: roof on two posts
+    mb.cbox(x, 2.6, zw + fs * 0.8, 3.0, 0.14, 1.6, rc, M.PLAIN, a);
+    mb.cbox(x - 1.35, 0, zw + fs * 1.45, 0.2, 2.6, 0.2, 0xf2eee6, M.PLAIN, a);
+    mb.cbox(x + 1.35, 0, zw + fs * 1.45, 0.2, 2.6, 0.2, 0xf2eee6, M.PLAIN, a);
+  } else if (r.hash & 32) mb.cbox(x, 2.6, zw + fs * 0.5, 2.0, 0.12, 1.0, rc, M.PLAIN, a);
 }
 const F = {};
 export function home(mb, bx, bz, f, r, lod) {
@@ -384,33 +390,46 @@ export function home(mb, bx, bz, f, r, lod) {
   if (r.zone === 0) {
     const setback = 3, fs = f.face < 0 ? -1 : 1;
     const z0 = f.face < 0 ? front + setback : front - setback - r.d, z1 = z0 + r.d;
-    const x0 = f.x - r.w / 2, x1 = f.x + r.w / 2;
-    const backZ = f.face < 0 ? f.z + f.d / 2 - 3 : f.z - f.d / 2 + 3;
     const doorX = f.x + (r.hash & 8 ? 1.5 : -1.5), wallZ = f.face < 0 ? z0 : z1;
+    // massing: ~55% of homes get a one-storey side wing (garage) opposite the door
+    const hw = hash3(r.hash, 5, 9);
+    const wing = !r.shape && r.roofType !== 2 && hw % 20 < 11;
+    const ww = 3.5 + ((hw >>> 5) % 3) * 0.5, side = r.hash & 8 ? -1 : 1;     // wing on the side away from the door
+    const mainW = wing ? Math.max(5.5, Math.min(r.w, 9.4 - ww)) : r.w;
+    const x0 = wing ? (side < 0 ? f.x - 4.7 + ww : f.x + 4.7 - ww - mainW) : f.x - r.w / 2;
+    const x1 = x0 + mainW;
+    const backZ = f.face < 0 ? f.z + f.d / 2 - 3 : f.z - f.d / 2 + 3;
     if (r.shape) {
       shape(mb, r.shape, f.x, 0, (z0 + z1) / 2, 0.95, r.color, a & 0xfc, lod);
     } else {
       const top = r.floors * FLOOR_H;
       const rc = ROOF[r.roof];
       mb.box(x0, 0, z0, x1, top, z1, r.wall, r.roofType === 2 ? 0x8c8f93 : -1, M.WIN, wa);
-      if (!lod) {                                   // plinth: a darker base 8 cm proud of the wall
+      if (!lod && !LITE) {                          // plinth: a darker base 8 cm proud of the wall (lite: the shader's plinth band)
         const pc = shade(r.wall, 0.7);
-        mb.box(x0 - 0.08, 0, z0 - 0.08, x1 + 0.08, 0.5, z1 + 0.08, pc, pc, M.PLAIN, a);
+        mb.box(x0 - 0.08, 0, z0 - 0.08, x1 + 0.08, 0.5, z1 + 0.08, pc, -1, M.PLAIN, a);
       }
       const o = lod ? 0.4 : 0.9;
-      if (r.roofType <= 1 && !lod) {                // dark soffit under the deep eaves: a shadow line under the roof
+      if (r.roofType <= 1 && !lod && !LITE) {       // dark soffit under the deep eaves: a shadow line under the roof
         mb.cast = false;
-        mb.q(x0 - o, top - 0.01, z0 - o, x1 + o, top - 0.01, z0 - o, x1 + o, top - 0.01, z1 + o, x0 - o, top - 0.01, z1 + o, 0, -1, 0, 0, 0, 0, 0, M.PLAIN, 0x2e2a27, a);
+        mb.q(x0 - o, top - 0.01, z0 - o, x1 + o, top - 0.01, z0 - o, x1 + o, top - 0.01, z1 + o, x0 - o, top - 0.01, z1 + o, 0, -1, 0, 0, 0, 0, 0, M.PLAIN, shade(r.wall, 0.75), a);
         mb.cast = true;
       }
-      if (r.roofType === 0) mb.gable(x0 - o, z0 - o, x1 + o, z1 + o, top, 2.6, rc, r.wall, a, r.w > r.d, !lod && !LITE, shade(rc, 0.6));
+      if (r.roofType === 0) mb.gable(x0 - o, z0 - o, x1 + o, z1 + o, top, 2.6, rc, r.wall, a, mainW > r.d, !lod && !LITE, shade(rc, 0.6));
+      if (wing && !lod) {
+        const wx0 = side < 0 ? f.x - 4.7 : x1, wx1 = side < 0 ? x0 : f.x + 4.7;
+        const wz0 = f.face < 0 ? z0 + 1 : z1 - 6, wz1 = wz0 + 5, wf = f.face < 0 ? wz0 : wz1;
+        mb.box(wx0, 0, wz0, wx1, 3.0, wz1, r.wall, LITE ? shade(rc, 0.9) : -1, M.PLAIN, wa);
+        if (!LITE) mb.gable(wx0 - 0.3, wz0 - 0.4, wx1 + 0.3, wz1 + 0.4, 3.0, 1.4, shade(rc, 0.9), r.wall, a, false, false);
+        if (!LITE) mb.wq(wx0 + 0.5, wx1 - 0.5, 0, 2.3, wf + fs * 0.02, fs, 0xd8d4cc, M.PLAIN, a);   // garage door
+      }
       else if (r.roofType === 1) mb.hip(x0 - o, z0 - o, x1 + o, z1 + o, top, 2.4, rc, a);
       else if (!lod) {                               // flat roof: parapet around a grey membrane
-        const pc = shade(r.wall, 0.92);
-        mb.box(x0, top, z0, x1, top + 0.4, z0 + 0.25, pc, pc, M.PLAIN, a);
-        mb.box(x0, top, z1 - 0.25, x1, top + 0.4, z1, pc, pc, M.PLAIN, a);
-        mb.box(x0, top, z0 + 0.25, x0 + 0.25, top + 0.4, z1 - 0.25, pc, pc, M.PLAIN, a);
-        mb.box(x1 - 0.25, top, z0 + 0.25, x1, top + 0.4, z1 - 0.25, pc, pc, M.PLAIN, a);
+        const pc = shade(r.wall, 0.8), cap = 0xd9d3c7;      // parapet sides darker than the wall, light coping on top
+        mb.box(x0, top, z0, x1, top + 0.4, z0 + 0.25, pc, cap, M.PLAIN, a);
+        mb.box(x0, top, z1 - 0.25, x1, top + 0.4, z1, pc, cap, M.PLAIN, a);
+        mb.box(x0, top, z0 + 0.25, x0 + 0.25, top + 0.4, z1 - 0.25, pc, cap, M.PLAIN, a);
+        mb.box(x1 - 0.25, top, z0 + 0.25, x1, top + 0.4, z1 - 0.25, pc, cap, M.PLAIN, a);
       }
       if (!lod) {
         door(mb, doorX, wallZ, fs, r, rc, a);
@@ -449,8 +468,8 @@ export function home(mb, bx, bz, f, r, lod) {
         const cc = r.style === 2 ? 0xe6dccb : shade(r.wall, 0.86);
         mb.box(x0, top, z0 - (f.face < 0 ? 0.3 : 0), x1, top + 0.4, z1 + (f.face < 0 ? 0 : 0.3), cc, 0x6f6a64, M.PLAIN, a);
         if (!lod) {
-          mb.box(x0, top + 0.4, z0, x0 + 0.25, top + 0.9, z1, cc, cc, M.PLAIN, a);
-          mb.box(x1 - 0.25, top + 0.4, z0, x1, top + 0.9, z1, cc, cc, M.PLAIN, a);
+          mb.box(x0, top + 0.4, z0, x0 + 0.25, top + 0.9, z1, shade(cc, 0.85), 0xd9d3c7, M.PLAIN, a);
+          mb.box(x1 - 0.25, top + 0.4, z0, x1, top + 0.9, z1, shade(cc, 0.85), 0xd9d3c7, M.PLAIN, a);
           if (!LITE) {
             const hz = f.face < 0 ? z1 - 3 : z0 + 3;
             if (r.hash & 128) mb.cbox(f.x + (r.hash & 64 ? 2 : -2), top + 0.4, hz, 2.4, 2.6, 2.4, shade(r.wall, 0.92), M.PLAIN, a, 0x6f6a64);
@@ -696,14 +715,22 @@ export function buildChunk(L, cx, cz, lod, customs, lite = false) {
 
 function bridge(mb, X, Z, lod) {
   const c = 0xb9b4aa;
-  mb.box(X - 14, 2.2, Z - 24, X + 14, 3.0, Z + 24, 0x8e8a82, 0x5f6670, M.PLAIN, 3);
-  if (!lod) {
-    mb.cast = false;
-    mb.box(X - 14, 3.0, Z - 24, X - 13.4, 4.0, Z + 24, c, c, M.PLAIN, 3);
-    mb.box(X + 13.4, 3.0, Z - 24, X + 14, 4.0, Z + 24, c, c, M.PLAIN, 3);
-    mb.cast = true;
+  mb.box(X - 14, 2.2, Z - 24, X + 14, 3.0, Z + 24, 0x8e8a82, 0x4a4e56, M.PLAIN, 3);          // deck
+  for (const pz of [-12, 12]) mb.box(X - 12, -1, Z + pz - 1.2, X + 12, 2.2, Z + pz + 1.2, c, -1, M.PLAIN, 3);   // piers
+  if (lod) return;
+  mb.cast = false;
+  mb.box(X - 14, 3.0, Z - 24, X - 11, 3.15, Z + 24, c, c, M.PLAIN, 3);                       // sidewalks
+  mb.box(X + 11, 3.0, Z - 24, X + 14, 3.15, Z + 24, c, c, M.PLAIN, 3);
+  mb.box(X - 14, 3.15, Z - 24, X - 13.85, 4.25, Z + 24, 0x8e8a82, 0xd9d3c7, M.PLAIN, 3);    // 1.1 m railings
+  mb.box(X + 13.85, 3.15, Z - 24, X + 14, 4.25, Z + 24, 0x8e8a82, 0xd9d3c7, M.PLAIN, 3);
+  for (let dz = -21; dz < 24; dz += 6) {                                                   // lane dashes
+    mb.q(X - 0.08, 3.01, dz + Z + 3, X + 0.08, 3.01, dz + Z + 3, X + 0.08, 3.01, dz + Z, X - 0.08, 3.01, dz + Z, 0, 1, 0, 0, 0, 0, 0, M.PLAIN, 0xe8dca0, 3);
   }
-  for (const pz of [-12, 12]) mb.box(X - 12, -1, Z + pz - 1.2, X + 12, 2.2, Z + pz + 1.2, c, -1, M.PLAIN, 3);
+  for (const lz of [-18, -6, 6, 18]) for (const lx of [-13.3, 13.3]) {                     // lamps every 12 m
+    mb.cbox(X + lx, 3.15, Z + lz, 0.2, 5.0, 0.2, 0x3a3f4a, M.METAL, 3);
+    mb.cbox(X + lx - Math.sign(lx) * 0.5, 8.0, Z + lz, 1.0, 0.25, 0.4, 0xfff1c1, M.LIGHT, 3);
+  }
+  mb.cast = true;
 }
 
 function plaza(mb, X, Z, lod) {

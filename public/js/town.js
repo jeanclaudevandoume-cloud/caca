@@ -146,7 +146,7 @@ export const districtAccent = (bx, bz) => hash3(fdiv(bx, 4), fdiv(bz, 4), 31) % 
 export const WALL = [0xe8c9a0, 0xd99a6c, 0xb8c9a3, 0x9fb7c9, 0xe6b8a2, 0xf1e4c8, 0xc98f5e, 0x8fa89a];   // ART.md: frozen
 // townhouses: three brick tones, then stucco
 export const TOWN = [0xa4553f, 0x8e4a3a, 0xc07a55, 0xe6dccb, 0x6b4a3e, 0xd9cfbd];
-export const ROOF = [0x6a301c, 0x4b5663, 0x3a3e45, 0x4e6a3c, 0x2f6862, 0x5c241e, 0x664630, 0x2f4d7a];   // ART.md: roofs V .25-.55
+export const ROOF = [0x8c3f2c, 0x4b5663, 0x3a3e45, 0x5e7a48, 0x2f6862, 0x7a2f26, 0x7a5638, 0x2f4d7a].map((c) => clampSV(c, 0.45, 0.42));   // ART.md: roofs S <= .45, V <= .50 (kept at .42 for contrast)
 // ART.md city facades: S <= .30, V <= .85 (the palette is clamped to the table)
 export const CITY = [0xc9a27e, 0x8e9aa6, 0xd8c3a0, 0x5f6b78, 0xb5876a, 0xe0d6c4, 0x4a5560].map((c) => clampSV(c, 0.295, 0.845));
 export const ACCENT = [0xff6b6b, 0x1fb5ad, 0xffb627, 0x6c63ff, 0x2ec27e, 0xff8fb1];
