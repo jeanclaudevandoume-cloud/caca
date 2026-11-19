@@ -3,3 +3,4 @@ public/town/
 data/demo/
 shots/
 *.log
+dist/

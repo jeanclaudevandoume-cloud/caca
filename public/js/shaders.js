@@ -93,7 +93,9 @@ void main() {
   } else if (vMat == 2) {
     col += base * 0.18 * sun;                                             // leaves glow a bit in the sun
   } else if (vMat == 4) {
-    col = mix(base, vec3(0.92, 0.93, 0.95), 1.0 - uNight) * 0.65;   // lamps and lanterns look like frosted glass by day
+    // pale lamps and lanterns look like frosted glass by day; coloured lights (pin, signs) keep their colour
+    float pale = smoothstep(0.7, 0.8, dot(base, vec3(0.3, 0.5, 0.2)));
+    col = mix(base, vec3(0.92, 0.93, 0.95), (1.0 - uNight) * pale) * mix(1.0, 0.65, pale);
     emis = base * vec3(1.0, 0.85, 0.6) * 1.4 * uNight;
   } else if (vMat == 3) {
     col += uSunCol * pow(max(dot(reflect(dir, n), uSunDir), 0.0), 24.0) * 0.35;
