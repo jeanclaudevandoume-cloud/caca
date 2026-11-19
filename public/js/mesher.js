@@ -26,7 +26,7 @@ export class MB {
     this.nv = 0;
     this.ic = new Uint32Array(cap * 2); this.nc = 0;
     this.io = new Uint32Array(cap); this.no = 0;
-    this.cast = true; this.flag = 0; this.ymax = 0;
+    this.cast = true; this.flag = 0; this.ymax = 0; this.sc = 64;
   }
   alloc(cap) {
     const nb = new ArrayBuffer(cap * 16);
@@ -37,9 +37,9 @@ export class MB {
   v(x, y, z, u, v, nx, ny, nz, m, c, a) {
     if (this.nv >= this.cap) this.alloc(this.cap * 2);
     const n = this.nv, o = n * 8, b = n * 16;
-    this.i16[o] = Math.round((x - this.ox) * 64);
-    this.i16[o + 1] = Math.round(y * 64);
-    this.i16[o + 2] = Math.round((z - this.oz) * 64);
+    this.i16[o] = Math.round((x - this.ox) * this.sc);
+    this.i16[o + 1] = Math.round(y * this.sc);
+    this.i16[o + 2] = Math.round((z - this.oz) * this.sc);
     if (y > this.ymax) this.ymax = y;
     this.u8[b + 6] = Math.min(255, Math.max(0, Math.round(u * 8)));
     this.u8[b + 7] = Math.min(255, Math.max(0, Math.round(v * 4)));
@@ -92,6 +92,11 @@ export class MB {
     this.q(x1, y0, z1, x1, y0, z0, x1, y1, z0, x1, y1, z1, 1, 0, 0, od, v0, d + od, v1, m, c, a);
     this.q(x0, y0, z0, x0, y0, z1, x0, y1, z1, x0, y1, z0, -1, 0, 0, od, v0, d + od, v1, m, c, a);
     if (top >= 0) this.q(x0, y1, z1, x1, y1, z1, x1, y1, z0, x0, y1, z0, 0, 1, 0, 0, 0, 0, 0, M.PLAIN, top, a);
+  }
+  // Vertical quad in the plane z = zc spanning [x0,x1]x[y0,y1], facing +z (fs > 0) or -z.
+  wq(x0, x1, y0, y1, zc, fs, c, m, a) {
+    if (fs > 0) this.q(x0, y0, zc, x1, y0, zc, x1, y1, zc, x0, y1, zc, 0, 0, 1, 0, 0, 0, 0, m, c, a);
+    else this.q(x1, y0, zc, x0, y0, zc, x0, y1, zc, x1, y1, zc, 0, 0, -1, 0, 0, 0, 0, m, c, a);
   }
   // Box centred at x,z.
   cbox(x, y0, z, w, h, d, c, m = M.PLAIN, a = 0, top = c) {
@@ -163,8 +168,8 @@ export class MB {
       this.ft(x1, y, z1, x1, y, z0, x1, y + h, zm, M.PLAIN, wallC, a);
       this.ft(x0, y, z0, x0, y, z1, x0, y + h, zm, M.PLAIN, wallC, a);
       if (trim) {
-        this.box(x0, y - 0.22, z1 - 0.06, x1, y, z1, fc, fc, M.PLAIN, a);
-        this.box(x0, y - 0.22, z0, x1, y, z0 + 0.06, fc, fc, M.PLAIN, a);
+        this.wq(x0, x1, y - 0.22, y, z1, 1, fc, M.PLAIN, a);
+        this.wq(x0, x1, y - 0.22, y, z0, -1, fc, M.PLAIN, a);
         this.box(x0 - 0.05, y + h - 0.12, zm - 0.18, x1 + 0.05, y + h + 0.1, zm + 0.18, shade(c, 0.75), shade(c, 0.75), M.PLAIN, a);
       }
     } else {
@@ -174,8 +179,8 @@ export class MB {
       this.ft(x0, y, z1, x1, y, z1, xm, y + h, z1, M.PLAIN, wallC, a);
       this.ft(x1, y, z0, x0, y, z0, xm, y + h, z0, M.PLAIN, wallC, a);
       if (trim) {
-        this.box(x1 - 0.06, y - 0.22, z0, x1, y, z1, fc, fc, M.PLAIN, a);
-        this.box(x0, y - 0.22, z0, x0 + 0.06, y, z1, fc, fc, M.PLAIN, a);
+        this.q(x1, y - 0.22, z1, x1, y - 0.22, z0, x1, y, z0, x1, y, z1, 1, 0, 0, 0, 0, 0, 0, M.PLAIN, fc, a);
+        this.q(x0, y - 0.22, z0, x0, y - 0.22, z1, x0, y, z1, x0, y, z0, -1, 0, 0, 0, 0, 0, 0, M.PLAIN, fc, a);
         this.box(xm - 0.18, y + h - 0.12, z0 - 0.05, xm + 0.18, y + h + 0.1, z1 + 0.05, shade(c, 0.75), shade(c, 0.75), M.PLAIN, a);
       }
     }
@@ -214,6 +219,17 @@ const TRUNK = 0x7a5233;
 
 let LITE = false;     // low-quality chunks: cheaper trees and fewer props
 export function tree(mb, x, z, s, h, lod) {
+  const cast = mb.cast;
+  if (cast && lod) mb.cast = false;                 // far trees don't cast at all
+  else if (cast && !LITE) {
+    // cheap shadow stand-in (hidden inside the crown); the detailed crown below does not cast
+    mb.ell(x, 3.6 * s, z, 1.8 * s, 1.6 * s, 1.8 * s, 4, 1, 0x3e6d3a, M.LEAF, 0);
+    mb.cast = false;
+  }
+  treeBody(mb, x, z, s, h, lod);
+  mb.cast = cast;
+}
+function treeBody(mb, x, z, s, h, lod) {
   const kind = h % 7;
   if (LITE) {
     const c = kind === 6 ? BLOSSOM[(h >>> 3) % 3] : LEAVES[(h >>> 3) % LEAVES.length];
@@ -349,12 +365,14 @@ const DOORS = [0x2f4d7a, 0x7e2d2d, 0x2e5a45, 0x2b2b2b, 0xd9a441];
 // Front door: frame, inset door, step, optional canopy and a porch light.
 function door(mb, x, zw, fs, r, rc, a) {
   const cast = mb.cast; mb.cast = false;
-  mb.cbox(x, 0, zw + fs * 0.04, 1.5, 2.5, 0.08, 0xf2eee6, M.PLAIN, a);
-  mb.cbox(x, 0, zw + fs * 0.1, 1.0, 2.1, 0.06, DOORS[(r.hash >>> 19) % 5], M.PLAIN, a);
-  mb.cbox(x, 0, zw + fs * 0.55, 1.8, 0.18, 1.0, 0xbdb8ae, M.PLAIN, a);
-  mb.cbox(x + 0.95, 2.05, zw + fs * 0.1, 0.22, 0.3, 0.12, 0xffe2a8, M.LIGHT, a);
+  mb.wq(x - 0.5, x + 0.5, 0, 2.1, zw + fs * 0.04, fs, DOORS[(r.hash >>> 19) % 5], M.PLAIN, a);
+  if (!LITE) {
+    mb.wq(x - 0.75, x + 0.75, 0, 2.5, zw + fs * 0.02, fs, 0xf2eee6, M.PLAIN, a);
+    mb.cbox(x, 0, zw + fs * 0.55, 1.8, 0.18, 1.0, 0xbdb8ae, M.PLAIN, a);
+    mb.cbox(x + 0.95, 2.05, zw + fs * 0.1, 0.22, 0.3, 0.12, 0xffe2a8, M.LIGHT, a);
+  }
   mb.cast = cast;
-  if (r.hash & 32) mb.cbox(x, 2.6, zw + fs * 0.5, 2.0, 0.12, 1.0, rc, M.PLAIN, a);
+  if (r.hash & 32 && !LITE) mb.cbox(x, 2.6, zw + fs * 0.5, 2.0, 0.12, 1.0, rc, M.PLAIN, a);
 }
 const F = {};
 export function home(mb, bx, bz, f, r, lod) {
@@ -370,7 +388,7 @@ export function home(mb, bx, bz, f, r, lod) {
     const backZ = f.face < 0 ? f.z + f.d / 2 - 3 : f.z - f.d / 2 + 3;
     const doorX = f.x + (r.hash & 8 ? 1.5 : -1.5), wallZ = f.face < 0 ? z0 : z1;
     if (r.shape) {
-      shape(mb, r.shape, f.x, 0, (z0 + z1) / 2, 0.95, r.color, a, lod);
+      shape(mb, r.shape, f.x, 0, (z0 + z1) / 2, 0.95, r.color, a & 0xfc, lod);
     } else {
       const top = r.floors * FLOOR_H;
       const rc = ROOF[r.roof];
@@ -409,7 +427,7 @@ export function home(mb, bx, bz, f, r, lod) {
     const z0 = f.face < 0 ? front + setback : front - setback - r.d, z1 = z0 + r.d;
     const x0 = f.x - r.w / 2, x1 = f.x + r.w / 2, wallZ = f.face < 0 ? z0 : z1;
     if (r.shape) {
-      shape(mb, r.shape, f.x, 0, (z0 + z1) / 2, 0.95, r.color, a, lod);
+      shape(mb, r.shape, f.x, 0, (z0 + z1) / 2, 0.95, r.color, a & 0xfc, lod);
     } else {
       const top = r.floors * FLOOR_H;
       const rc = ROOF[r.roof];
@@ -418,7 +436,16 @@ export function home(mb, bx, bz, f, r, lod) {
       else {
         // cornice: a light band that overhangs the street wall
         const cc = r.style === 2 ? 0xe6dccb : shade(r.wall, 0.86);
-        mb.box(x0, top, z0 - (f.face < 0 ? 0.3 : 0), x1, top + 0.4, z1 + (f.face < 0 ? 0 : 0.3), cc, 0x9a9c9e, M.PLAIN, a);
+        mb.box(x0, top, z0 - (f.face < 0 ? 0.3 : 0), x1, top + 0.4, z1 + (f.face < 0 ? 0 : 0.3), cc, 0x6f6a64, M.PLAIN, a);
+        if (!lod) {
+          mb.box(x0, top + 0.4, z0, x0 + 0.25, top + 0.9, z1, cc, cc, M.PLAIN, a);
+          mb.box(x1 - 0.25, top + 0.4, z0, x1, top + 0.9, z1, cc, cc, M.PLAIN, a);
+          if (!LITE) {
+            const hz = f.face < 0 ? z1 - 3 : z0 + 3;
+            if (r.hash & 128) mb.cbox(f.x + (r.hash & 64 ? 2 : -2), top + 0.4, hz, 2.4, 2.6, 2.4, shade(r.wall, 0.92), 0x6f6a64, M.PLAIN, a);
+            else mb.cyl(f.x + (r.hash & 64 ? 2 : -2), top + 0.4, hz, 1.1, top + 2.8, 1.1, 6, 0x8a6a4a, M.PLAIN, a);
+          }
+        }
       }
       if (!lod) {
         door(mb, f.x + (r.hash & 8 ? 2.2 : -2.2), wallZ, fs, r, rc, a);
@@ -433,6 +460,7 @@ export function home(mb, bx, bz, f, r, lod) {
     if (!lod && r.tree) tree(mb, f.x, f.face < 0 ? z0 + r.d + 2.5 : z0 - 2.5, 0.75, r.hash >>> 9, 0);
   } else {
     const tower = r.zone === 3;
+    const aw = (a & 0xfc) | (tower ? 0 : 3);          // wall style 3 = concrete panels (never siding/brick)
     const w = r.w, d = tower ? r.d : r.d;
     const x0 = f.x - w / 2, x1 = f.x + w / 2, z0 = f.z - d / 2, z1 = f.z + d / 2;
     const top = r.floors * FLOOR_H;
@@ -442,7 +470,7 @@ export function home(mb, bx, bz, f, r, lod) {
     const sign = ACCENT_SIGN[(r.hash >>> 13) % ACCENT_SIGN.length];
     if (tower) {
       const pod = CITY[(r.hash >>> 5) % CITY.length];
-      mb.box(f.x - 4.8, 0, f.z - 9.4, f.x + 4.8, 2 * FLOOR_H, f.z + 9.4, pod, shade(pod, 0.85), M.WIN, a);
+      mb.box(f.x - 4.8, 0, f.z - 9.4, f.x + 4.8, 2 * FLOOR_H, f.z + 9.4, pod, shade(pod, 0.85), M.WIN, a & 0xfc);
       base = 2 * FLOOR_H;
       if (!lod) {                               // lobby glass and a lit sign over the entrance
         mb.cast = false;
@@ -455,16 +483,26 @@ export function home(mb, bx, bz, f, r, lod) {
       // shopfront: glass ground floor, a coloured awning fixed to the wall and a lit sign
       mb.cast = false;
       mb.cbox(f.x, 0, fz + fs * 0.06, w - 1.2, 2.8, 0.25, shade(0x9fc4dd, 0.9 + ((r.hash >>> 3) & 3) * 0.05), M.GLASS, a);
-      mb.box(x0 + 0.3, 2.9, f.face < 0 ? z0 - 1.3 : z1, x1 - 0.3, 3.1, f.face < 0 ? z0 : z1 + 1.3, ROOF[r.roof], ROOF[r.roof], M.PLAIN, a);
+      {   // sloped awning: thin, fixed to the wall, front edge dropped
+        const zw = fz, zf = fz + fs * 1.3, ac = ROOF[r.roof];
+        if (fs < 0) {
+          mb.fq(x1 - 0.3, 2.7, zf, x0 + 0.3, 2.7, zf, x0 + 0.3, 3.1, zw, x1 - 0.3, 3.1, zw, M.PLAIN, ac, a);
+          mb.fq(x0 + 0.3, 2.7, zf, x1 - 0.3, 2.7, zf, x1 - 0.3, 3.1, zw, x0 + 0.3, 3.1, zw, M.PLAIN, shade(ac, 0.7), a);
+        } else {
+          mb.fq(x0 + 0.3, 2.7, zf, x1 - 0.3, 2.7, zf, x1 - 0.3, 3.1, zw, x0 + 0.3, 3.1, zw, M.PLAIN, ac, a);
+          mb.fq(x1 - 0.3, 2.7, zf, x0 + 0.3, 2.7, zf, x0 + 0.3, 3.1, zw, x1 - 0.3, 3.1, zw, M.PLAIN, shade(ac, 0.7), a);
+        }
+        mb.wq(x0 + 0.3, x1 - 0.3, 2.45, 2.7, zf, fs, ac, M.PLAIN, a);
+      }
       if ((r.hash >>> 17) % 3) mb.cbox(f.x, 3.3, fz + fs * 0.15, Math.min(5, w - 2), 0.8, 0.25, sign, M.LIGHT, a);
       mb.cast = true;
     }
-    if (top > base) mb.box(x0, base, z0, x1, top, z1, r.wall, roofC, r.mat, a, base / FLOOR_H);
+    if (top > base) mb.box(x0, base, z0, x1, top, z1, r.wall, roofC, r.mat, aw, base / FLOOR_H);
     let roofTop = top;
     const crown = tower && r.floors >= 45 ? 5 : r.crown;
     if (crown === 1) {
       const t2 = top + 3 * FLOOR_H;
-      mb.box(x0 + 1.4, top, z0 + (tower ? 2.5 : 1.4), x1 - 1.4, t2, z1 - (tower ? 2.5 : 1.4), shade(r.wall, 1.06), roofC, r.mat, a, r.floors);
+      mb.box(x0 + 1.4, top, z0 + (tower ? 2.5 : 1.4), x1 - 1.4, t2, z1 - (tower ? 2.5 : 1.4), shade(r.wall, 1.06), roofC, r.mat, aw, r.floors);
       roofTop = t2;
     } else if (crown === 2 && tower) {
       mb.cbox(f.x, top, f.z, 0.4, 14, 0.4, 0xd0d4dc, M.METAL, a);
@@ -473,13 +511,13 @@ export function home(mb, bx, bz, f, r, lod) {
       mb.gable(x0, z0, x1, z1, top, 4, 0xb8bec8, shade(r.wall, 0.95), a, false);
     } else if (crown === 4 && tower) {
       const t2 = top + 2 * FLOOR_H, t3 = t2 + 2 * FLOOR_H;
-      mb.box(x0 + 0.8, top, z0 + 1.6, x1 - 0.8, t2, z1 - 1.6, shade(r.wall, 1.08), roofC, r.mat, a, r.floors);
-      mb.box(x0 + 1.8, t2, z0 + 3.4, x1 - 1.8, t3, z1 - 3.4, shade(r.wall, 1.16), 0xd0d4dc, r.mat, a, r.floors + 2);
+      mb.box(x0 + 0.8, top, z0 + 1.6, x1 - 0.8, t2, z1 - 1.6, shade(r.wall, 1.08), roofC, r.mat, aw, r.floors);
+      mb.box(x0 + 1.8, t2, z0 + 3.4, x1 - 1.8, t3, z1 - 3.4, shade(r.wall, 1.16), 0xd0d4dc, r.mat, aw, r.floors + 2);
       roofTop = t3;
     } else if (crown === 5) {
       // signature tower: stepped crown, a lit glass lantern and a spire
       const t2 = top + 3 * FLOOR_H, t3 = t2 + 3 * FLOOR_H;
-      mb.box(x0 + 1, top, z0 + 2, x1 - 1, t2, z1 - 2, shade(r.wall, 1.1), roofC, r.mat, a, r.floors);
+      mb.box(x0 + 1, top, z0 + 2, x1 - 1, t2, z1 - 2, shade(r.wall, 1.1), roofC, r.mat, aw, r.floors);
       mb.box(x0 + 2.2, t2, z0 + 4.5, x1 - 2.2, t3, z1 - 4.5, 0xffc878, 0xd0d4dc, M.LIGHT, a);
       mb.cyl(f.x, t3, f.z, 1.2, t3 + 22, 0.15, 6, 0xe8ebf0, M.METAL, a, false);
       mb.cbox(f.x, t3 + 21.5, f.z, 0.8, 0.8, 0.8, 0xff3030, M.LIGHT, a);
@@ -501,7 +539,7 @@ export function home(mb, bx, bz, f, r, lod) {
       if (r.crown === 0 && !tower) mb.cyl(f.x - ux * 0.8, roofTop, f.z - uz - 1, 1.1, roofTop + 2.6, 1.1, 6, 0xc9c4ba, M.PLAIN, a);
       mb.cast = true;
     }
-    if (r.top) shape(mb, r.shape, f.x, roofTop, f.z, tower ? 0.85 : 0.75, r.color, a, lod);
+    if (r.top) shape(mb, r.shape, f.x, roofTop, f.z, tower ? 0.85 : 0.75, r.color, a & 0xfc, lod);
     if (!tower && !lod) {
       // Tokyo-style street face: a vertical lit sign, balconies and air-conditioner boxes
       mb.cast = false;
@@ -510,8 +548,7 @@ export function home(mb, bx, bz, f, r, lod) {
         const bz0 = f.face < 0 ? z0 - 1.0 : z1, bz1 = bz0 + 1.0;
         for (let fl = 2; fl < r.floors; fl++) mb.box(x0 + 1.2, fl * FLOOR_H - 0.1, bz0, x1 - 1.2, fl * FLOOR_H + 0.08, bz1, 0xe8e6e0, 0xe8e6e0, M.PLAIN, a);
       }
-      const sx = (r.hash & 1) ? x0 - 0.2 : x1 + 0.2;
-      for (let i = 0; i < 2; i++) mb.cbox(sx, FLOOR_H * (2 + i * 2) + 0.5, f.z + (i ? 1.5 : -1.5), 0.4, 0.6, 0.8, 0xd8d8d4, M.METAL, a);
+      for (let i = 0; i < 2; i++) mb.cbox(i ? x1 - 1.4 : x0 + 1.4, FLOOR_H * (2 + i * 2) + 0.3, fz + fs * 0.25, 0.8, 0.6, 0.4, 0xd8d8d4, M.METAL, a);
       mb.cast = true;
     }
   }
@@ -542,6 +579,17 @@ export function buildChunk(L, cx, cz, lod, customs, lite = false) {
           plotFrame(bx, bz, s, zone, f);
           const spec = cus ? cus[lineIndex(bx, bz, s)] : null;
           home(mb, bx, bz, f, recipe(bx, bz, s, zone, spec), lod);
+        }
+        if (!lod && !LITE && zone <= 1) {
+          for (let s = 0; s < occ; s++) {
+            const hc = hash3(bx, bz, s + 300);
+            if (hc % 3) continue;
+            plotFrame(bx, bz, s, zone, f);
+            const fs = f.face < 0 ? -1 : 1, cz = f.z + fs * (f.d / 2 + 1.3), cx = f.x + ((hc >>> 4) % 5 - 2) * 0.6;
+            const cc = CARS[(hc >>> 8) % CARS.length];
+            mb.cbox(cx, 0.25, cz, 4.2, 0.75, 1.8, cc, M.METAL, hc & 255);
+            mb.cbox(cx - 0.3, 1.0, cz, 2.3, 0.6, 1.6, 0x2b3240, M.GLASS, hc & 255);
+          }
         }
         if (!lod) {
           if (zone <= 1) {
@@ -657,6 +705,7 @@ function plaza(mb, X, Z, lod) {
   }
 }
 
+const CARS = [0xe8e8e8, 0x2b2b2b, 0x9aa3ad, 0x7e2d2d, 0x2f4d7a, 0xd9d4c8, 0x4f5a4a];
 const ACCENT_SIGN = [0xff5d8f, 0x3ad6ff, 0xffd23f, 0x7dff9a, 0xff8a3d, 0xc58bff];
 const BOX_COLS = [0xd8563b, 0x2a6fb5, 0xf0a030, 0x2a9d6f, 0x1fb5ad, 0xc2304f, 0x7b4b94, 0xe8e4dc];
 function port(mb, L, bx, bz, X, Z, lod) {
@@ -732,13 +781,16 @@ export function ships() {
 const SHIPS = ships();
 
 // ---------- skyline: one mesh per data region, tall buildings as boxes ----------
-export function buildSkyline(L, rx, rz) {
-  const ox = (rx * REGION + 7.5) * PITCH, oz = (rz * REGION + 7.5) * PITCH;
-  const mb = new MB(ox, oz, 1024);
+// Skyline tile = 2x2 data regions (32x32 blocks, ~1.5 km), stored at 1/32 m so it fits int16.
+export const SKY = 2 * REGION;
+export function buildSkyline(L, sx, sz) {
+  const ox = (sx * SKY + SKY / 2 - 0.5) * PITCH, oz = (sz * SKY + SKY / 2 - 0.5) * PITCH;
+  const mb = new MB(ox, oz, 4096);
+  mb.sc = 32;
   const f = F;
   mb.flag = TALL;
-  for (let j = 0; j < REGION; j++) for (let i = 0; i < REGION; i++) {
-    const bx = rx * REGION + i, bz = rz * REGION + j;
+  for (let j = 0; j < SKY; j++) for (let i = 0; i < SKY; i++) {
+    const bx = sx * SKY + i, bz = sz * SKY + j;
     if (bx === 0 && bz === 0) {
       const X = 0, Z = 0;
       mb.box(X - 7, 0, Z - 7, X + 7, 12, Z + 7, 0xf2efe8, 0xcfd3da, M.WIN, 7);
@@ -756,17 +808,17 @@ export function buildSkyline(L, rx, rz) {
       if (r.height < 6 * FLOOR_H) continue;
       plotFrame(bx, bz, s, zone, f);
       const top = r.floors * FLOOR_H;
-      mb.box(f.x - r.w / 2, 0, f.z - r.d / 2, f.x + r.w / 2, top, f.z + r.d / 2, r.wall, 0x8d9199, r.mat, r.hash & 255);
+      mb.box(f.x - r.w / 2, 0, f.z - r.d / 2, f.x + r.w / 2, top, f.z + r.d / 2, r.wall, 0x8d9199, r.mat, (r.hash & 0xfc) | (zone === 3 ? 0 : 3));
       const sig = zone === 3 && r.floors >= 45;
-      if (r.crown === 1 && !sig) mb.box(f.x - r.w / 2 + 1.4, top, f.z - r.d / 2 + 2, f.x + r.w / 2 - 1.4, top + 3 * FLOOR_H, f.z + r.d / 2 - 2, r.wall, 0x8d9199, r.mat, r.hash & 255, r.floors);
+      if (r.crown === 1 && !sig) mb.box(f.x - r.w / 2 + 1.4, top, f.z - r.d / 2 + 2, f.x + r.w / 2 - 1.4, top + 3 * FLOOR_H, f.z + r.d / 2 - 2, r.wall, 0x8d9199, r.mat, (r.hash & 0xfc) | (zone === 3 ? 0 : 3), r.floors);
       if (top >= 30 * FLOOR_H && !sig) mb.cbox(f.x - r.w / 2 + 0.4, top, f.z - r.d / 2 + 0.4, 0.9, 0.9, 0.9, 0xff3030, M.LIGHT, r.hash & 255);
       if (sig) {
-        mb.box(f.x - r.w / 2 + 1, top, f.z - r.d / 2 + 2, f.x + r.w / 2 - 1, top + 3 * FLOOR_H, f.z + r.d / 2 - 2, r.wall, 0x8d9199, r.mat, r.hash & 255, r.floors);
+        mb.box(f.x - r.w / 2 + 1, top, f.z - r.d / 2 + 2, f.x + r.w / 2 - 1, top + 3 * FLOOR_H, f.z + r.d / 2 - 2, r.wall, 0x8d9199, r.mat, (r.hash & 0xfc) | (zone === 3 ? 0 : 3), r.floors);
         mb.box(f.x - r.w / 2 + 2.2, top + 3 * FLOOR_H, f.z - r.d / 2 + 4.5, f.x + r.w / 2 - 2.2, top + 6 * FLOOR_H, f.z + r.d / 2 - 4.5, 0xffc878, 0xd0d4dc, M.LIGHT, r.hash & 255);
         mb.cyl(f.x, top + 6 * FLOOR_H, f.z, 1.2, top + 6 * FLOOR_H + 22, 0.15, 4, 0xe8ebf0, M.METAL, r.hash & 255, false);
       } else if (r.crown === 2 && zone === 3) mb.cbox(f.x, top, f.z, 0.5, 14, 0.5, 0xd0d4dc, M.METAL, r.hash & 255);
       else if (r.crown === 3 && zone === 3) mb.gable(f.x - r.w / 2, f.z - r.d / 2, f.x + r.w / 2, f.z + r.d / 2, top, 4, 0xb8bec8, shade(r.wall, 0.95), r.hash & 255, false);
-      else if (r.crown === 4 && zone === 3) mb.box(f.x - r.w / 2 + 0.8, top, f.z - r.d / 2 + 1.6, f.x + r.w / 2 - 0.8, top + 4 * FLOOR_H, f.z + r.d / 2 - 1.6, r.wall, 0x8d9199, r.mat, r.hash & 255, r.floors);
+      else if (r.crown === 4 && zone === 3) mb.box(f.x - r.w / 2 + 0.8, top, f.z - r.d / 2 + 1.6, f.x + r.w / 2 - 0.8, top + 4 * FLOOR_H, f.z + r.d / 2 - 1.6, r.wall, 0x8d9199, r.mat, (r.hash & 0xfc) | (zone === 3 ? 0 : 3), r.floors);
     }
   }
   return mb.finish();

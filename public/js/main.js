@@ -3,7 +3,7 @@ import {
   PITCH, CHUNK, REGION, FLOOR_H, K, fdiv, finishLayout, plotOf, plotFrame, recipe, zoneLevel, cellKind, kindAt,
   occupied, slotAt, plotIndex, homeRect, regionKey, regionOf, lineIndex, normName, shardFor,
 } from './town.js';
-import { MB, M } from './mesher.js';
+import { MB, M, SKY } from './mesher.js';
 import { GEO_VS, GEO_FS, SHADOW_VS, SHADOW_FS, FULL_VS, FULL_FS } from './shaders.js';
 
 const $ = (s) => document.querySelector(s);
@@ -190,7 +190,7 @@ function onLayout(lt, ground) {
   tallRegions = new Set(['0_0']);
   for (let i = 0; i < L.count; i++) {
     const bx = L.blocks[2 * i], bz = L.blocks[2 * i + 1];
-    if (zoneLevel(bx, bz) >= 2) tallRegions.add(regionKey(regionOf(bx), regionOf(bz)));
+    if (zoneLevel(bx, bz) >= 2) tallRegions.add(regionKey(fdiv(bx, SKY), fdiv(bz, SKY)));
   }
   if (old && layoutStage) flushChanged(old, layoutStage.oldC);
   layoutStage = null;
@@ -288,16 +288,16 @@ function stream(now) {
       release(c.g); chunks.delete(key);
     }
   }
-  // skyline regions
-  const R = REGION * PITCH;
+  // skyline tiles (2x2 data regions each)
+  const R = SKY * PITCH;
   const rn = Math.ceil(rs / R) + 1;
   const crx = Math.floor((cam.x + 24) / R), crz = Math.floor((cam.z + 24) / R);
-  const lim = Math.ceil((L.rB + 2) / REGION);
+  const lim = Math.ceil((L.rB + 2) / SKY);
   const sseen = new Set();
   for (let dz = -rn; dz <= rn; dz++) for (let dx = -rn; dx <= rn; dx++) {
     const rx = crx + dx, rz = crz + dz;
     if (Math.abs(rx) > lim || Math.abs(rz) > lim || !tallRegions.has(regionKey(rx, rz))) continue;
-    const ox = (rx * REGION + 7.5) * PITCH, oz = (rz * REGION + 7.5) * PITCH;
+    const ox = (rx * SKY + SKY / 2 - 0.5) * PITCH, oz = (rz * SKY + SKY / 2 - 0.5) * PITCH;
     const dh = Math.max(0, Math.hypot(ox - cam.x, oz - cam.z) - R * 0.7);
     const d = Math.hypot(dh, cam.y);
     if (d > rs || Math.hypot(dh + R * 1.4, cam.y) < r1 * 0.72) continue;
@@ -413,12 +413,12 @@ function render(now) {
     tris += c.g.n / 3; draws++;
     if (Math.hypot(ox - cam.x, oz - cam.z) < shadowR) drawn.push(c);
   }
-  gl.uniform4f(geo.u.uLod, fadeA, fadeB, 1, 0);
-  const RS = REGION * PITCH * 0.75;
+  gl.uniform4f(geo.u.uLod, fadeA, fadeB, 1, 2);    // skyline tiles are stored at 1/32 m
+  const RS = SKY * PITCH * 0.75;
   for (const s of [...skies.values()].filter((x) => x.g).sort((a, b) => a.d - b.d)) {
     bytes += s.g.bytes;
-    const ox = (s.rx * REGION + 7.5) * PITCH, oz = (s.rz * REGION + 7.5) * PITCH;
-    const hy = s.g.ymax / 2;
+    const ox = (s.rx * SKY + SKY / 2 - 0.5) * PITCH, oz = (s.rz * SKY + SKY / 2 - 0.5) * PITCH;
+    const hy = s.g.ymax * 0.5;
     if (!inFrustum(PL, ox, hy, oz, Math.hypot(RS, hy))) continue;
     if (Math.hypot(Math.hypot(ox - cam.x, oz - cam.z) + RS, cam.y) < fadeA) continue;
     gl.uniform3f(geo.u.uOrigin, ox, 0, oz);

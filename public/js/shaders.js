@@ -9,12 +9,12 @@ uniform float uFogD, uNight, uTime;
 uniform vec3 uCam;
 // ACES filmic fit: rich mid-tones, highlights roll off instead of clipping to neon
 vec3 tone(vec3 x) {
-  x *= 1.05;
+  x *= 0.9;
   x = clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
   return clamp(mix(vec3(dot(x, vec3(0.3, 0.59, 0.11))), x, 1.18), 0.0, 1.0);   // keep it vibrant after the curve
 }
 vec3 fogMix(vec3 col, vec3 dir, float dist) {
-  float f = 1.0 - exp(-pow(dist / uFogD, 1.6));
+  float f = 1.0 - exp(-pow(dist / (uFogD * 1.4), 1.6));
   float s = pow(max(dot(dir, uSunDir), 0.0), 6.0);
   vec3 fc = uFogCol + uSunCol * s * 0.25 * (1.0 - uNight);
   return mix(col, fc, clamp(f, 0.0, 1.0));
@@ -64,11 +64,13 @@ void main() {
   vec3 V = vW - uCam; float dist = length(V); vec3 dir = V / dist;
   float sun = max(dot(n, uSunDir), 0.0);
   float hemi = 0.5 + 0.5 * n.y;
-  vec3 amb = mix(uGndCol, uSkyCol, hemi);
+  vec3 amb = mix(uGndCol, uSkyCol, hemi) * vec3(0.88, 0.93, 1.08);          // shade is cool
+  float sunset = clamp(1.0 - uSunDir.y * 2.2, 0.0, 1.0) * (1.0 - uNight);
+  vec3 key = uSunCol * mix(vec3(1.0), vec3(1.25, 0.95, 0.7), sunset);        // low sun is warm
   // contact + canyon occlusion: walls darken toward the street, tall city walls more so
   float wall = 1.0 - abs(n.y);
   float ao = mix(1.0, mix(0.62, 1.0, smoothstep(0.0, 4.0 + 10.0 * float(vMat == 5), vW.y)), wall);
-  vec3 col = base * (amb * ao + uSunCol * sun * mix(1.0, 0.85, wall));
+  vec3 col = base * (amb * ao + key * sun * mix(1.0, 0.85, wall));
   vec3 emis = vec3(0.0);
   uint seedAll = uint(vCol.a * 255.0 + 0.5);
   if (vMat == 1 || vMat == 5) {
@@ -81,6 +83,9 @@ void main() {
     float k = clamp(1.4 - max(w.x, w.y) * 1.7, 0.0, 1.0);               // fade detail at distance: no moire
     uint style = glass > 0.5 ? 0u : (seedAll & 3u);
     uint seed = seedAll >> 2;
+    float my0Panel = 0.3;
+    // tower facade type: 0 ribbon glass, 1 vertical fins, 2 stone grid, 3 warm bronze
+    uint facade = glass > 0.5 ? (seed & 3u) : 9u;
     // wall surface detail (residential): lap siding, brick courses, plinth, floor bands
     if (glass < 0.5) {
       float kd = clamp(1.2 - fwidth(vW.y) * 6.0, 0.0, 1.0);
@@ -91,12 +96,15 @@ void main() {
         col = mix(col, col * 0.75 + vec3(0.16, 0.15, 0.14), mort * 0.5 * kd);
         col *= 0.94 + 0.12 * fract(sin(row * 12.9 + floor(u / 0.6 + row * 0.5) * 78.2) * 437.5) * kd;
       }
+      if (style == 3u) col *= mix(1.0, 0.88, (1.0 - smoothstep(my0Panel - 0.02, my0Panel, f.y)) * k);   // spandrel panels
       col *= mix(0.7, 1.0, smoothstep(0.42, 0.48, vW.y));                // darker plinth
       col *= 1.0 - 0.1 * smoothstep(0.93, 0.99, f.y) * k;                 // floor line / eave shadow
     }
     // window opening in the cell (cell units): glass rect, frame band, mullions, sill
     vec2 fw = vec2(0.07 / sp, 0.07 / 3.2);
     float mx = mix(0.25, 0.06, glass), my0 = mix(0.3, 0.1, glass), my1 = mix(0.8, 0.94, glass);
+    if (facade == 1u) { mx = 0.16; my0 = 0.02; my1 = 0.98; }            // fins: tall slots between dark mullions
+    if (facade == 2u) { mx = 0.22; my0 = 0.25; my1 = 0.8; }             // stone grid: punched windows
     #define RECT(lo, hi) (smoothstep(lo.x - w.x, lo.x + w.x, f.x) * (1.0 - smoothstep(hi.x - w.x, hi.x + w.x, f.x)) * smoothstep(lo.y - w.y, lo.y + w.y, f.y) * (1.0 - smoothstep(hi.y - w.y, hi.y + w.y, f.y)))
     vec2 glo = vec2(mx, my0), ghi = vec2(1.0 - mx, my1);
     float frame = RECT((glo - fw), (ghi + fw));
@@ -111,23 +119,30 @@ void main() {
     frame = frame * k * step(0.3, v);
     // glass: dark at the bottom, sky at the top, sun glint; some curtains; lintel shadow
     vec3 refl = mix(vec3(0.15, 0.2, 0.25), mix(vec3(0.49, 0.59, 0.69), uSkyHor, 0.4), fy);
+    if (facade == 3u) refl *= vec3(1.05, 0.85, 0.62);                    // bronze glass
+    if (facade == 1u) refl *= 0.7;
     refl = mix(refl, uSkyHor * 0.8, glass * 0.3 * (1.0 - abs(dir.y)));
     refl += uSunCol * pow(max(dot(reflect(dir, n), uSunDir), 0.0), 40.0) * mix(0.4, 0.8, glass);
     uint face = uint(dot(step(0.5, abs(n)), vec3(1.0, 2.0, 3.0)) + 3.0 * step(0.0, n.x + n.z));
     uint cell = ih(uint(int(floor(g.x)) + 4096) * 7919u + uint(int(floor(g.y)) + 64) * 104729u + seed * 2654435761u + face * 40503u);
-    if (glass < 0.5 && (cell >> 12u) % 5u == 0u) refl = mix(refl, vec3(0.91, 0.86, 0.78) * 0.8 * (amb + uSunCol * 0.3), step(fy, 0.55) * k);
+    // fake reveal: the top and one side of each pane sit in shadow
+    refl *= 1.0 - 0.35 * k * max(smoothstep(0.86, 0.92, fy), (1.0 - smoothstep(0.0, 0.12, (f.x - mx) / (1.0 - 2.0 * mx))) * step(0.0, dot(n, uSunDir)));
+    if (glass < 0.5 && (cell >> 12u) % 8u == 0u) refl = mix(refl, vec3(0.91, 0.86, 0.78) * 0.8 * (amb + uSunCol * 0.3), step(fy, 0.55) * k);
     refl *= mix(1.0, 0.6, smoothstep(0.86, 0.9, fy) * k);
     float share = 30.0 + float(ih(seed * 31u + 7u) % 120u);           // 12%..59% of windows lit
+    float towerGlow = glass > 0.5 ? 0.25 + 1.5 * float(ih(seed * 77u + 3u) & 255u) / 255.0 : 1.0;
     float lit = mix(share / 256.0, float(float(cell & 255u) < share), k);
     vec3 warm = mix(vec3(1.0, 0.7, 0.38), vec3(0.8, 0.88, 1.0), float((cell >> 8u & 7u) == 0u) * k);
     vec3 body = mix(col, col * 0.85 + refl * 0.1, glass);
+    if (facade == 1u) body = mix(body, vec3(0.17, 0.2, 0.25) * (amb + key * 0.4), 0.8);   // dark fins
+    if (facade == 2u) body = vec3(0.85, 0.8, 0.7) * (amb * ao + key * max(dot(n, uSunDir), 0.0) * 0.85);   // stone
     vec3 frameC = mix(vec3(0.95, 0.93, 0.9), vec3(0.75, 0.78, 0.8), glass) * (amb * 0.9 + uSunCol * max(dot(n, uSunDir), 0.0) * 0.8);
     col = mix(body, frameC, max(frame - pane, sill * k));
     vec3 paneC = mix(refl * (0.55 + 0.45 * (1.0 - uNight)), frameC, mull * k);
     col = mix(col, paneC, pane * (0.9 + 0.1 * glass));
     if (glass > 0.5) col = mix(col, col * 0.75 + refl * 0.25, 1.0 - pane);
     // far away the windows merge, so the glow stays a little brighter and whiter to stay readable
-    emis = mix(vec3(1.0, 0.78, 0.45), warm, k) * lit * pane * (1.0 - mull * k) * smoothstep(0.05, 0.6, uNight) * mix(0.7, 1.05, k) * mix(1.0, 1.25 - 0.45 * fy, k);
+    emis = mix(vec3(1.0, 0.78, 0.45), warm, k) * lit * pane * (1.0 - mull * k) * smoothstep(0.05, 0.6, uNight) * mix(0.7 * towerGlow, 1.05, k) * mix(1.0, 1.25 - 0.45 * fy, k);
   } else if (vMat == 7) {
     // roof tiles: courses along the slope, darker eaves, faded with distance
     float kt = clamp(1.2 - fwidth(vW.y) * 5.0, 0.0, 1.0);
@@ -137,8 +152,14 @@ void main() {
     col += base * 0.18 * sun;                                             // leaves glow a bit in the sun
   } else if (vMat == 4) {
     // pale lamps and lanterns look like frosted glass by day; coloured lights (pin, signs) keep their colour
-    float pale = smoothstep(0.7, 0.8, dot(base, vec3(0.3, 0.5, 0.2)));
-    col = mix(base, vec3(0.92, 0.93, 0.95), (1.0 - uNight) * pale) * mix(1.0, 0.65, pale);
+    float sat = max(base.r, max(base.g, base.b)) - min(base.r, min(base.g, base.b));
+    float pale = smoothstep(0.7, 0.8, dot(base, vec3(0.3, 0.5, 0.2))) * (1.0 - smoothstep(0.25, 0.4, sat));
+    if (sat > 0.3) {                                   // signs: bars of 'lettering'
+      float gx = fract(vUV.x / 8.0 / 0.42), gy = fract(vW.y / 0.32);
+      float glyph = step(0.25, gx) * step(gx, 0.8) * step(0.3, gy) * step(gy, 0.75) * step(0.5, fract(sin(floor(vUV.x / 8.0 / 0.42) * 91.7) * 43.1));
+      base = mix(base, vec3(1.0), glyph * 0.65 * clamp(1.2 - fwidth(vW.y) * 8.0, 0.0, 1.0));
+    }
+      col = mix(base, vec3(0.92, 0.93, 0.95), (1.0 - uNight) * pale) * mix(1.0, 0.65, pale) * mix(1.0, 0.8, sat);
     emis = base * vec3(1.0, 0.85, 0.6) * 1.4 * uNight;
   } else if (vMat == 3) {
     col += uSunCol * pow(max(dot(reflect(dir, n), uSunDir), 0.0), 24.0) * 0.35;
@@ -288,6 +309,7 @@ vec3 blockCol(uvec4 c, int bx, int bz, vec2 l, vec2 p, float t, float w, vec3 gr
   if (k == 0u) {
     int zone = int(c.g & 3u);
     vec3 lot = zone == 0 ? grass : (zone == 1 ? mix(grass, vec3(0.75, 0.72, 0.66), 0.55) : vec3(0.72, 0.71, 0.69));
+    lot *= mix(vec3(1.0), vec3(float((c.b * 37u) & 15u) / 15.0 * 0.1 + 0.95), float(zone >= 2));
     if ((c.g & 4u) != 0u && t > uFar.x * 0.95) {
       // painted roofs far away (the meshes have sunk into the ground by now)
       int col = int(clamp(floor((l.x + 20.0) / 10.0), 0.0, 3.0));
@@ -328,6 +350,11 @@ vec3 blockCol(uvec4 c, int bx, int bz, vec2 l, vec2 p, float t, float w, vec3 gr
       vec2 q = abs(l - c0) - vec2(hw, hd * 0.5);
       float dd = length(max(q, 0.0));
       lot *= 1.0 - 0.32 * exp(-dd * 1.2) * step(0.0, max(q.x, q.y));
+      if (zone == 0) lot *= 0.97 + 0.04 * step(0.5, fract(l.x / 1.2)) * (1.0 - smoothstep(0.3, 1.0, w));   // mowing stripes
+      if (uFar.z < 0.5) {                                          // low quality has no shadow pass: paint one
+        vec2 qs = abs(l - c0 + uFar.w * vec2(0.6, 0.4)) - vec2(hw, hd * 0.5);
+        lot *= 1.0 - 0.3 * (1.0 - smoothstep(-0.3, 0.6, max(qs.x, qs.y))) * step(0.0, max(q.x, q.y));
+      }
       if (zone == 0) {
         float dx = fx + ((h & 8u) != 0u ? 1.5 : -1.5);
         float along = (l.y - zf) * face;                             // 0 at the wall, 3 at the sidewalk
@@ -400,7 +427,11 @@ vec4 groundBase(vec2 p, vec3 dir, float t, float w) {
   uvec4 c = cellAt(bx, bz);
   uint k = c.r;
   vec3 grass = vec3(0.33, 0.55, 0.24);
-  if (uFar.z > 0.5) grass *= 0.9 + 0.2 * vnoise(p * 0.05);
+  if (uFar.z > 0.5) grass = mix(grass, vec3(0.37, 0.49, 0.23), vnoise(p * 0.033)) * (0.92 + 0.16 * vnoise(p * 0.11));
+  // district tint (10x10 blocks) so the far field isn't one flat colour
+  uint dh = hash3(fdiv(bx, 10), fdiv(bz, 10), 57);
+  vec3 tint = mix(vec3(1.06, 1.0, 0.9), vec3(0.94, 0.98, 1.06), float(dh & 255u) / 255.0);
+  grass *= tint;
   if (k == 9u) return bx >= int(uTown.w) ? vec4(water(p, dir, t, vec3(0.08, 0.38, 0.55)), 1.0) : bayCol(p, dir, t, w, grass);
   if (k == 3u) return vec4(water(p, dir, t, RIVERC), 1.0);
   if (k == 4u) return riverCol(p, dir, t, w, grass);
@@ -495,7 +526,7 @@ void main() {
         vec3 lc = mix(vec3(1.0, 0.7, 0.4), vec3(0.95, 0.9, 0.8), float(lh & 1u));
         // from altitude the pools merge into a soft street glow instead of a polka-dot grid
         float pool = mix(1.0 - exp(-lamp * (0.5 + 0.3 * float((lh >> 1u) & 3u) / 3.0)), 0.12 * uNight, smoothstep(1.5, 6.0, w));
-        col += lc * 0.75 * pool;
+        col += mix(lc, vec3(1.0, 0.72, 0.42), 0.5) * 0.75 * min(pool, 0.6);
       }
     }
   } else col *= 1.0 - 0.6 * uNight;

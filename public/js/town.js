@@ -149,7 +149,7 @@ export const TOWN = [0xa4553f, 0x8e4a3a, 0xc07a55, 0xe6dccb, 0x6b4a3e, 0xd9cfbd]
 export const ROOF = [0xb4533a, 0x4b5663, 0x3a3e45, 0x5e7a48, 0x3f8c84, 0x9a3c31, 0x7a5638, 0x2f4d7a];
 export const CITY = [0xd9d6cf, 0xc3c7cc, 0xe8dcc6, 0xb7beca, 0xf2efe8, 0xcfc2b0];
 export const ACCENT = [0xff6b6b, 0x1fb5ad, 0xffb627, 0x6c63ff, 0x2ec27e, 0xff8fb1];
-export const GLASS = [0x5d8fb3, 0x3fa0a8, 0x2f4a72, 0xa9c2d8, 0xc0915a, 0x4f9a72, 0xe2e6ec, 0x7a6aa0, 0xd8a878, 0x355f8f];
+export const GLASS = [0x5d8fb3, 0x3fa0a8, 0x2f4a72, 0xa9c2d8, 0xc0915a, 0x4f9a72, 0xe2e6ec, 0x1f2a3a, 0x8a6a4a, 0x355f8f, 0x2c3f4f, 0xd9cbb3];
 
 export const SHAPES = ['mushroom', 'dome', 'castle', 'pyramid', 'ufo', 'treehouse', 'lighthouse', 'igloo', 'rocket', 'cube'];
 export const GARDEN = ['fountain', 'pool', 'flowers', 'tree', 'car', 'trampoline', 'statue', 'bench', 'swing', 'pond', 'palm', 'tent'];
@@ -172,7 +172,7 @@ export function recipe(bx, bz, slot, zone, custom) {
   } else if (zone === 1) {
     r.floors = 2 + (h % 3);
     r.w = 9.4; r.d = 12 + ((h >>> 4) % 7) * 0.5;
-    r.roofType = (h >>> 8) % 4 === 0 ? 0 : 2;
+    r.roofType = (h >>> 8) % 20 < 13 ? 0 : 2;     // 65% gables, 35% flat with a parapet
     const ti = (h >>> 11) % 6;
     r.wall = TOWN[ti];
     r.style = ti < 3 || ti === 4 ? 2 : 0;     // 2 = brick
@@ -199,11 +199,19 @@ export function recipe(bx, bz, slot, zone, custom) {
   if (custom) {
     if (zone >= 2) r.top = true;
     r.shape = SHAPES.includes(custom.shape) ? custom.shape : 'cube';
-    r.color = parseColor(custom.color, ACCENT[h % ACCENT.length]);
+    r.color = soften(parseColor(custom.color, ACCENT[h % ACCENT.length]));
     if (Array.isArray(custom.garden)) r.garden = custom.garden.filter((g) => GARDEN.includes(g)).slice(0, 4);
   }
   r.height = zone >= 2 || !r.shape || r.top ? r.floors * FLOOR_H : 0;
   return r;
+}
+
+// Custom colours are owner-chosen and often neon: cap saturation and brightness so they sit in the palette.
+export function soften(c) {
+  const r = ((c >> 16) & 255) / 255, g = ((c >> 8) & 255) / 255, b = (c & 255) / 255;
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), v = Math.min(mx, 0.82), sat = mx > 0 ? Math.min((mx - mn) / mx, 0.45) : 0;
+  const f = (x) => { const s0 = mx > mn ? (mx - x) / (mx - mn) : 0; return Math.round((v * (1 - sat * s0)) * 255); };
+  return (f(r) << 16) | (f(g) << 8) | f(b);
 }
 
 export function blend(a, b, t) {
@@ -221,26 +229,42 @@ export function parseColor(s, dflt) {
 // Follower #n gets plot #n forever (append-only growth).
 
 export function buildLayout(n) {
+  // Counting sort by squared distance into typed arrays (no per-block JS objects), ties by
+  // (hash, bx, bz) inside each distance bucket. Same order as a full comparison sort.
   let R = Math.ceil(Math.sqrt(Math.max(n, 1) / (8 * 0.5) / Math.PI)) + 4;
   for (;;) {
-    const R2 = R * R;
-    const cand = [];
+    const R2 = R * R, cap = Math.ceil(Math.PI * R2 + 8 * R + 16);
+    const cbx = new Int16Array(cap), cbz = new Int16Array(cap), cd2 = new Int32Array(cap), ch = new Uint32Array(cap), cp = new Uint8Array(cap);
+    const cnt = new Int32Array(R2 + 2);
+    let N = 0;
     for (let bz = -R; bz <= R; bz++) for (let bx = -R; bx <= R; bx++) {
       const d2 = bx * bx + bz * bz;
       if (d2 > R2) continue;
       const p = plotsIn(bx, bz);
-      if (p) cand.push([d2, hash3(bx, bz, 77), bx, bz, p]);
+      if (!p) continue;
+      cbx[N] = bx; cbz[N] = bz; cd2[N] = d2; ch[N] = hash3(bx, bz, 77); cp[N] = p; N++;
+      cnt[d2 + 1]++;
     }
-    cand.sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2] || a[3] - b[3]);
+    for (let i = 1; i <= R2 + 1; i++) cnt[i] += cnt[i - 1];
+    const ord = new Int32Array(N), fill = cnt.slice(0, R2 + 1);
+    for (let i = 0; i < N; i++) ord[fill[cd2[i]]++] = i;
+    const less = (i, j) => ch[i] !== ch[j] ? ch[i] < ch[j] : cbx[i] !== cbx[j] ? cbx[i] < cbx[j] : cbz[i] < cbz[j];
+    for (let d = 0; d <= R2; d++) {                       // buckets are small: insertion sort
+      for (let i = cnt[d] + 1; i < cnt[d + 1]; i++) {
+        const v = ord[i]; let j = i - 1;
+        while (j >= cnt[d] && less(v, ord[j])) { ord[j + 1] = ord[j]; j--; }
+        ord[j + 1] = v;
+      }
+    }
     let total = 0, count = 0;
-    while (count < cand.length && total < n) total += cand[count++][4];
+    while (count < N && total < n) total += cp[ord[count++]];
     if (total >= n || n === 0) {
       const blocks = new Int32Array(count * 2), start = new Int32Array(count + 1), plots = new Uint8Array(count);
       let acc = 0, maxD2 = 0;
       for (let i = 0; i < count; i++) {
-        const c = cand[i];
-        blocks[2 * i] = c[2]; blocks[2 * i + 1] = c[3]; plots[i] = c[4];
-        start[i] = acc; acc += c[4]; maxD2 = c[0];
+        const c = ord[i];
+        blocks[2 * i] = cbx[c]; blocks[2 * i + 1] = cbz[c]; plots[i] = cp[c];
+        start[i] = acc; acc += cp[c]; maxD2 = cd2[c];
       }
       start[count] = acc;
       return finishLayout({ n, count, blocks, start, plots, maxD2 });
