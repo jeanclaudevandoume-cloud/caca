@@ -7,6 +7,12 @@ const COMMON = /* glsl */ `
 uniform vec3 uSunDir, uSunCol, uSkyCol, uGndCol, uFogCol, uSkyTop, uSkyHor;
 uniform float uFogD, uNight, uTime;
 uniform vec3 uCam;
+// ACES filmic fit: rich mid-tones, highlights roll off instead of clipping to neon
+vec3 tone(vec3 x) {
+  x *= 1.05;
+  x = clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
+  return clamp(mix(vec3(dot(x, vec3(0.3, 0.59, 0.11))), x, 1.18), 0.0, 1.0);   // keep it vibrant after the curve
+}
 vec3 fogMix(vec3 col, vec3 dir, float dist) {
   float f = 1.0 - exp(-pow(dist / uFogD, 1.6));
   float s = pow(max(dot(dir, uSunDir), 0.0), 6.0);
@@ -29,8 +35,9 @@ uniform float uTime;
 out vec3 vW; out vec3 vN; out vec2 vUV; out vec4 vCol; flat out int vMat;
 void main() {
   vec3 p = aPos / 64.0 * (uLod.w > 0.0 ? uLod.w : 1.0) + uOrigin;
-  bool tall = aMat >= 7.5;
-  int mat = int(aMat + 0.5) & 7;
+  int mi = int(aMat + 0.5);
+  bool tall = (mi & 8) != 0;
+  int mat = mi & 7;
   float d = length(p - uCam);
   // tall buildings hand over to the skyline per chunk (same chunk grid as main.js), so every
   // vertex of a building makes the same decision and no slivers appear
@@ -63,6 +70,7 @@ void main() {
   float ao = mix(1.0, mix(0.62, 1.0, smoothstep(0.0, 4.0 + 10.0 * float(vMat == 5), vW.y)), wall);
   vec3 col = base * (amb * ao + uSunCol * sun * mix(1.0, 0.85, wall));
   vec3 emis = vec3(0.0);
+  uint seedAll = uint(vCol.a * 255.0 + 0.5);
   if (vMat == 1 || vMat == 5) {
     float glass = float(vMat == 5);
     float u = vUV.x / 8.0, v = vUV.y / 4.0;
@@ -70,26 +78,61 @@ void main() {
     vec2 g = vec2(u / sp, v);
     vec2 f = fract(g);
     vec2 w = fwidth(g);
-    float k = clamp(1.4 - max(w.x, w.y) * 1.7, 0.0, 1.0);               // fade pattern at distance: no moire
-    float mx = mix(0.22, 0.08, glass), my0 = mix(0.32, 0.12, glass), my1 = mix(0.82, 0.92, glass);
-    float win = smoothstep(mx - w.x, mx + w.x, f.x) * (1.0 - smoothstep(1.0 - mx - w.x, 1.0 - mx + w.x, f.x))
-              * smoothstep(my0 - w.y, my0 + w.y, f.y) * (1.0 - smoothstep(my1 - w.y, my1 + w.y, f.y));
-    float avgWin = mix(0.33, 0.7, glass);
-    win = mix(avgWin, win, k) * step(0.3, v);
-    // day: windows reflect the sky; night: some are lit (each building has its own share)
-    vec3 refl = mix(vec3(0.18, 0.26, 0.36), uSkyHor, 0.35 + 0.35 * (1.0 - abs(dir.y)));
-    refl += uSunCol * pow(max(dot(reflect(dir, n), uSunDir), 0.0), 40.0) * 0.8 * glass;
-    uint seed = uint(vCol.a * 255.0 + 0.5);
+    float k = clamp(1.4 - max(w.x, w.y) * 1.7, 0.0, 1.0);               // fade detail at distance: no moire
+    uint style = glass > 0.5 ? 0u : (seedAll & 3u);
+    uint seed = seedAll >> 2;
+    // wall surface detail (residential): lap siding, brick courses, plinth, floor bands
+    if (glass < 0.5) {
+      float kd = clamp(1.2 - fwidth(vW.y) * 6.0, 0.0, 1.0);
+      if (style == 1u) col *= 1.0 - 0.08 * smoothstep(0.86, 0.96, fract(vW.y / 0.24)) * kd;
+      if (style == 2u) {
+        float row = floor(vW.y / 0.3);
+        float mort = max(1.0 - smoothstep(0.0, 0.1, fract(vW.y / 0.3)), 1.0 - smoothstep(0.0, 0.06, fract(u / 0.6 + row * 0.5)));
+        col = mix(col, col * 0.75 + vec3(0.16, 0.15, 0.14), mort * 0.5 * kd);
+        col *= 0.94 + 0.12 * fract(sin(row * 12.9 + floor(u / 0.6 + row * 0.5) * 78.2) * 437.5) * kd;
+      }
+      col *= mix(0.7, 1.0, smoothstep(0.42, 0.48, vW.y));                // darker plinth
+      col *= 1.0 - 0.1 * smoothstep(0.93, 0.99, f.y) * k;                 // floor line / eave shadow
+    }
+    // window opening in the cell (cell units): glass rect, frame band, mullions, sill
+    vec2 fw = vec2(0.07 / sp, 0.07 / 3.2);
+    float mx = mix(0.25, 0.06, glass), my0 = mix(0.3, 0.1, glass), my1 = mix(0.8, 0.94, glass);
+    #define RECT(lo, hi) (smoothstep(lo.x - w.x, lo.x + w.x, f.x) * (1.0 - smoothstep(hi.x - w.x, hi.x + w.x, f.x)) * smoothstep(lo.y - w.y, lo.y + w.y, f.y) * (1.0 - smoothstep(hi.y - w.y, hi.y + w.y, f.y)))
+    vec2 glo = vec2(mx, my0), ghi = vec2(1.0 - mx, my1);
+    float frame = RECT((glo - fw), (ghi + fw));
+    float pane = RECT(glo, ghi);
+    float fy = clamp((f.y - my0) / (my1 - my0), 0.0, 1.0);
+    // cross mullion (residential only): 5 cm bars at the centre and at 62% height
+    float mull = glass > 0.5 ? 0.0 : max(1.0 - smoothstep(0.025 / sp, 0.025 / sp + w.x, abs(f.x - 0.5)),
+                                          1.0 - smoothstep(0.025 / 3.2, 0.025 / 3.2 + w.y, abs(f.y - mix(my0, my1, 0.62))));
+    float sill = glass > 0.5 ? 0.0 : RECT(vec2(mx - 0.05 / sp, my0 - 0.08 / 3.2 - fw.y), vec2(1.0 - mx + 0.05 / sp, my0 - fw.y));
+    float avgWin = mix(0.33, 0.75, glass);
+    pane = mix(avgWin, pane, k) * step(0.3, v);
+    frame = frame * k * step(0.3, v);
+    // glass: dark at the bottom, sky at the top, sun glint; some curtains; lintel shadow
+    vec3 refl = mix(vec3(0.15, 0.2, 0.25), mix(vec3(0.49, 0.59, 0.69), uSkyHor, 0.4), fy);
+    refl = mix(refl, uSkyHor * 0.8, glass * 0.3 * (1.0 - abs(dir.y)));
+    refl += uSunCol * pow(max(dot(reflect(dir, n), uSunDir), 0.0), 40.0) * mix(0.4, 0.8, glass);
     uint face = uint(dot(step(0.5, abs(n)), vec3(1.0, 2.0, 3.0)) + 3.0 * step(0.0, n.x + n.z));
     uint cell = ih(uint(int(floor(g.x)) + 4096) * 7919u + uint(int(floor(g.y)) + 64) * 104729u + seed * 2654435761u + face * 40503u);
+    if (glass < 0.5 && (cell >> 12u) % 5u == 0u) refl = mix(refl, vec3(0.91, 0.86, 0.78) * 0.8 * (amb + uSunCol * 0.3), step(fy, 0.55) * k);
+    refl *= mix(1.0, 0.6, smoothstep(0.86, 0.9, fy) * k);
     float share = 30.0 + float(ih(seed * 31u + 7u) % 120u);           // 12%..59% of windows lit
     float lit = mix(share / 256.0, float(float(cell & 255u) < share), k);
     vec3 warm = mix(vec3(1.0, 0.7, 0.38), vec3(0.8, 0.88, 1.0), float((cell >> 8u & 7u) == 0u) * k);
-    vec3 body = mix(col, col * 0.92 + refl * 0.08, glass);
-    col = mix(body, refl * (0.55 + 0.45 * (1.0 - uNight)), win * (0.85 + 0.15 * glass));
-    if (glass > 0.5) col = mix(col, col * 0.75 + refl * 0.25, 1.0 - win);
-    // far away the windows merge, so the glow gets a little brighter and whiter to stay readable
-    emis = mix(vec3(1.0, 0.78, 0.45), warm, k) * lit * win * smoothstep(0.05, 0.6, uNight) * mix(0.7, 1.05, k);
+    vec3 body = mix(col, col * 0.85 + refl * 0.1, glass);
+    vec3 frameC = mix(vec3(0.95, 0.93, 0.9), vec3(0.75, 0.78, 0.8), glass) * (amb * 0.9 + uSunCol * max(dot(n, uSunDir), 0.0) * 0.8);
+    col = mix(body, frameC, max(frame - pane, sill * k));
+    vec3 paneC = mix(refl * (0.55 + 0.45 * (1.0 - uNight)), frameC, mull * k);
+    col = mix(col, paneC, pane * (0.9 + 0.1 * glass));
+    if (glass > 0.5) col = mix(col, col * 0.75 + refl * 0.25, 1.0 - pane);
+    // far away the windows merge, so the glow stays a little brighter and whiter to stay readable
+    emis = mix(vec3(1.0, 0.78, 0.45), warm, k) * lit * pane * (1.0 - mull * k) * smoothstep(0.05, 0.6, uNight) * mix(0.7, 1.05, k) * mix(1.0, 1.25 - 0.45 * fy, k);
+  } else if (vMat == 7) {
+    // roof tiles: courses along the slope, darker eaves, faded with distance
+    float kt = clamp(1.2 - fwidth(vW.y) * 5.0, 0.0, 1.0);
+    col *= 1.0 - 0.18 * (1.0 - smoothstep(0.0, 0.25, fract(vW.y / 0.28))) * kt;
+    col *= 0.92 + 0.08 * fract(sin(dot(floor(vW.xz * 1.6), vec2(12.9, 78.2))) * 437.5) * kt;
   } else if (vMat == 2) {
     col += base * 0.18 * sun;                                             // leaves glow a bit in the sun
   } else if (vMat == 4) {
@@ -103,10 +146,10 @@ void main() {
     col = mix(base, uSkyHor, 0.35) + uSunCol * pow(max(dot(reflect(dir, n), uSunDir), 0.0), 60.0);
   }
   // warm rim on edges turned toward a low sun keeps shapes readable at sunset
-  float rim = pow(1.0 - abs(dot(n, dir)), 3.0) * max(dot(n, uSunDir) + 0.2, 0.0) * (1.0 - uSunDir.y) * (1.0 - uNight);
+  float rim = pow(1.0 - abs(dot(n, dir)), 3.0) * max(dot(n, uSunDir) + 0.2, 0.0) * (1.0 - uSunDir.y) * (1.0 - uNight) * float(vMat != 5);
   col += uSunCol * rim * 0.22;
-  col = col * (1.0 - 0.62 * uNight) + emis;
-  o = vec4(fogMix(col, dir, dist), 1.0);
+  col = col * (1.0 - 0.5 * uNight) + emis;
+  o = vec4(tone(fogMix(col, dir, dist)), 1.0);
 }`;
 
 export const SHADOW_VS = /* glsl */ `#version 300 es
@@ -179,8 +222,8 @@ uvec4 cellAt(int bx, int bz) {
 bool isWater(uint k) { return k == 3u || k == 4u || k == 9u; }
 bool countryish(uint k) { return k == 6u || k == 8u || isWater(k); }
 
-const vec3 ROOF[8] = vec3[8](vec3(0.847,0.337,0.231), vec3(0.165,0.616,0.561), vec3(0.239,0.353,0.596), vec3(0.761,0.188,0.31),
-  vec3(0.235,0.553,0.31), vec3(0.482,0.294,0.58), vec3(0.29,0.306,0.353), vec3(0.878,0.627,0.188));
+const vec3 ROOF[8] = vec3[8](vec3(0.706,0.325,0.227), vec3(0.294,0.337,0.388), vec3(0.227,0.243,0.271), vec3(0.369,0.478,0.282),
+  vec3(0.247,0.549,0.518), vec3(0.604,0.235,0.192), vec3(0.478,0.337,0.22), vec3(0.184,0.302,0.478));
 
 uint h2(ivec2 p) { uint h = uint(p.x) * 0x8da6b343u ^ uint(p.y) * 0xd8163841u; h ^= h >> 13u; h *= 0x5bd1e995u; return h ^ (h >> 15u); }
 float vnoise(vec2 p) {
@@ -210,7 +253,7 @@ float riverDist(vec2 p) {
 }
 vec2 cover(vec2 x, vec2 h, float w) { return max(min(x + w * 0.5, h) - max(x - w * 0.5, -h), 0.0) / w; }
 
-const vec3 WALK = vec3(0.78, 0.77, 0.74);
+const vec3 WALK = vec3(0.64, 0.63, 0.60);
 const vec3 RIVERC = vec3(0.1, 0.42, 0.55);
 
 // River block or river crossing: smooth water band with stone edges and grassy banks.
@@ -257,8 +300,8 @@ vec3 blockCol(uvec4 c, int bx, int bz, vec2 l, vec2 p, float t, float w, vec3 gr
       if (zone == 1) c0.y -= face * (10.0 - 1.5 - hs.y);
       vec2 cv = cover(l - c0, hs, max(w, 0.8));
       float inside = cv.x * cv.y;
-      uint rv = hash3(bx, bz, slot * 7 + 100) % 10u;
-      uint ri = rv < 6u ? (c.b & 7u) : rv < 9u ? ((c.b >> 3u) & 7u) : (c.a & 7u);
+      uint rh = hash3(bx, bz, slot * 7 + 100), rv = rh % 100u;
+      uint ri = rv < 45u ? (c.b & 7u) : rv < 80u ? ((c.b >> 3u) & 7u) : ((rh >> 8u) % 8u);
       vec3 roof = zone <= 1 ? ROOF[ri] : vec3(0.6, 0.62, 0.65) * (0.92 + 0.03 * float(ri));
       float fadeIn = smoothstep(uFar.x, uFar.y, t);
       // soft shadow beside each home sells the height from above
@@ -267,13 +310,30 @@ vec3 blockCol(uvec4 c, int bx, int bz, vec2 l, vec2 p, float t, float w, vec3 gr
       lot = mix(lot, roof, inside * fadeIn);
       if (uNight > 0.3) {
         // lit windows seen from far above: a warm speck on some homes
-        float on = float(rv < 4u);
+        float on = float(rv < 40u);
         vec2 wc = cover(l - c0, vec2(1.6), max(w, 0.8));
         lot += vec3(1.0, 0.7, 0.38) * 3.0 * on * uNight * wc.x * wc.y * fadeIn;
       }
-    } else if (zone == 0 && w < 0.6) {
-      float py = mod(l.x + 20.0, 10.0);
-      lot = mix(lot, lot * 0.86, step(abs(py - 10.0 * step(5.0, py)), 0.15));
+    } else if (zone <= 1 && w < 1.5 && (c.g & 4u) != 0u) {
+      // near the camera: a garden path to each front door and contact shadow around each home
+      int col = int(clamp(floor((l.x + 20.0) / 10.0), 0.0, 3.0)), row = l.y < 0.0 ? 0 : 1;
+      int slot = row * 4 + col;
+      uint h = hash3(bx * 16 + slot, bz, 21);
+      float fx = -15.0 + float(col) * 10.0, face = row == 0 ? -1.0 : 1.0;
+      float front = face * 20.0, set = zone == 0 ? 3.0 : 1.5;
+      float hw = zone == 0 ? (6.5 + float((h >> 1u) % 5u) * 0.5) * 0.5 : 4.7;
+      float hd = zone == 0 ? 8.0 + float((h >> 4u) % 7u) * 0.5 : 12.0 + float((h >> 4u) % 7u) * 0.5;
+      float zf = front - face * set, zb = zf - face * hd;            // house front and back wall z
+      vec2 c0 = vec2(fx, (zf + zb) * 0.5);
+      vec2 q = abs(l - c0) - vec2(hw, hd * 0.5);
+      float dd = length(max(q, 0.0));
+      lot *= 1.0 - 0.32 * exp(-dd * 1.2) * step(0.0, max(q.x, q.y));
+      if (zone == 0) {
+        float dx = fx + ((h & 8u) != 0u ? 1.5 : -1.5);
+        float along = (l.y - zf) * face;                             // 0 at the wall, 3 at the sidewalk
+        float path = step(abs(l.x - dx), 0.55) * step(0.0, along) * step(along, set);
+        lot = mix(lot, vec3(0.79, 0.76, 0.71), path * (1.0 - smoothstep(0.6, 1.5, w)));
+      }
     }
     return edge ? mix(WALK, lot, smoothstep(0.5, 3.0, w)) : lot;
   }
@@ -339,7 +399,7 @@ vec4 groundBase(vec2 p, vec3 dir, float t, float w) {
   vec2 al = abs(l);
   uvec4 c = cellAt(bx, bz);
   uint k = c.r;
-  vec3 grass = vec3(0.42, 0.7, 0.3);
+  vec3 grass = vec3(0.33, 0.55, 0.24);
   if (uFar.z > 0.5) grass *= 0.9 + 0.2 * vnoise(p * 0.05);
   if (k == 9u) return bx >= int(uTown.w) ? vec4(water(p, dir, t, vec3(0.08, 0.38, 0.55)), 1.0) : bayCol(p, dir, t, w, grass);
   if (k == 3u) return vec4(water(p, dir, t, RIVERC), 1.0);
@@ -417,7 +477,7 @@ void main() {
   float t = dir.y < -0.0005 ? -uCam.y / dir.y : 1e5;
   vec3 p = uCam + dir * t;
   float w = max(length(dFdx(p.xz)), length(dFdy(p.xz)));
-  if (dir.y > -0.0005) { o = vec4(sky(dir), 1.0); return; }
+  if (dir.y > -0.0005) { o = vec4(tone(sky(dir)), 1.0); return; }
   vec4 g = groundBase(p.xz, dir, t, min(w, 400.0));
   vec3 col = g.rgb;
   if (g.a != 1.0) {
@@ -442,4 +502,5 @@ void main() {
   o = vec4(fogMix(col, dir, t), 1.0);
   // blend into the sky right at the horizon (only those pixels pay for the sky)
   if (dir.y > -0.02) o.rgb = mix(o.rgb, sky(vec3(dir.x, 0.0005, dir.z)), smoothstep(-0.02, -0.0005, dir.y));
+  o.rgb = tone(o.rgb);
 }`;

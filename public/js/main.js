@@ -115,7 +115,7 @@ const PRESETS = { low: { s: 0.55, pr: 1 }, mid: { s: 0.8, pr: 1.5 }, high: { s: 
 const isPhone = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) || Math.min(screen.width, screen.height) < 600;
 const quality = { mode: qParam, ...(qParam === 'high' ? PRESETS.high : qParam === 'low' ? PRESETS.low : isPhone ? PRESETS.low : PRESETS.mid) };
 quality.maxS = quality.s; quality.maxPr = quality.pr;
-const radii = () => ({ r0: 320 * Math.max(0.6, quality.s), r1: 1400 * quality.s, rs: 7000 * quality.s * quality.s });
+const radii = () => ({ r0: 320 * Math.max(0.6, quality.s), r1: 1100 * quality.s, rs: Math.min(5000, 7000 * quality.s * quality.s) });
 const stats = { tris: 0, draws: 0, sky: 0, chunks: 0, mb: 0, fps: 0, ms: 0 };
 let manifest = null, L = null, ready = false;
 const chunks = new Map();     // key -> {cx,cz,lod,g,want,req,seen}
@@ -314,9 +314,9 @@ function stream(now) {
 // ---------------- time of day ----------------
 // keys: 0 noon, 1 sunset, 2 night, 3 dawn (cycle of 4)
 const KEYS = [
-  { top: [0.22, 0.5, 0.93], hor: [0.72, 0.87, 1.0], sun: [1.05, 0.98, 0.88], sky: [0.5, 0.6, 0.78], gnd: [0.42, 0.38, 0.32], fog: [0.75, 0.86, 0.98], el: 0.95, night: 0 },
+  { top: [0.22, 0.5, 0.93], hor: [0.72, 0.87, 1.0], sun: [1.1, 1.0, 0.88], sky: [0.42, 0.52, 0.7], gnd: [0.36, 0.33, 0.28], fog: [0.75, 0.86, 0.98], el: 0.72, night: 0 },
   { top: [0.22, 0.3, 0.62], hor: [1.0, 0.64, 0.42], sun: [1.05, 0.7, 0.42], sky: [0.42, 0.46, 0.62], gnd: [0.36, 0.3, 0.28], fog: [0.84, 0.66, 0.6], el: 0.12, night: 0.25 },
-  { top: [0.015, 0.025, 0.08], hor: [0.06, 0.08, 0.18], sun: [0.22, 0.28, 0.42], sky: [0.22, 0.27, 0.45], gnd: [0.1, 0.1, 0.14], fog: [0.06, 0.08, 0.16], el: 0.9, night: 1 },
+  { top: [0.015, 0.025, 0.08], hor: [0.06, 0.08, 0.18], sun: [0.22, 0.28, 0.42], sky: [0.26, 0.31, 0.5], gnd: [0.12, 0.12, 0.16], fog: [0.06, 0.08, 0.16], el: 0.9, night: 1 },
   { top: [0.3, 0.42, 0.75], hor: [1.0, 0.78, 0.62], sun: [1.0, 0.78, 0.56], sky: [0.45, 0.48, 0.65], gnd: [0.4, 0.34, 0.3], fog: [0.92, 0.8, 0.72], el: 0.14, night: 0.2 },
 ];
 function todState(t) {

@@ -137,14 +137,16 @@ export function slotAt(zone, lx, lz) {
 // Roofs: each 5x5-block district has a main colour, a second and a rare third, so
 // neighbourhoods read as places instead of confetti.
 export function roofIdx(bx, bz, slot) {
-  const base = hash3(fdiv(bx, 5), fdiv(bz, 5), 101), v = hash3(bx, bz, slot * 7 + 100) % 10;
-  return (v < 6 ? base : v < 9 ? base >>> 4 : base >>> 8) % 8;
+  const base = hash3(fdiv(bx, 5), fdiv(bz, 5), 101), h = hash3(bx, bz, slot * 7 + 100), v = h % 100;
+  return (v < 45 ? base : v < 80 ? base >>> 4 : h >>> 8) % 8;
 }
 export const districtAccent = (bx, bz) => hash3(fdiv(bx, 4), fdiv(bz, 4), 31) % 6;
 
 // Palettes (0xRRGGBB). The ground shader holds ROOF too.
-export const WALL = [0xfff1d6, 0xffd2b8, 0xc9f0dc, 0xc7e4ff, 0xe3d4ff, 0xfff0a8, 0xffc4c4, 0xfafafa];
-export const ROOF = [0xd8563b, 0x2a9d8f, 0x3d5a98, 0xc2304f, 0x3c8d4f, 0x7b4b94, 0x4a4e5a, 0xe0a030];
+export const WALL = [0xf3e9d8, 0xe9d3b4, 0xd8dccb, 0xc9d6e0, 0xeed9c9, 0xf6f1e7, 0xd4b79a, 0xbfc8be];
+// townhouses: three brick tones, then stucco
+export const TOWN = [0xa4553f, 0x8e4a3a, 0xc07a55, 0xe6dccb, 0x6b4a3e, 0xd9cfbd];
+export const ROOF = [0xb4533a, 0x4b5663, 0x3a3e45, 0x5e7a48, 0x3f8c84, 0x9a3c31, 0x7a5638, 0x2f4d7a];
 export const CITY = [0xd9d6cf, 0xc3c7cc, 0xe8dcc6, 0xb7beca, 0xf2efe8, 0xcfc2b0];
 export const ACCENT = [0xff6b6b, 0x1fb5ad, 0xffb627, 0x6c63ff, 0x2ec27e, 0xff8fb1];
 export const GLASS = [0x5d8fb3, 0x3fa0a8, 0x2f4a72, 0xa9c2d8, 0xc0915a, 0x4f9a72, 0xe2e6ec, 0x7a6aa0, 0xd8a878, 0x355f8f];
@@ -156,20 +158,24 @@ export const GARDEN = ['fountain', 'pool', 'flowers', 'tree', 'car', 'trampoline
 export function recipe(bx, bz, slot, zone, custom) {
   const h = hash3(bx * 16 + slot, bz, 21), h2 = hash3(bx, bz * 16 + slot, 22);
   const r = { zone, slot, hash: h, roof: roofIdx(bx, bz, slot), wall: 0, floors: 1, w: 7, d: 9,
-    roofType: 0, mat: 1, garden: [], tree: false, shape: null, color: -1, top: false, crown: 0 };
+    roofType: 0, mat: 1, style: 0, garden: [], tree: false, shape: null, color: -1, top: false, crown: 0 };
   if (zone === 0) {
     r.floors = 1 + (h & 1);
     r.w = 6.5 + ((h >>> 1) % 5) * 0.5;
     r.d = 8 + ((h >>> 4) % 7) * 0.5;
-    r.roofType = (h >>> 8) % 3;              // 0 gable, 1 hip, 2 flat
+    const rt = (h >>> 8) % 10;
+    r.roofType = rt === 0 ? 2 : rt < 6 ? 0 : 1;   // 0 gable, 1 hip, 2 flat (rare)
     r.wall = WALL[(h >>> 11) % 8];
+    r.style = (h >>> 26) & 1;                 // 1 = lap siding
     r.tree = ((h >>> 14) % 10) < 7;
     if ((h >>> 18) % 3 === 0) r.garden.push(GARDEN[(h2 >>> 3) % GARDEN.length]);
   } else if (zone === 1) {
     r.floors = 2 + (h % 3);
     r.w = 9.4; r.d = 12 + ((h >>> 4) % 7) * 0.5;
     r.roofType = (h >>> 8) % 4 === 0 ? 0 : 2;
-    r.wall = WALL[(h >>> 11) % 8];
+    const ti = (h >>> 11) % 6;
+    r.wall = TOWN[ti];
+    r.style = ti < 3 || ti === 4 ? 2 : 0;     // 2 = brick
     r.tree = ((h >>> 14) % 10) < 3;
   } else if (zone === 2) {
     r.floors = 4 + (h % 9);

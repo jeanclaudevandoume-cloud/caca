@@ -16,7 +16,7 @@ import {
 const rcos = (a) => Math.round(Math.cos(a) * 1e7) / 1e7;
 const rsin = (a) => Math.round(Math.sin(a) * 1e7) / 1e7;
 
-export const M = { PLAIN: 0, WIN: 1, LEAF: 2, METAL: 3, LIGHT: 4, GLASS: 5, WATER: 6 };
+export const M = { PLAIN: 0, WIN: 1, LEAF: 2, METAL: 3, LIGHT: 4, GLASS: 5, WATER: 6, ROOF: 7 };
 const TALL = 8;
 
 export class MB {
@@ -84,10 +84,13 @@ export class MB {
   // Axis-aligned box without a bottom. Walls get window uv (u metres, v floors from vb).
   box(x0, y0, z0, x1, y1, z1, c, top, m, a, vb = 0) {
     const v0 = vb, v1 = vb + (y1 - y0) / FLOOR_H, w = x1 - x0, d = z1 - z0;
-    this.q(x0, y0, z1, x1, y0, z1, x1, y1, z1, x0, y1, z1, 0, 0, 1, 0, v0, w, v1, m, c, a);
-    this.q(x1, y0, z0, x0, y0, z0, x0, y1, z0, x1, y1, z0, 0, 0, -1, 0, v0, w, v1, m, c, a);
-    this.q(x1, y0, z1, x1, y0, z0, x1, y1, z0, x1, y1, z1, 1, 0, 0, 0, v0, d, v1, m, c, a);
-    this.q(x0, y0, z0, x0, y0, z1, x0, y1, z1, x0, y1, z0, -1, 0, 0, 0, v0, d, v1, m, c, a);
+    // centre the window grid on each wall so no window is cut at a corner
+    const sp = m === M.GLASS ? 1.7 : 2.6, win = m === M.WIN || m === M.GLASS;
+    const ow = win ? (sp - (w % sp)) / 2 : 0, od = win ? (sp - (d % sp)) / 2 : 0;
+    this.q(x0, y0, z1, x1, y0, z1, x1, y1, z1, x0, y1, z1, 0, 0, 1, ow, v0, w + ow, v1, m, c, a);
+    this.q(x1, y0, z0, x0, y0, z0, x0, y1, z0, x1, y1, z0, 0, 0, -1, ow, v0, w + ow, v1, m, c, a);
+    this.q(x1, y0, z1, x1, y0, z0, x1, y1, z0, x1, y1, z1, 1, 0, 0, od, v0, d + od, v1, m, c, a);
+    this.q(x0, y0, z0, x0, y0, z1, x0, y1, z1, x0, y1, z0, -1, 0, 0, od, v0, d + od, v1, m, c, a);
     if (top >= 0) this.q(x0, y1, z1, x1, y1, z1, x1, y1, z0, x0, y1, z0, 0, 1, 0, 0, 0, 0, 0, M.PLAIN, top, a);
   }
   // Box centred at x,z.
@@ -123,7 +126,7 @@ export class MB {
     }
   }
   // Ellipsoid (or upper half). Smooth normals.
-  ell(x, y, z, rx, ry, rz, sides, rings, c, m = M.PLAIN, a = 0, half = false) {
+  ell(x, y, z, rx, ry, rz, sides, rings, c, m = M.PLAIN, a = 0, half = false, under = 1) {
     const base = this.nv;
     const r0 = half ? rings : 0, rows = half ? rings : rings * 2;
     for (let j = 0; j <= rows; j++) {
@@ -132,7 +135,7 @@ export class MB {
       for (let i = 0; i <= sides; i++) {
         const t = (i / sides) * Math.PI * 2;
         const nx = rcos(t) * sr, nz = rsin(t) * sr;
-        this.v(x + nx * rx, y + sy * ry, z + nz * rz, 0, 0, nx, sy, nz, m, c, a);
+        this.v(x + nx * rx, y + sy * ry, z + nz * rz, 0, 0, nx, sy, nz, m, under < 1 ? shade(c, under + (1 - under) * Math.min(1, (sy + 1) * 0.8)) : c, a);
       }
     }
     void r0;
@@ -150,35 +153,47 @@ export class MB {
     this.ft(x0, y0, z0, x0, y0, z1, x, y1, z, M.PLAIN, c, a);
   }
   // Gable roof over [x0,x1]x[z0,z1] with ridge along x (alongX) or z.
-  gable(x0, z0, x1, z1, y, h, c, wallC, a, alongX) {
+  // Gable roof over [x0,x1]x[z0,z1], ridge along x (alongX) or z. trim adds fascia boards and a ridge cap.
+  gable(x0, z0, x1, z1, y, h, c, wallC, a, alongX, trim = false) {
+    const R = M.ROOF, fc = 0xf2eee6;
     if (alongX) {
       const zm = (z0 + z1) / 2;
-      this.fq(x0, y, z1, x1, y, z1, x1, y + h, zm, x0, y + h, zm, M.PLAIN, c, a);
-      this.fq(x1, y, z0, x0, y, z0, x0, y + h, zm, x1, y + h, zm, M.PLAIN, c, a);
+      this.fq(x0, y, z1, x1, y, z1, x1, y + h, zm, x0, y + h, zm, R, c, a);
+      this.fq(x1, y, z0, x0, y, z0, x0, y + h, zm, x1, y + h, zm, R, c, a);
       this.ft(x1, y, z1, x1, y, z0, x1, y + h, zm, M.PLAIN, wallC, a);
       this.ft(x0, y, z0, x0, y, z1, x0, y + h, zm, M.PLAIN, wallC, a);
+      if (trim) {
+        this.box(x0, y - 0.22, z1 - 0.06, x1, y, z1, fc, fc, M.PLAIN, a);
+        this.box(x0, y - 0.22, z0, x1, y, z0 + 0.06, fc, fc, M.PLAIN, a);
+        this.box(x0 - 0.05, y + h - 0.12, zm - 0.18, x1 + 0.05, y + h + 0.1, zm + 0.18, shade(c, 0.75), shade(c, 0.75), M.PLAIN, a);
+      }
     } else {
       const xm = (x0 + x1) / 2;
-      this.fq(x1, y, z1, x1, y, z0, xm, y + h, z0, xm, y + h, z1, M.PLAIN, c, a);
-      this.fq(x0, y, z0, x0, y, z1, xm, y + h, z1, xm, y + h, z0, M.PLAIN, c, a);
+      this.fq(x1, y, z1, x1, y, z0, xm, y + h, z0, xm, y + h, z1, R, c, a);
+      this.fq(x0, y, z0, x0, y, z1, xm, y + h, z1, xm, y + h, z0, R, c, a);
       this.ft(x0, y, z1, x1, y, z1, xm, y + h, z1, M.PLAIN, wallC, a);
       this.ft(x1, y, z0, x0, y, z0, xm, y + h, z0, M.PLAIN, wallC, a);
+      if (trim) {
+        this.box(x1 - 0.06, y - 0.22, z0, x1, y, z1, fc, fc, M.PLAIN, a);
+        this.box(x0, y - 0.22, z0, x0 + 0.06, y, z1, fc, fc, M.PLAIN, a);
+        this.box(xm - 0.18, y + h - 0.12, z0 - 0.05, xm + 0.18, y + h + 0.1, z1 + 0.05, shade(c, 0.75), shade(c, 0.75), M.PLAIN, a);
+      }
     }
   }
   hip(x0, z0, x1, z1, y, h, c, a) {
     const w = x1 - x0, d = z1 - z0;
     if (w >= d) {
       const i = d / 2, zm = (z0 + z1) / 2;
-      this.fq(x0, y, z1, x1, y, z1, x1 - i, y + h, zm, x0 + i, y + h, zm, M.PLAIN, c, a);
-      this.fq(x1, y, z0, x0, y, z0, x0 + i, y + h, zm, x1 - i, y + h, zm, M.PLAIN, c, a);
-      this.ft(x1, y, z1, x1, y, z0, x1 - i, y + h, zm, M.PLAIN, c, a);
-      this.ft(x0, y, z0, x0, y, z1, x0 + i, y + h, zm, M.PLAIN, c, a);
+      this.fq(x0, y, z1, x1, y, z1, x1 - i, y + h, zm, x0 + i, y + h, zm, M.ROOF, c, a);
+      this.fq(x1, y, z0, x0, y, z0, x0 + i, y + h, zm, x1 - i, y + h, zm, M.ROOF, c, a);
+      this.ft(x1, y, z1, x1, y, z0, x1 - i, y + h, zm, M.ROOF, c, a);
+      this.ft(x0, y, z0, x0, y, z1, x0 + i, y + h, zm, M.ROOF, c, a);
     } else {
       const i = w / 2, xm = (x0 + x1) / 2;
-      this.fq(x1, y, z1, x1, y, z0, xm, y + h, z0 + i, xm, y + h, z1 - i, M.PLAIN, c, a);
-      this.fq(x0, y, z0, x0, y, z1, xm, y + h, z1 - i, xm, y + h, z0 + i, M.PLAIN, c, a);
-      this.ft(x0, y, z1, x1, y, z1, xm, y + h, z1 - i, M.PLAIN, c, a);
-      this.ft(x1, y, z0, x0, y, z0, xm, y + h, z0 + i, M.PLAIN, c, a);
+      this.fq(x1, y, z1, x1, y, z0, xm, y + h, z0 + i, xm, y + h, z1 - i, M.ROOF, c, a);
+      this.fq(x0, y, z0, x0, y, z1, xm, y + h, z1 - i, xm, y + h, z0 + i, M.ROOF, c, a);
+      this.ft(x0, y, z1, x1, y, z1, xm, y + h, z1 - i, M.ROOF, c, a);
+      this.ft(x1, y, z0, x0, y, z0, xm, y + h, z0 + i, M.ROOF, c, a);
     }
   }
   finish() {
@@ -193,8 +208,8 @@ const shade = (c, f) => {
   const r = Math.min(255, Math.round(((c >> 16) & 255) * f)), g = Math.min(255, Math.round(((c >> 8) & 255) * f)), b = Math.min(255, Math.round((c & 255) * f));
   return (r << 16) | (g << 8) | b;
 };
-const LEAVES = [0x4caf50, 0x3f9b46, 0x66bb4a, 0x2e8b57, 0x7cc142, 0x58a55c];
-const BLOSSOM = [0xff9ec7, 0xffc0d9, 0xf6e27f];
+const LEAVES = [0x3e7d3a, 0x4f8f3f, 0x2f6b3c, 0x5f9a45, 0x6d8f3a, 0x467f43];
+const BLOSSOM = [0xf2a7c3, 0xe98fb4, 0xf7c1d5];
 const TRUNK = 0x7a5233;
 
 let LITE = false;     // low-quality chunks: cheaper trees and fewer props
@@ -216,7 +231,11 @@ export function tree(mb, x, z, s, h, lod) {
     if (!lod) mb.cyl(x, 3.2 * s, z, 1.6 * s, 6.6 * s, 0, sides, shade(c, 0.9), M.LEAF, a);
   } else {
     mb.cbox(x, 0, z, 0.45 * s, 2.2 * s, 0.45 * s, TRUNK, M.PLAIN, a);
-    mb.ell(x, 3.6 * s, z, 2.3 * s, 2.0 * s, 2.3 * s, sides, lod ? 2 : 3, c, M.LEAF, a);
+    if (!lod && s >= 0.8) {          // fuller crown: two offset blobs
+      const ox = ((h >>> 9) & 1 ? 0.7 : -0.7) * s;
+      mb.ell(x - ox, 3.5 * s, z, 2.1 * s, 1.8 * s, 2.1 * s, sides, 3, c, M.LEAF, a, false, 0.62);
+      mb.ell(x + ox, 4.3 * s, z + 0.4 * s, 1.6 * s, 1.5 * s, 1.6 * s, sides, 2, shade(c, 1.08), M.LEAF, a, false, 0.62);
+    } else mb.ell(x, 3.6 * s, z, 2.3 * s, 2.0 * s, 2.3 * s, sides, lod ? 2 : 3, c, M.LEAF, a, false, 0.62);
   }
 }
 
@@ -326,31 +345,49 @@ function gardenItem(mb, item, x, z, h) {
 }
 
 // ---------- homes ----------
+const DOORS = [0x2f4d7a, 0x7e2d2d, 0x2e5a45, 0x2b2b2b, 0xd9a441];
+// Front door: frame, inset door, step, optional canopy and a porch light.
+function door(mb, x, zw, fs, r, rc, a) {
+  const cast = mb.cast; mb.cast = false;
+  mb.cbox(x, 0, zw + fs * 0.04, 1.5, 2.5, 0.08, 0xf2eee6, M.PLAIN, a);
+  mb.cbox(x, 0, zw + fs * 0.1, 1.0, 2.1, 0.06, DOORS[(r.hash >>> 19) % 5], M.PLAIN, a);
+  mb.cbox(x, 0, zw + fs * 0.55, 1.8, 0.18, 1.0, 0xbdb8ae, M.PLAIN, a);
+  mb.cbox(x + 0.95, 2.05, zw + fs * 0.1, 0.22, 0.3, 0.12, 0xffe2a8, M.LIGHT, a);
+  mb.cast = cast;
+  if (r.hash & 32) mb.cbox(x, 2.6, zw + fs * 0.5, 2.0, 0.12, 1.0, rc, M.PLAIN, a);
+}
 const F = {};
 export function home(mb, bx, bz, f, r, lod) {
   const a = r.hash & 255;
   const front = f.face < 0 ? f.z - f.d / 2 : f.z + f.d / 2;        // street edge of the plot
   mb.flag = r.height >= 6 * FLOOR_H ? TALL : 0;
+  if (lod && r.zone <= 1) mb.cast = false;         // far low homes don't cast: the ground shader's contact AO grounds them
+  const wa = (a & 0xfc) | r.style;                  // wall alpha: seed in the high bits, wall style in the low 2
   if (r.zone === 0) {
-    const setback = 3;
+    const setback = 3, fs = f.face < 0 ? -1 : 1;
     const z0 = f.face < 0 ? front + setback : front - setback - r.d, z1 = z0 + r.d;
     const x0 = f.x - r.w / 2, x1 = f.x + r.w / 2;
     const backZ = f.face < 0 ? f.z + f.d / 2 - 3 : f.z - f.d / 2 + 3;
+    const doorX = f.x + (r.hash & 8 ? 1.5 : -1.5), wallZ = f.face < 0 ? z0 : z1;
     if (r.shape) {
       shape(mb, r.shape, f.x, 0, (z0 + z1) / 2, 0.95, r.color, a, lod);
     } else {
       const top = r.floors * FLOOR_H;
-      mb.box(x0, 0, z0, x1, top, z1, r.wall, r.roofType === 2 ? shade(r.wall, 0.82) : -1, M.WIN, a);
       const rc = ROOF[r.roof];
-      if (r.roofType === 0) mb.gable(x0 - 0.4, z0 - 0.4, x1 + 0.4, z1 + 0.4, top, 2.6, rc, r.wall, a, r.w > r.d);
-      else if (r.roofType === 1) mb.hip(x0 - 0.4, z0 - 0.4, x1 + 0.4, z1 + 0.4, top, 2.4, rc, a);
-      else mb.box(x0 - 0.2, top, z0 - 0.2, x1 + 0.2, top + 0.5, z1 + 0.2, rc, shade(rc, 0.9), M.PLAIN, a);
+      mb.box(x0, 0, z0, x1, top, z1, r.wall, r.roofType === 2 ? 0x8c8f93 : -1, M.WIN, wa);
+      const o = lod ? 0.4 : 0.6;
+      if (r.roofType === 0) mb.gable(x0 - o, z0 - o, x1 + o, z1 + o, top, 2.6, rc, r.wall, a, r.w > r.d, !lod);
+      else if (r.roofType === 1) mb.hip(x0 - o, z0 - o, x1 + o, z1 + o, top, 2.4, rc, a);
+      else if (!lod) {                               // flat roof: parapet around a grey membrane
+        const pc = shade(r.wall, 0.92);
+        mb.box(x0, top, z0, x1, top + 0.4, z0 + 0.25, pc, pc, M.PLAIN, a);
+        mb.box(x0, top, z1 - 0.25, x1, top + 0.4, z1, pc, pc, M.PLAIN, a);
+        mb.box(x0, top, z0 + 0.25, x0 + 0.25, top + 0.4, z1 - 0.25, pc, pc, M.PLAIN, a);
+        mb.box(x1 - 0.25, top, z0 + 0.25, x1, top + 0.4, z1 - 0.25, pc, pc, M.PLAIN, a);
+      }
       if (!lod) {
-        mb.cast = false;
-        const dz = f.face < 0 ? z0 - 0.15 : z1 + 0.15;
-        mb.cbox(f.x + (r.hash & 8 ? 1.5 : -1.5), 0, dz, 1.2, 2.2, 0.3, shade(ROOF[(r.roof + 3) & 7], 0.9), M.PLAIN, a);
-        mb.cast = true;
-        if (r.roofType === 0 && (r.hash & 64)) mb.cbox(x0 + 1.2, top + 0.5, (z0 + z1) / 2 + 1, 0.8, 2.6, 0.8, 0x9b5a45, M.PLAIN, a);
+        door(mb, doorX, wallZ, fs, r, rc, a);
+        if (r.roofType === 0 && (r.hash & 64)) mb.cbox(x0 + 1.2, top + 0.5, (z0 + z1) / 2 + 1, 0.8, 2.6, 0.8, 0x8e5a48, M.PLAIN, a);
       }
     }
     if (!lod) {
@@ -358,30 +395,39 @@ export function home(mb, bx, bz, f, r, lod) {
       const spots = r.tree ? [-3 * sg, 0] : [-3 * sg, 0, 3 * sg];
       if (r.tree && !LITE) tree(mb, f.x + 3 * sg, backZ, 0.8 + ((r.hash >>> 23) % 4) * 0.12, r.hash >>> 9, 0);
       for (let i = 0; i < r.garden.length && i < spots.length; i++) gardenItem(mb, r.garden[i], f.x + spots[i], backZ, r.hash >>> (i * 3));
-      // hedge between neighbours
-      if ((r.slot & 3) !== 3 && !LITE) {
+      if (!LITE) {
+        // front hedge with a gap for the garden path
         mb.cast = false;
-        mb.box(f.x + 4.8, 0, f.z - f.d / 2 + 1, f.x + 5.2, 0.8, f.z + f.d / 2 - 1, 0x4e9a46, 0x5aaa50, M.LEAF, a);
+        const hz0 = front - fs * 0.35 - 0.3, hz1 = hz0 + 0.6;
+        mb.box(f.x - 4.7, 0, hz0, doorX - 0.65, 1.0, hz1, 0x3f7a3a, 0x4f8a45, M.LEAF, a);
+        mb.box(doorX + 0.65, 0, hz0, f.x + 4.7, 1.0, hz1, 0x3f7a3a, 0x4f8a45, M.LEAF, a);
         mb.cast = true;
       }
     }
   } else if (r.zone === 1) {
-    const setback = 1.5;
+    const setback = 1.5, fs = f.face < 0 ? -1 : 1;
     const z0 = f.face < 0 ? front + setback : front - setback - r.d, z1 = z0 + r.d;
-    const x0 = f.x - r.w / 2, x1 = f.x + r.w / 2;
+    const x0 = f.x - r.w / 2, x1 = f.x + r.w / 2, wallZ = f.face < 0 ? z0 : z1;
     if (r.shape) {
       shape(mb, r.shape, f.x, 0, (z0 + z1) / 2, 0.95, r.color, a, lod);
     } else {
       const top = r.floors * FLOOR_H;
       const rc = ROOF[r.roof];
-      mb.box(x0, 0, z0, x1, top, z1, r.wall, r.roofType === 2 ? shade(r.wall, 0.8) : -1, M.WIN, a);
-      if (r.roofType === 0) mb.gable(x0 - 0.2, z0 - 0.3, x1 + 0.2, z1 + 0.3, top, 2.2, rc, r.wall, a, false);
-      else mb.box(x0, top, z0, x1, top + 0.6, z1, shade(r.wall, 0.9), shade(rc, 0.75), M.PLAIN, a);
+      mb.box(x0, 0, z0, x1, top, z1, r.wall, r.roofType === 2 ? 0x9a9c9e : -1, M.WIN, wa);
+      if (r.roofType === 0) mb.gable(x0 - 0.2, z0 - 0.4, x1 + 0.2, z1 + 0.4, top, 2.2, rc, r.wall, a, false, !lod);
+      else {
+        // cornice: a light band that overhangs the street wall
+        const cc = r.style === 2 ? 0xe6dccb : shade(r.wall, 0.86);
+        mb.box(x0, top, z0 - (f.face < 0 ? 0.3 : 0), x1, top + 0.4, z1 + (f.face < 0 ? 0 : 0.3), cc, 0x9a9c9e, M.PLAIN, a);
+      }
       if (!lod) {
-        mb.cast = false;
-        const dz = f.face < 0 ? z0 - 0.6 : z1 + 0.6;
-        mb.cbox(f.x, 3.0, dz, r.w - 1, 0.18, 1.2, rc, M.PLAIN, a);
-        mb.cast = true;
+        door(mb, f.x + (r.hash & 8 ? 2.2 : -2.2), wallZ, fs, r, rc, a);
+        if (r.hash & 16) {                          // balcony
+          mb.cast = false;
+          mb.box(f.x - 2, FLOOR_H + 0.9, f.face < 0 ? z0 - 1.0 : z1, f.x + 2, FLOOR_H + 1.05, f.face < 0 ? z0 : z1 + 1.0, 0xe8e6e0, 0xe8e6e0, M.PLAIN, a);
+          mb.box(f.x - 2, FLOOR_H + 1.05, f.face < 0 ? z0 - 1.0 : z1 + 0.94, f.x + 2, FLOOR_H + 1.95, f.face < 0 ? z0 - 0.94 : z1 + 1.0, 0x3a3e45, 0x3a3e45, M.METAL, a);
+          mb.cast = true;
+        }
       }
     }
     if (!lod && r.tree) tree(mb, f.x, f.face < 0 ? z0 + r.d + 2.5 : z0 - 2.5, 0.75, r.hash >>> 9, 0);
@@ -456,8 +502,21 @@ export function home(mb, bx, bz, f, r, lod) {
       mb.cast = true;
     }
     if (r.top) shape(mb, r.shape, f.x, roofTop, f.z, tower ? 0.85 : 0.75, r.color, a, lod);
+    if (!tower && !lod) {
+      // Tokyo-style street face: a vertical lit sign, balconies and air-conditioner boxes
+      mb.cast = false;
+      if (r.hash & 2) mb.cbox(x1 - 0.4, 4.2, fz + fs * 0.45, 0.25, 3.5, 0.6, ACCENT_SIGN[(r.hash >>> 9) % ACCENT_SIGN.length], M.LIGHT, a);
+      if (r.hash & 4) {
+        const bz0 = f.face < 0 ? z0 - 1.0 : z1, bz1 = bz0 + 1.0;
+        for (let fl = 2; fl < r.floors; fl++) mb.box(x0 + 1.2, fl * FLOOR_H - 0.1, bz0, x1 - 1.2, fl * FLOOR_H + 0.08, bz1, 0xe8e6e0, 0xe8e6e0, M.PLAIN, a);
+      }
+      const sx = (r.hash & 1) ? x0 - 0.2 : x1 + 0.2;
+      for (let i = 0; i < 2; i++) mb.cbox(sx, FLOOR_H * (2 + i * 2) + 0.5, f.z + (i ? 1.5 : -1.5), 0.4, 0.6, 0.8, 0xd8d8d4, M.METAL, a);
+      mb.cast = true;
+    }
   }
   mb.flag = 0;
+  mb.cast = true;
 }
 
 // ---------- chunk ----------
@@ -490,7 +549,7 @@ export function buildChunk(L, cx, cz, lod, customs, lite = false) {
             for (let t = -16; t <= 16; t += 8) {
               const hh = hash3(bx * 8 + t, bz, 61);
               if (hh % 3 && (!LITE || t === 0)) { tree(mb, X + t, Z - 19, 0.6, hh, 0); }
-              if ((hh >>> 4) % 3 && (!LITE || t === 0)) { tree(mb, X + t, Z + 19, 0.6, hh >>> 7, 0); }
+              // (one side of the block only: the triangle budget goes to the houses)
             }
           }
           lamp(mb, X - 19.3, Z - 19.3, hb & 255);
