@@ -466,7 +466,7 @@ function render(now) {
   gl.useProgram(geo.p);
   setCommonU(geo.u, T, time, fogD);
   gl.uniformMatrix4fv(geo.u.uVP, false, VP);
-  const fadeA = r1 * 0.72, fadeB = r1 * 0.96, shadowR = quality.s < 0.7 ? 230 : 650 * quality.s;
+  const fadeA = r1 * 0.72, fadeB = r1 * 0.96, shadowR = quality.s < 0.7 ? 120 : 650 * quality.s;
   gl.uniform4f(geo.u.uLod, fadeA, fadeB, 0, 0);
   const R = CHUNK * PITCH * 0.75;
   const drawn = DRAWN;

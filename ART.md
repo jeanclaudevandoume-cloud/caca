@@ -57,7 +57,7 @@ perf.json is measured in this container (software GL): use it for **ratios betwe
 
 | Vantage | Tris | Draws | GPU MB | Notes |
 |---|---|---|---|---|
-| phone (low, 844x390) | ≤ 60k | ≤ 20 | ≤ 6 | ground pass ≤ 0.45× of `phonefull` |
+| phone (low, 844x390) | ≤ 75k | ≤ 20 | ≤ 6 | ground pass ≤ 0.45× of `phonefull`. TRADE-OFF (round 13): raised from 60k to pay for phone shadows + kept trim (the meta-review's top-ranked grounding fix); frame time ≤ 1.2× the previous build |
 | portrait (low, 390x844) | ≤ 75k | ≤ 20 | ≤ 6 | ground pass ≤ 0.45× of `portraitfull` |
 | downtownlow (low) | ≤ 110k | ≤ 30 | ≤ 8 | |
 | suburb / drone (high) | ≤ 490k | ≤ 50 | ≤ 35 | a Looks change adding > 5% tris needs a trade-off note |

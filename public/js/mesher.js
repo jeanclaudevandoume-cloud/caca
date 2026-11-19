@@ -116,6 +116,11 @@ export class MB {
     if (fs > 0) this.q(x0, y0, zc, x1, y0, zc, x1, y1, zc, x0, y1, zc, 0, 0, 1, 0, 0, 0, 0, m, c, a);
     else this.q(x1, y0, zc, x0, y0, zc, x0, y1, zc, x1, y1, zc, 0, 0, -1, 0, 0, 0, 0, m, c, a);
   }
+  // Vertical quad in the plane x = xc spanning [z0,z1]x[y0,y1], facing +x (fs > 0) or -x.
+  xq(xc, z0, z1, y0, y1, fs, c, m, a) {
+    if (fs > 0) this.q(xc, y0, z1, xc, y0, z0, xc, y1, z0, xc, y1, z1, 1, 0, 0, 0, 0, 0, 0, m, c, a);
+    else this.q(xc, y0, z0, xc, y0, z1, xc, y1, z1, xc, y1, z0, -1, 0, 0, 0, 0, 0, 0, m, c, a);
+  }
   // Box centred at x,z.
   cbox(x, y0, z, w, h, d, c, m = M.PLAIN, a = 0, top = c) {
     this.box(x - w / 2, y0, z - d / 2, x + w / 2, y0 + h, z + d / 2, c, top, m, a);
@@ -188,7 +193,7 @@ export class MB {
       if (trim) {
         this.wq(x0, x1, y - 0.22, y, z1, 1, fc, M.PLAIN, a);
         this.wq(x0, x1, y - 0.22, y, z0, -1, fc, M.PLAIN, a);
-        this.box(x0 - 0.05, y + h - 0.12, zm - 0.18, x1 + 0.05, y + h + 0.1, zm + 0.18, shade(c, 0.75), shade(c, 0.75), M.PLAIN, a);
+        if (!LITE) this.box(x0 - 0.05, y + h - 0.12, zm - 0.18, x1 + 0.05, y + h + 0.1, zm + 0.18, shade(c, 0.75), shade(c, 0.75), M.PLAIN, a);
       }
     } else {
       const xm = (x0 + x1) / 2;
@@ -199,7 +204,7 @@ export class MB {
       if (trim) {
         this.q(x1, y - 0.22, z1, x1, y - 0.22, z0, x1, y, z0, x1, y, z1, 1, 0, 0, 0, 0, 0, 0, M.PLAIN, fc, a);
         this.q(x0, y - 0.22, z0, x0, y - 0.22, z1, x0, y, z1, x0, y, z0, -1, 0, 0, 0, 0, 0, 0, M.PLAIN, fc, a);
-        this.box(xm - 0.18, y + h - 0.12, z0 - 0.05, xm + 0.18, y + h + 0.1, z1 + 0.05, shade(c, 0.75), shade(c, 0.75), M.PLAIN, a);
+        if (!LITE) this.box(xm - 0.18, y + h - 0.12, z0 - 0.05, xm + 0.18, y + h + 0.1, z1 + 0.05, shade(c, 0.75), shade(c, 0.75), M.PLAIN, a);
       }
     }
   }
@@ -426,7 +431,11 @@ export function home(mb, bx, bz, f, r, lod) {
         mb.boxEave(x0, 0, z0, x1, top, z1, r.wall, r.roofType === 2 ? 0x8c8f93 : -1, M.WIN, wa);
         mb.cast = false;                            // light corner boards
         const cb = 0xeeeae2;
-        for (const [cx, cz] of [[x0, z0], [x1, z0], [x0, z1], [x1, z1]]) mb.box(cx - 0.1, 0.45, cz - 0.1, cx + 0.1, top, cz + 0.1, cb, -1, M.PLAIN, a);
+        // corner boards: only the two outward faces of each corner (4 tris per corner)
+        for (const [cx, cz, sx, sz] of [[x0, z0, -1, -1], [x1, z0, 1, -1], [x0, z1, -1, 1], [x1, z1, 1, 1]]) {
+          mb.wq(Math.min(cx, cx - sx * 0.22), Math.max(cx, cx - sx * 0.22), 0.45, top, cz + sz * 0.03, sz, cb, M.PLAIN, a);
+          mb.xq(cx + sx * 0.03, Math.min(cz, cz - sz * 0.22), Math.max(cz, cz - sz * 0.22), 0.45, top, sx, cb, M.PLAIN, a);
+        }
         mb.cast = true;
       }
       if (!lod && !LITE) {                          // plinth: a darker base 8 cm proud of the wall (lite: the shader's plinth band)
