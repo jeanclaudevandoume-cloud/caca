@@ -4,7 +4,7 @@ import {
   occupied, slotAt, ROOF, plotIndex, homeRect, regionKey, regionOf, lineIndex, normName, shardFor,
 } from './town.js';
 import { MB, M, SKY } from './mesher.js';
-import { GEO_VS, GEO_FS, SHADOW_VS, SHADOW_FS, FULL_VS, FULL_FS } from './shaders.js';
+import { GEO_VS, GEO_FS, SHADOW_VS, SHADOW_FS, FULL_VS, FULL_FS, COPY_FS } from './shaders.js';
 
 const $ = (s) => document.querySelector(s);
 const params = new URLSearchParams(location.search);
@@ -33,7 +33,7 @@ function prog(vs, fs) {
   for (let i = 0; i < n; i++) { const a = gl.getActiveUniform(p, i); u[a.name.replace(/\[0\]$/, '')] = gl.getUniformLocation(p, a.name); }
   return { p, u };
 }
-const P = { geo: prog(GEO_VS, GEO_FS), shadow: prog(SHADOW_VS, SHADOW_FS), full: prog(FULL_VS, FULL_FS) };
+const P = { geo: prog(GEO_VS, GEO_FS), shadow: prog(SHADOW_VS, SHADOW_FS), full: prog(FULL_VS, FULL_FS), copy: prog(FULL_VS, COPY_FS) };
 const fullVao = gl.createVertexArray();
 gl.useProgram(P.full.p);
 gl.uniform3fv(P.full.u.uRoof, new Float32Array(ROOF.flatMap((c) => [((c >> 16) & 255) / 255, ((c >> 8) & 255) / 255, (c & 255) / 255])));
@@ -68,7 +68,7 @@ function persp(fovy, aspect, n, f) {
   return o;
 }
 function lookDir(e, f) {
-  let sx = -f[2], sz = f[0]; const sl = Math.hypot(sx, sz) || 1; sx /= sl; sz /= sl;   // side = f x up
+  let sx = -f[2], sz = f[0]; const sl = hyp2(sx, sz) || 1; sx /= sl; sz /= sl;   // side = f x up
   const ux = -sz * f[1], uy = sz * f[0] - sx * f[2], uz = sx * f[1];               // up = side x f
   const o = M_VIEW;
   o[0] = sx; o[1] = ux; o[2] = -f[0]; o[3] = 0; o[4] = 0; o[5] = uy; o[6] = -f[1]; o[7] = 0; o[8] = sz; o[9] = uz; o[10] = -f[2]; o[11] = 0;
@@ -110,25 +110,34 @@ function planes(m) {
   for (let k = 0; k < 5; k++) {
     const i = PLANE_IDX[k][0], s = PLANE_IDX[k][1];
     const a = m[3] + s * m[i], b = m[7] + s * m[4 + i], c = m[11] + s * m[8 + i], d = m[15] + s * m[12 + i];
-    const l = Math.hypot(a, b, c), p = PLANES[k];
+    const l = hyp3(a, b, c), p = PLANES[k];
     p[0] = a / l; p[1] = b / l; p[2] = c / l; p[3] = d / l;
   }
   return PLANES;
 }
-const inFrustum = (pl, x, y, z, r) => pl.every((p) => p[0] * x + p[1] * y + p[2] * z + p[3] > -r);
+const hyp2 = (a, b) => Math.sqrt(a * a + b * b);
+const hyp3 = (a, b, c) => Math.sqrt(a * a + b * b + c * c);
+function inFrustum(pl, x, y, z, r) {
+  for (let i = 0; i < 5; i++) { const p = pl[i]; if (p[0] * x + p[1] * y + p[2] * z + p[3] <= -r) return false; }
+  return true;
+}
 
 // ---------------- state ----------------
 const HOME = { x: -30, y: 70, z: 560, yaw: 0.06, pitch: -0.15 };   // ART.md: down the central avenue, over the bridge, into the core
 // portrait phones: start closer so the bridge and water don't fill the lower half
-if (innerWidth / innerHeight < 0.75) Object.assign(HOME, { z: 525, pitch: -0.1 });
+if (innerWidth / innerHeight < 0.75) Object.assign(HOME, { z: 525, pitch: -0.1 });   // portrait: closer, less water
 const cam = { ...HOME };
 const PRESETS = { low: { s: 0.55, pr: 1 }, mid: { s: 0.8, pr: 1.5 }, high: { s: 1, pr: 2 } };
 const isPhone = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) || Math.min(screen.width, screen.height) < 600;
 const quality = { mode: qParam, ...(qParam === 'high' ? PRESETS.high : qParam === 'low' ? PRESETS.low : isPhone ? PRESETS.low : PRESETS.mid) };
 quality.maxS = quality.s; quality.maxPr = quality.pr;
-const radii = () => ({ r0: 320 * Math.max(0.6, quality.s), r1: 1100 * quality.s * (quality.s < 0.7 ? 0.75 : 1), rs: Math.min(5000, 7000 * quality.s * quality.s) });
+const RAD = { r0: 0, r1: 0, rs: 0 };
+function radii() {          // fills one object (no per-frame allocation)
+  RAD.r0 = 320 * Math.max(0.6, quality.s); RAD.r1 = 1100 * quality.s * (quality.s < 0.7 ? 0.75 : 1); RAD.rs = Math.min(5000, 7000 * quality.s * quality.s);
+  return RAD;
+}
 const stats = { tris: 0, draws: 0, sky: 0, chunks: 0, mb: 0, fps: 0, ms: 0 };
-let manifest = null, L = null, ready = false;
+let manifest = null, L = null, ready = false, bootMs = 0;
 const chunks = new Map();     // key -> {cx,cz,lod,g,want,req,seen}
 const skies = new Map();      // key -> {rx,rz,g,req,seen}
 const t0 = performance.now();
@@ -208,6 +217,7 @@ function onLayout(lt, ground) {
   $('#count').textContent = L.n.toLocaleString() + ' homes';
   if (!ready) {
     ready = true;
+    bootMs = performance.now();
     $('#loading').classList.add('gone');
     const u = params.get('u') || hashParams().get('u');
     if (u) flyToName(u, params.has('instant'));
@@ -279,7 +289,7 @@ function stream(now) {
   for (let dz = -n; dz <= n; dz++) for (let dx = -n; dx <= n; dx++) {
     const cx = ccx + dx, cz = ccz + dz;
     const ox = (cx * CHUNK + 1.5) * PITCH, oz = (cz * CHUNK + 1.5) * PITCH;
-    const d = Math.hypot(Math.max(0, Math.hypot(ox - cam.x, oz - cam.z) - C * 0.7), cam.y);
+    const d = Math.hypot(Math.max(0, hyp2(ox - cam.x, oz - cam.z) - C * 0.7), cam.y);
     if (d > r1) continue;
     want.push({ cx, cz, d, lod: d < r0 ? 0 : 1 });
   }
@@ -318,9 +328,9 @@ function stream(now) {
     const rx = crx + dx, rz = crz + dz;
     if (Math.abs(rx) > lim || Math.abs(rz) > lim || !tallRegions.has(regionKey(rx, rz))) continue;
     const ox = (rx * SKY + SKY / 2 - 0.5) * PITCH, oz = (rz * SKY + SKY / 2 - 0.5) * PITCH;
-    const dh = Math.max(0, Math.hypot(ox - cam.x, oz - cam.z) - R * 0.7);
-    const d = Math.hypot(dh, cam.y);
-    if (d > rs || Math.hypot(dh + R * 1.4, cam.y) < r1 * 0.72) continue;
+    const dh = Math.max(0, hyp2(ox - cam.x, oz - cam.z) - R * 0.7);
+    const d = hyp2(dh, cam.y);
+    if (d > rs || hyp2(dh + R * 1.4, cam.y) < r1 * 0.72) continue;
     const key = rx + ',' + rz;
     sseen.add(key);
     let s = skies.get(key);
@@ -340,25 +350,36 @@ const KEYS = [
   { top: [0.015, 0.025, 0.08], hor: [0.06, 0.08, 0.18], sun: [0.22, 0.28, 0.42], sky: [0.26, 0.31, 0.5], gnd: [0.12, 0.12, 0.16], fog: [0.06, 0.08, 0.16], el: 0.9, night: 1 },
   { top: [0.3, 0.42, 0.75], hor: [1.0, 0.78, 0.62], sun: [1.0, 0.78, 0.56], sky: [0.45, 0.48, 0.65], gnd: [0.4, 0.34, 0.3], fog: [0.92, 0.8, 0.72], el: 0.14, night: 0.2 },
 ];
+// Writes into one preallocated object (the frame loop allocates nothing).
+const TOD_KEYS = ['top', 'hor', 'sun', 'sky', 'gnd', 'fog'];
+const TOD = { top: new Float32Array(3), hor: new Float32Array(3), sun: new Float32Array(3), sky: new Float32Array(3), gnd: new Float32Array(3), fog: new Float32Array(3), dir: new Float32Array(3), night: 0 };
 function todState(t) {
   t = ((t % 4) + 4) % 4;
   const i = Math.floor(t), f = t - i, a = KEYS[i], b = KEYS[(i + 1) % 4];
   const s = f * f * (3 - 2 * f);
-  const L3 = (x, y) => x.map((v, k) => v + (y[k] - v) * s);
-  const o = {};
-  for (const k of ['top', 'hor', 'sun', 'sky', 'gnd', 'fog']) o[k] = L3(a[k], b[k]);
-  o.night = a.night + (b.night - a.night) * s;
+  for (let j = 0; j < 6; j++) {
+    const k = TOD_KEYS[j], x = a[k], y = b[k], o = TOD[k];
+    o[0] = x[0] + (y[0] - x[0]) * s; o[1] = x[1] + (y[1] - x[1]) * s; o[2] = x[2] + (y[2] - x[2]) * s;
+  }
+  TOD.night = a.night + (b.night - a.night) * s;
   const el = a.el + (b.el - a.el) * s;
   const az = 2.65 + t * 0.9;     // ~25° off the street grid so neighbouring faces read lit / unlit
-  o.dir = [Math.cos(el) * Math.cos(az), Math.sin(el), Math.cos(el) * Math.sin(az)];
-  return o;
+  TOD.dir[0] = Math.cos(el) * Math.cos(az); TOD.dir[1] = Math.sin(el); TOD.dir[2] = Math.cos(el) * Math.sin(az);
+  return TOD;
 }
 function setTod(t) { tod = t; }
 
 // ---------------- frame ----------------
 let VP = null, invVP = null, PL = null;
 let lastFrame = performance.now(), frameAcc = 0, frameN = 0, lastGov = performance.now();
-let lastSig = '', lastActive = 0, lastRender = 0;
+let lastActive = 0, lastRender = 0;
+const SIG = new Float64Array(10);
+function changed() {            // did anything that affects the image change? (numeric, no allocation)
+  const v0 = cam.x, v1 = cam.y, v2 = cam.z, v3 = cam.yaw, v4 = cam.pitch, v5 = tod, v6 = canvas.width, v7 = canvas.height, v8 = reqs.size, v9 = pin ? 1 : 0;
+  const c = SIG[0] !== v0 || SIG[1] !== v1 || SIG[2] !== v2 || SIG[3] !== v3 || SIG[4] !== v4 || SIG[5] !== v5 || SIG[6] !== v6 || SIG[7] !== v7 || SIG[8] !== v8 || SIG[9] !== v9;
+  SIG[0] = v0; SIG[1] = v1; SIG[2] = v2; SIG[3] = v3; SIG[4] = v4; SIG[5] = v5; SIG[6] = v6; SIG[7] = v7; SIG[8] = v8; SIG[9] = v9;
+  return c;
+}
 const refresh = { samples: [], ms: 16.7 };
 function resize() {
   const pr = Math.min(window.devicePixelRatio || 1, quality.pr);
@@ -367,6 +388,9 @@ function resize() {
 }
 function frame(now) {
   requestAnimationFrame(frame);
+  step(now);
+}
+function step(now) {
   const dtMs = now - lastFrame; lastFrame = now;
   const dt = Math.min(0.1, dtMs / 1000);
   if (refresh.samples.length < 90) { refresh.samples.push(dtMs); if (refresh.samples.length === 90) { const s = refresh.samples.slice(30).sort((a, b) => a - b); refresh.ms = Math.max(6.9, s[s.length >> 1]); } }
@@ -377,8 +401,7 @@ function frame(now) {
   resize();
   stream(now);
   // when nothing moves and nothing is loading, draw at ~12 fps (water and clouds still drift)
-  const sig = `${cam.x},${cam.y},${cam.z},${cam.yaw},${cam.pitch},${tod},${canvas.width},${canvas.height},${reqs.size},${pin ? 1 : 0}`;
-  if (sig !== lastSig || fly) { lastSig = sig; lastActive = now; }
+  if (changed() || fly) lastActive = now;
   // with frozen time (?t=) an idle frame is identical: don't redraw at all
   if (now - lastActive > 1500 && (frozenT !== null || now - lastRender < 80) && !params.has('shot')) return;
   lastRender = now;
@@ -387,39 +410,61 @@ function frame(now) {
   if (params.has('debug')) $('#debug').textContent = `${stats.fps} fps · ${(stats.tris / 1000) | 0}k tris · ${stats.draws} draws · ${stats.sky} sky · ${stats.chunks} chunks · ${stats.mb} MB · pr ${quality.pr.toFixed(2)} s ${quality.s.toFixed(2)}`;
 }
 
-const ORDER = [], DRAWN = [], SKYORD = [];
+const ORDER = [], DRAWN = [], SKYORD = [], NONE = [];
+// Perf probe (?probe or __town.probe()): times the passes with gl.finish on this machine. Only ratios
+// between builds are meaningful (software GL here), never absolute device fps.
+let PROBE = null;
+const PIX = new Uint8Array(4);
+const sync = () => gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, PIX);   // forces the GPU to finish
+function probe(n = 8) {
+  const run = (mode) => {
+    PROBE = mode; render(performance.now()); sync();
+    const t = performance.now();
+    for (let i = 0; i < n; i++) { render(performance.now()); sync(); }
+    PROBE = null;
+    return +((performance.now() - t) / n).toFixed(2);
+  };
+  return { allMs: run(null), groundMs: run('full'), geoMs: run('geo'), bootMs: Math.round(bootMs), w: canvas.width, h: canvas.height };
+}
+// Run the whole frame loop body n times without waiting for vsync (allocation measurements).
+function spin(n = 30) {
+  const yaw = cam.yaw;
+  for (let i = 0; i < n; i++) { cam.yaw = yaw + i * 0.001; step(performance.now() + i * 16); }
+  cam.yaw = yaw;
+}
+const FWD = new Float64Array(3), EYE = new Float64Array(3), SHD = new Float32Array(3);
 const byDist = (a, b) => a.d - b.d;
+function sortByDist(arr) {   // insertion sort: allocation-free, fast on nearly sorted lists
+  for (let i = 1; i < arr.length; i++) { const v = arr[i]; let j = i - 1; while (j >= 0 && arr[j].d > v.d) { arr[j + 1] = arr[j]; j--; } arr[j + 1] = v; }
+}
 function render(now) {
   const time = frozenT ?? (now - t0) / 1000;
   const W = canvas.width, H = canvas.height;
   gl.viewport(0, 0, W, H);
   const T = todState(tod);
-  const fwd = [Math.sin(cam.yaw) * Math.cos(cam.pitch), Math.sin(cam.pitch), -Math.cos(cam.yaw) * Math.cos(cam.pitch)];
+  const fwd = FWD;
+  fwd[0] = Math.sin(cam.yaw) * Math.cos(cam.pitch); fwd[1] = Math.sin(cam.pitch); fwd[2] = -Math.cos(cam.yaw) * Math.cos(cam.pitch);
+  EYE[0] = cam.x; EYE[1] = cam.y; EYE[2] = cam.z;
   const near = Math.min(20, Math.max(0.4, cam.y * 0.02));
   const proj = persp((60 * Math.PI) / 180, W / H, near, 40000);
-  VP = mul(proj, lookDir([cam.x, cam.y, cam.z], fwd));
+  VP = mul(proj, lookDir(EYE, fwd));
   invVP = invert(VP);
   PL = planes(VP);
   const { r0, r1 } = radii();
   const fogD = Math.max(3600, 4500 + cam.y * 5) * (0.75 + 0.25 * quality.s);
 
+  const half = quality.s < 0.7 && !params.has('fullres') && PROBE !== 'geo' ? halfGround(W, H, T, time, fogD, r1) : null;
+  gl.viewport(0, 0, W, H);
   gl.clearColor(T.fog[0], T.fog[1], T.fog[2], 1);
   gl.clearStencil(0);
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
   gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LESS); gl.depthMask(true);
   gl.enable(gl.CULL_FACE); gl.disable(gl.BLEND); gl.disable(gl.STENCIL_TEST);
 
-  const setCommon = (u) => {
-    gl.uniform3fv(u.uSunDir, T.dir); gl.uniform3fv(u.uSunCol, T.sun); gl.uniform3fv(u.uSkyCol, T.sky); gl.uniform3fv(u.uGndCol, T.gnd);
-    gl.uniform3fv(u.uFogCol, T.fog); gl.uniform3fv(u.uSkyTop, T.top); gl.uniform3fv(u.uSkyHor, T.hor);
-    gl.uniform1f(u.uFogD, fogD); gl.uniform1f(u.uNight, T.night); gl.uniform1f(u.uTime, time);
-    gl.uniform3f(u.uCam, cam.x, cam.y, cam.z);
-    if (u.uLowQ) gl.uniform1f(u.uLowQ, quality.s < 0.7 ? 1 : 0);
-  };
   let tris = 0, draws = 0, sky = 0, bytes = 0;
   const geo = P.geo;
   gl.useProgram(geo.p);
-  setCommon(geo.u);
+  setCommonU(geo.u, T, time, fogD);
   gl.uniformMatrix4fv(geo.u.uVP, false, VP);
   const fadeA = r1 * 0.72, fadeB = r1 * 0.96, shadowR = 650 * quality.s;
   gl.uniform4f(geo.u.uLod, fadeA, fadeB, 0, 0);
@@ -428,36 +473,36 @@ function render(now) {
   drawn.length = 0;
   ORDER.length = 0;                                   // front to back: less overdraw (reused arrays)
   for (const c of chunks.values()) if (c.g) ORDER.push(c);
-  ORDER.sort(byDist);
-  for (const c of ORDER) {
+  sortByDist(ORDER);
+  for (const c of (PROBE === 'full' ? NONE : ORDER)) {
     bytes += c.g.bytes;
     const ox = (c.cx * CHUNK + 1.5) * PITCH, oz = (c.cz * CHUNK + 1.5) * PITCH;
     const hy = c.g.ymax / 2;
-    if (!inFrustum(PL, ox, hy, oz, Math.hypot(R, hy))) continue;
+    if (!inFrustum(PL, ox, hy, oz, hyp2(R, hy))) continue;
     gl.uniform3f(geo.u.uOrigin, ox, 0, oz);
     gl.bindVertexArray(c.g.vao);
     gl.drawElements(gl.TRIANGLES, c.g.n, c.g.it, 0);
     tris += c.g.n / 3; draws++;
-    if (Math.hypot(ox - cam.x, oz - cam.z) < shadowR) drawn.push(c);
+    if (hyp2(ox - cam.x, oz - cam.z) < shadowR) drawn.push(c);
   }
   gl.uniform4f(geo.u.uLod, fadeA, fadeB, 1, 2);    // skyline tiles are stored at 1/32 m
   const RS = SKY * PITCH * 0.75;
   SKYORD.length = 0;
   for (const s of skies.values()) if (s.g) SKYORD.push(s);
-  SKYORD.sort(byDist);
-  for (const s of SKYORD) {
+  sortByDist(SKYORD);
+  for (const s of (PROBE === 'full' ? NONE : SKYORD)) {
     bytes += s.g.bytes;
     const ox = (s.rx * SKY + SKY / 2 - 0.5) * PITCH, oz = (s.rz * SKY + SKY / 2 - 0.5) * PITCH;
     const hy = s.g.ymax * 0.5;
-    if (!inFrustum(PL, ox, hy, oz, Math.hypot(RS, hy))) continue;
-    if (Math.hypot(Math.hypot(ox - cam.x, oz - cam.z) + RS, cam.y) < fadeA) continue;
+    if (!inFrustum(PL, ox, hy, oz, hyp2(RS, hy))) continue;
+    if (hyp2(hyp2(ox - cam.x, oz - cam.z) + RS, cam.y) < fadeA) continue;
     gl.uniform3f(geo.u.uOrigin, ox, 0, oz);
     gl.bindVertexArray(s.g.vao);
     gl.drawElements(gl.TRIANGLES, s.g.n, s.g.it, 0);
     tris += s.g.n / 3; draws++; sky++;
   }
 
-  if (pin && L) {
+  if (pin && L && PROBE !== 'full') {
     if (!pinMesh) {
       const mb = new MB(0, 0, 256);
       mb.cyl(0, 0, 0, 0.01, 5, 1.6, 10, 0xff4f7b, M.LIGHT, 0, false);
@@ -465,7 +510,7 @@ function render(now) {
       mb.ell(0, 6.8, 2.2, 1.1, 1.1, 0.6, 8, 3, 0xffffff, M.LIGHT, 0);
       pinMesh = upload(mb.finish());
     }
-    const d = Math.hypot(pin.x - cam.x, pin.y - cam.y, pin.z - cam.z);
+    const d = hyp3(pin.x - cam.x, pin.y - cam.y, pin.z - cam.z);
     const sc = Math.max(1, d / 60);
     gl.uniform4f(geo.u.uLod, 1e9, 2e9, 0, sc);
     gl.uniform3f(geo.u.uOrigin, pin.x, pin.y + sc * (1.5 + Math.sin(time * 3) * 0.6), pin.z);
@@ -474,22 +519,28 @@ function render(now) {
     draws++;
   }
 
-  // full-screen sky + ground, only where nothing was drawn
+  // full-screen sky + ground, only where nothing was drawn. On low quality it is rendered at
+  // half resolution first (see halfGround) and only upsampled here.
+  if (PROBE === 'geo') { /* probe: geometry only */ } else if (half) {
+    gl.useProgram(P.copy.p);
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, half.tex); gl.uniform1i(P.copy.u.uTex, 1);
+    gl.depthFunc(gl.LEQUAL); gl.depthMask(false); gl.disable(gl.CULL_FACE);
+    gl.bindVertexArray(fullVao);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    draws++;
+  } else {
   const full = P.full;
   gl.useProgram(full.p);
-  setCommon(full.u);
-  gl.uniformMatrix4fv(full.u.uInvVP, false, invVP);
-  gl.uniform4f(full.u.uTown, L ? L.townD2 : 100, groundExt, L ? L.seaX : 1e9, L ? L.seaBx : 1e6);
-  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, groundTex); gl.uniform1i(full.u.uGround, 0);
-  const shDir = shadowDir(T);
-  gl.uniform4f(full.u.uFar, fadeA, fadeB, quality.s > 0.7 ? 1 : 0, 5 / shDir[1] * 0.5);
+  setFull(full.u, T, time, fogD, r1);
   gl.depthFunc(gl.LEQUAL); gl.depthMask(false); gl.disable(gl.CULL_FACE);
   gl.bindVertexArray(fullVao);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
   draws++;
+  }
 
   // projected planar shadows on the ground (stencil: each pixel darkened once)
-  if (T.night < 0.6 && drawn.length && quality.s >= 0.7) {
+  const shDir = shadowDir(T);
+  if (T.night < 0.6 && drawn.length && quality.s >= 0.7 && PROBE !== 'full') {
     const sh = P.shadow;
     gl.useProgram(sh.p);
     gl.uniformMatrix4fv(sh.u.uVP, false, VP);
@@ -511,11 +562,60 @@ function render(now) {
   }
   gl.depthMask(true);
   gl.bindVertexArray(null);
-  Object.assign(stats, { tris: Math.round(tris), draws, sky, chunks: chunks.size, mb: Math.round(bytes / 1048576) });
+  stats.tris = Math.round(tris); stats.draws = draws; stats.sky = sky; stats.chunks = chunks.size; stats.mb = Math.round(bytes / 1048576);
 }
+function setCommonU(u, T, time, fogD) {
+  gl.uniform3fv(u.uSunDir, T.dir); gl.uniform3fv(u.uSunCol, T.sun); gl.uniform3fv(u.uSkyCol, T.sky); gl.uniform3fv(u.uGndCol, T.gnd);
+  gl.uniform3fv(u.uFogCol, T.fog); gl.uniform3fv(u.uSkyTop, T.top); gl.uniform3fv(u.uSkyHor, T.hor);
+  gl.uniform1f(u.uFogD, fogD); gl.uniform1f(u.uNight, T.night); gl.uniform1f(u.uTime, time);
+  gl.uniform3f(u.uCam, cam.x, cam.y, cam.z);
+  if (u.uLowQ) gl.uniform1f(u.uLowQ, quality.s < 0.7 ? 1 : 0);
+}
+function setFull(u, T, time, fogD, r1) {
+  setCommonU(u, T, time, fogD);
+  gl.uniformMatrix4fv(u.uInvVP, false, invVP);
+  gl.uniform4f(u.uTown, L ? L.townD2 : 100, groundExt, L ? L.seaX : 1e9, L ? L.seaBx : 1e6);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, groundTex); gl.uniform1i(u.uGround, 0);
+  const shDir = shadowDir(T);
+  gl.uniform4f(u.uFar, r1 * 0.72, r1 * 0.96, quality.s > 0.7 ? 1 : 0, 5 / shDir[1] * 0.5);
+}
+
+// Low quality: run the expensive ground/sky shader at half resolution into a texture
+// (a quarter of the fragments), then upsample it where no geometry was drawn.
+let halfRT = null;
+function halfGround(W, H, T, time, fogD, r1) {
+  const w = Math.max(1, W >> 1), h = Math.max(1, H >> 1);
+  if (!halfRT || halfRT.w !== w || halfRT.h !== h) {
+    if (halfRT) { gl.deleteFramebuffer(halfRT.fb); gl.deleteTexture(halfRT.tex); }
+    const tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    const fb = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+    halfRT = { w, h, fb, tex };
+  }
+  gl.bindFramebuffer(gl.FRAMEBUFFER, halfRT.fb);
+  gl.viewport(0, 0, w, h);
+  gl.disable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE); gl.disable(gl.BLEND);
+  const full = P.full;
+  gl.useProgram(full.p);
+  setFull(full.u, T, time, fogD, r1);
+  gl.bindVertexArray(fullVao);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.enable(gl.DEPTH_TEST);
+  return halfRT;
+}
+
 function shadowDir(T) {
-  const d = T.night > 0.5 ? [0.3, 0.9, 0.2] : T.dir.slice();
-  if (d[1] < 0.3) { const h = Math.hypot(d[0], d[2]); const s = Math.sqrt(1 - 0.3 * 0.3) / h; d[0] *= s; d[2] *= s; d[1] = 0.3; }
+  const d = SHD;
+  if (T.night > 0.5) { d[0] = 0.3; d[1] = 0.9; d[2] = 0.2; } else { d[0] = T.dir[0]; d[1] = T.dir[1]; d[2] = T.dir[2]; }
+  if (d[1] < 0.3) { const h = hyp2(d[0], d[2]); const s = Math.sqrt(1 - 0.3 * 0.3) / h; d[0] *= s; d[2] *= s; d[1] = 0.3; }
   return d;
 }
 
@@ -579,7 +679,7 @@ function pick(px, py) {
   if (d[1] < 0) { const t = -cam.y / d[1]; return plotAtWorld(cam.x + d[0] * t, cam.z + d[2] * t); }
   return null;
 }
-function mulv(m, v) { const o = [0, 0, 0, 0]; for (let r = 0; r < 4; r++) o[r] = m[r] * v[0] + m[4 + r] * v[1] + m[8 + r] * v[2] + m[12 + r] * v[3]; return o; }
+function mulv(m, v, o = [0, 0, 0, 0]) { for (let r = 0; r < 4; r++) o[r] = m[r] * v[0] + m[4 + r] * v[1] + m[8 + r] * v[2] + m[12 + r] * v[3]; return o; }
 function plotAtWorld(x, z) {
   const bx = Math.floor((x + 24) / PITCH), bz = Math.floor((z + 24) / PITCH);
   if (kindAt(L, bx, bz) !== K.HOMES) return null;
@@ -601,6 +701,7 @@ async function nameOf(bx, bz, slot) {
 
 // ---------------- name tags ----------------
 const tagPool = [];
+const PLACED = [], TV = [0, 0, 0, 1], TC = [0, 0, 0, 0];
 let tagList = [], lastTagScan = 0;
 function tags(now) {
   if (!L || !VP) return;
@@ -633,11 +734,13 @@ function tags(now) {
     if (nameMemo.size > 5000) nameMemo.clear();
   }
   const W = innerWidth, H = innerHeight;
-  const placed = [];
+  const placed = PLACED;
+  placed.length = 0;
   let used = 0;
   for (const t of tagList) {
     if (!t.name || used >= 24) continue;
-    const c = mulv(VP, [t.x, t.y, t.z, 1]);
+    TV[0] = t.x; TV[1] = t.y; TV[2] = t.z; TV[3] = 1;
+    const c = mulv(VP, TV, TC);
     if (c[3] <= 0.5) continue;
     const sx = (c[0] / c[3] * 0.5 + 0.5) * W, sy = (0.5 - c[1] / c[3] * 0.5) * H;
     if (sx < -50 || sx > W + 50 || sy < -20 || sy > H + 20) continue;
@@ -649,8 +752,10 @@ function tags(now) {
     }
     if (hidden) continue;
     const w = t.name.length * 7 + 16;
-    if (placed.some((p) => Math.abs(p[0] - sx) < (p[2] + w) / 2 && Math.abs(p[1] - sy) < 20)) continue;
-    placed.push([sx, sy, w]);
+    let clash = false;
+    for (let q = 0; q < placed.length; q += 3) if (Math.abs(placed[q] - sx) < (placed[q + 2] + w) / 2 && Math.abs(placed[q + 1] - sy) < 20) { clash = true; break; }
+    if (clash) continue;
+    placed.push(sx, sy, w);
     let el = tagPool[used];
     if (!el) { el = document.createElement('div'); el.className = 'tag'; $('#tags').appendChild(el); tagPool.push(el); }
     if (el.textContent !== t.name) el.textContent = t.name;
@@ -870,7 +975,7 @@ $('#help').onclick = () => { $('#help').hidden = true; };
 // ---------------- debug / automation hooks ----------------
 window.__town = {
   cam, stats, quality, chunks, skies, flyToName, setTod,
-  get layout() { return L; }, get ready() { return ready; }, get VP() { return VP; },
+  probe, spin, get layout() { return L; }, get ready() { return ready; }, get VP() { return VP; },
   idle() {
     if (!ready || reqs.size) return false;
     for (const c of chunks.values()) if (c.lod !== c.want || c.stale) return false;

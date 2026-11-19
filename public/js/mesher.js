@@ -416,13 +416,6 @@ export function home(mb, bx, bz, f, r, lod) {
         mb.cast = true;
       }
       if (r.roofType === 0) mb.gable(x0 - o, z0 - o, x1 + o, z1 + o, top, 2.6, rc, r.wall, a, mainW > r.d, !lod && !LITE, shade(rc, 0.6));
-      if (wing && !lod) {
-        const wx0 = side < 0 ? f.x - 4.7 : x1, wx1 = side < 0 ? x0 : f.x + 4.7;
-        const wz0 = f.face < 0 ? z0 + 1 : z1 - 6, wz1 = wz0 + 5, wf = f.face < 0 ? wz0 : wz1;
-        mb.box(wx0, 0, wz0, wx1, 3.0, wz1, r.wall, LITE ? shade(rc, 0.9) : -1, M.PLAIN, wa);
-        if (!LITE) mb.gable(wx0 - 0.3, wz0 - 0.4, wx1 + 0.3, wz1 + 0.4, 3.0, 1.4, shade(rc, 0.9), r.wall, a, false, false);
-        if (!LITE) mb.wq(wx0 + 0.5, wx1 - 0.5, 0, 2.3, wf + fs * 0.02, fs, 0xd8d4cc, M.PLAIN, a);   // garage door
-      }
       else if (r.roofType === 1) mb.hip(x0 - o, z0 - o, x1 + o, z1 + o, top, 2.4, rc, a);
       else if (!lod) {                               // flat roof: parapet around a grey membrane
         const pc = shade(r.wall, 0.8), cap = 0xd9d3c7;      // parapet sides darker than the wall, light coping on top
@@ -430,6 +423,16 @@ export function home(mb, bx, bz, f, r, lod) {
         mb.box(x0, top, z1 - 0.25, x1, top + 0.4, z1, pc, cap, M.PLAIN, a);
         mb.box(x0, top, z0 + 0.25, x0 + 0.25, top + 0.4, z1 - 0.25, pc, cap, M.PLAIN, a);
         mb.box(x1 - 0.25, top, z0 + 0.25, x1, top + 0.4, z1 - 0.25, pc, cap, M.PLAIN, a);
+      }
+      if (wing) {                                    // side wing at every LOD (same massing, no pop)
+        const wx0 = side < 0 ? f.x - 4.7 : x1, wx1 = side < 0 ? x0 : f.x + 4.7;
+        const wz0 = f.face < 0 ? z0 + 1 : z1 - 6, wz1 = wz0 + 5, wf = f.face < 0 ? wz0 : wz1;
+        if (lod) mb.box(wx0, 0, wz0, wx1, 3.0, wz1, r.wall, shade(rc, 0.9), M.PLAIN, wa);
+        else {
+          mb.box(wx0, 0, wz0, wx1, 3.0, wz1, r.wall, -1, M.PLAIN, wa);
+          mb.gable(wx0 - 0.3, wz0 - 0.4, wx1 + 0.3, wz1 + 0.4, 3.0, 1.4, shade(rc, 0.9), r.wall, a, false, false);
+          mb.wq(wx0 + 0.5, wx1 - 0.5, 0, 2.3, wf + fs * 0.02, fs, 0xd8d4cc, M.PLAIN, a);   // garage door
+        }
       }
       if (!lod) {
         door(mb, doorX, wallZ, fs, r, rc, a);
@@ -615,10 +618,13 @@ export function buildChunk(L, cx, cz, lod, customs, lite = false) {
         }
         if (!lod && !LITE && zone === 2) {
           // overhead wires spanning the street in front of mid-rise blocks (a Tokyo staple)
+          // only where the block across the street is also mid-rise, so wires never end in mid-air
+          const midN = cellKind(bx, bz - 1) === K.HOMES && zoneLevel(bx, bz - 1) === 2;
+          const midW = cellKind(bx - 1, bz) === K.HOMES && zoneLevel(bx - 1, bz) === 2;
           for (const wx of [-12, 12]) {
             mb.cast = false;
-            mb.box(X + wx - 0.03, 7.5, Z - 28, X + wx + 0.03, 7.56, Z - 20, 0x1a1a1a, 0x1a1a1a, M.PLAIN, 0);
-            mb.box(X - 28, 7.2, Z + wx - 0.03, X - 20, 7.26, Z + wx + 0.03, 0x1a1a1a, 0x1a1a1a, M.PLAIN, 0);
+            if (midN) mb.box(X + wx - 0.03, 7.5, Z - 28, X + wx + 0.03, 7.56, Z - 20, 0x1a1a1a, 0x1a1a1a, M.PLAIN, 0);
+            if (midW) mb.box(X - 28, 7.2, Z + wx - 0.03, X - 20, 7.26, Z + wx + 0.03, 0x1a1a1a, 0x1a1a1a, M.PLAIN, 0);
             mb.cast = true;
           }
         }

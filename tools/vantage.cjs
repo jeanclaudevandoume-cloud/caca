@@ -19,17 +19,23 @@ const V = {
   house: ['q=high&t=10&notags&cam=2200,5,1272,-0.25,-0.1'],
   portrait: ['q=low&t=10&notags', 390, 844],
   downtownlow: ['q=low&t=10&notags', 844, 390],
+  phonefull: ['q=low&t=10&notags&fullres&cam=2184,7,1260,0,-0.05', 844, 390],
+  portraitfull: ['q=low&t=10&notags&fullres', 390, 844],
 };
 (async () => {
   const [tag = 'cur', ...only] = process.argv.slice(2);
   const names = only.length ? only : Object.keys(V);
   fs.mkdirSync(`shots/${tag}`, { recursive: true });
-  const b = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
+  const b = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--enable-precise-memory-info'] });
+  const doProbe = process.env.PROBE !== '0';
+  const perf = {};
   const out = {};
   for (const n of names) {
     const [q, w = 1100, h = 620] = V[n];
     const p = await b.newPage({ viewport: { width: w, height: h } });
     p.on('pageerror', (e) => console.log(n, 'pageerror:', e.message.slice(0, 300)));
+    let bytes = 0;
+    p.on('response', async (r) => { try { const h = await r.allHeaders(); bytes += +(h['content-length'] || 0); } catch { /* ignore */ } });
     await p.goto(`http://localhost:${process.env.PORT || 8080}/?shot&${q}`);
     try {
       await p.waitForFunction(() => { const t = window.__town; if (!t || !t.ready || !t.idle()) { window.__s = 0; return false; } return ++window.__s >= 4; }, null, { timeout: 110000, polling: 400 });
@@ -37,11 +43,37 @@ const V = {
     await p.waitForTimeout(800);
     await p.screenshot({ path: `shots/${tag}/${n}.png` });
     out[n] = await p.evaluate(() => { const s = window.__town.stats; return { tris: s.tris, draws: s.draws, sky: s.sky, mb: s.mb }; });
+    if (doProbe) {
+      // pass timings (relative, this machine) + allocated bytes per frame from Chrome's sampling heap profiler
+      const t = await p.evaluate(() => window.__town.probe(6));
+      const cdp = await p.context().newCDPSession(p);
+      await p.evaluate(() => window.__town.spin(600));          // warm up: let the JIT optimise the frame loop
+      await cdp.send('HeapProfiler.enable');
+      await cdp.send('HeapProfiler.startSampling', { samplingInterval: 256, includeObjectsCollectedByMajorGC: true, includeObjectsCollectedByMinorGC: true });
+      await p.evaluate(() => window.__town.spin(20));
+      const prof = await cdp.send('HeapProfiler.stopSampling');
+      let alloc = 0;
+      const walk = (nd) => { alloc += nd.selfSize; (nd.children || []).forEach(walk); };
+      walk(prof.profile.head);
+      if (process.env.TOP) {
+        const by = {};
+        const w2 = (nd) => { const k = nd.callFrame.functionName + ':' + nd.callFrame.lineNumber; by[k] = (by[k] || 0) + nd.selfSize; (nd.children || []).forEach(w2); };
+        w2(prof.profile.head);
+        console.log(Object.entries(by).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([k, v]) => k + ' ' + Math.round(v / 20) + 'B/f').join('\n'));
+      }
+      perf[n] = { ...t, kbPerFrame: +(alloc / 20 / 1024).toFixed(1), downloadKB: Math.round(bytes / 1024) };
+      console.log(n, 'perf', JSON.stringify(perf[n]));
+    }
     console.log(n, JSON.stringify(out[n]));
     await p.close();
   }
   let prev = {};
   try { prev = JSON.parse(fs.readFileSync(`shots/${tag}/stats.json`, 'utf8')); } catch { /* first run */ }
   fs.writeFileSync(`shots/${tag}/stats.json`, JSON.stringify({ ...prev, ...out }, null, 1));   // merge partial runs
+  if (doProbe) {
+    let pp = {};
+    try { pp = JSON.parse(fs.readFileSync(`shots/${tag}/perf.json`, 'utf8')); } catch { /* first run */ }
+    fs.writeFileSync(`shots/${tag}/perf.json`, JSON.stringify({ ...pp, ...perf }, null, 1));
+  }
   await b.close();
 })();

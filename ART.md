@@ -47,6 +47,24 @@ ROOF `b4533a 4b5663 3a3e45 5e7a48 3f8c84 9a3c31 7a5638 2f4d7a`.
 - Luma std (contrast): suburb ≥ 0.17, downtown ≥ 0.14, hub ≥ 0.16.
 - Mean saturation: suburb ≥ 0.25, downtown ≥ 0.20.
 
+## Performance budgets (checked with tools/vantage.cjs → shots/<tag>/stats.json + perf.json)
+
+perf.json is measured in this container (software GL): use it for **ratios between builds**, never as device fps.
+
+| Vantage | Tris | Draws | GPU MB | Notes |
+|---|---|---|---|---|
+| phone (low, 844x390) | ≤ 60k | ≤ 20 | ≤ 6 | ground pass ≤ 0.45× of `phonefull` |
+| portrait (low, 390x844) | ≤ 75k | ≤ 20 | ≤ 6 | ground pass ≤ 0.45× of `portraitfull` |
+| downtownlow (low) | ≤ 110k | ≤ 30 | ≤ 8 | |
+| suburb / drone (high) | ≤ 490k | ≤ 50 | ≤ 35 | a Looks change adding > 5% tris needs a trade-off note |
+| downtown / core / hub (high) | ≤ 520k | ≤ 85 | ≤ 35 | |
+
+All vantages: allocations ≤ 8 KB/frame after warm-up (sampling heap profiler); boot to first frame ≤ 2 s here;
+download ≤ 1 MB for the opening view at 1M followers.
+
+Anchors: Optimization 9 = every vantage within budget, every sub-score measured, no regression vs the previous
+build; 10 = also clear margin under budget.
+
 ## Review rubric (each 0–10; a 9 is described)
 
 **Looks**
@@ -65,5 +83,8 @@ full-screen passes. 4. Per-frame allocations. 5. LOD artifacts/pops. 6. GPU memo
 
 - The reviewer sees before/after images of the fixed vantage set (`tools/vantage.cjs`,
   `tools/sheet.py`), not the previous scores. Every sub-score change must cite a vantage pair.
-- At most 5 fixes per round, each with a vantage and a measurable acceptance test.
+- At most 5 fixes per round, each with a vantage and a measurable acceptance test. **At least one slot goes to
+  the axis with the most budget misses**, so one axis can't take every slot while the other regresses.
 - The developer makes the change, captures the vantage set, and drops anything that does not show.
+- An item is logged as done only when a measurement confirms it (probe, stats, Node check).
+- Optimization sub-scores are graded from perf.json/stats.json before/after plus the code, and recorded in the log.

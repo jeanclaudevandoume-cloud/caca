@@ -153,7 +153,7 @@ void main() {
   } else if (vMat == 7) {
     // roof tiles: courses along the slope, darker eaves, faded with distance
     float kt = clamp(1.2 - fwidth(vW.y) * 5.0, 0.0, 1.0);
-    col *= 1.0 - 0.18 * (1.0 - smoothstep(0.0, 0.25, fract(vW.y / 0.28))) * kt;
+    col *= 1.0 - 0.25 * (1.0 - smoothstep(0.0, 0.25, fract(vW.y / 0.28))) * kt;
     col *= 0.92 + 0.08 * fract(sin(dot(floor(vW.xz * 1.6), vec2(12.9, 78.2))) * 437.5) * kt;
   } else if (vMat == 2) {
     col += base * 0.18 * sun;                                             // leaves glow a bit in the sun
@@ -202,6 +202,14 @@ uniform float uShadowFar;
 in float vD;
 out vec4 o;
 void main() { o = vec4(mix(uShadowCol, vec3(1.0), smoothstep(uShadowFar * 0.6, uShadowFar, vD)), 1.0); }`;
+
+// Upsample of the half-resolution ground/sky pass (low quality): fills only depth == 1 pixels.
+export const COPY_FS = /* glsl */ `#version 300 es
+precision mediump float;
+uniform sampler2D uTex;
+in vec2 vNdc;
+out vec4 o;
+void main() { o = texture(uTex, vNdc * 0.5 + 0.5); }`;
 
 export const FULL_VS = /* glsl */ `#version 300 es
 precision highp float;
