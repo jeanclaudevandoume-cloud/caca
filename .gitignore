@@ -1,0 +1,5 @@
+node_modules/
+public/town/
+data/demo/
+shots/
+*.log

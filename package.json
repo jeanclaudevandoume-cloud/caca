@@ -1,0 +1,13 @@
+{
+  "name": "follower-town",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A deterministic, streamed WebGL2 town where every follower owns a home.",
+  "scripts": {
+    "demo": "node tools/demo-data.mjs data/demo 1000000 && node tools/build.mjs data/demo",
+    "build": "node tools/build.mjs data/live",
+    "start": "node server.mjs"
+  },
+  "engines": { "node": ">=18" }
+}

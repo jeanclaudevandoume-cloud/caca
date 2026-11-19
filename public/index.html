@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#7cc4ff">
+<title>Follower Town</title>
+<style>
+  :root { --ink: #1c2233; --card: rgba(255,255,255,.9); --accent: #ff4f7b; --accent2: #1fb5ad; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #bfe0ff; font: 15px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--ink); }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; outline: none; }
+  #top { position: fixed; top: max(12px, env(safe-area-inset-top)); left: 12px; right: 12px; display: flex; gap: 10px; align-items: flex-start; pointer-events: none; z-index: 3; }
+  #brand { pointer-events: auto; background: var(--card); backdrop-filter: blur(8px); border-radius: 14px; padding: 8px 12px; box-shadow: 0 4px 18px rgba(20,40,80,.18); white-space: nowrap; }
+  #brand b { font-size: 16px; letter-spacing: .2px; }
+  #brand b span { color: var(--accent); }
+  #count { display: block; font-size: 12px; opacity: .7; }
+  #find { pointer-events: auto; position: relative; flex: 0 1 360px; margin-left: auto; margin-right: auto; }
+  #search { width: 100%; border: 0; border-radius: 14px; padding: 12px 14px 12px 40px; font: inherit; background: var(--card); backdrop-filter: blur(8px); box-shadow: 0 4px 18px rgba(20,40,80,.18); outline: none; }
+  #search:focus { box-shadow: 0 0 0 3px rgba(255,79,123,.45), 0 4px 18px rgba(20,40,80,.18); }
+  #find::before { content: ""; position: absolute; left: 14px; top: 50%; width: 12px; height: 12px; margin-top: -8px; border: 2px solid #687089; border-radius: 50%; }
+  #find::after { content: ""; position: absolute; left: 25px; top: 50%; width: 6px; height: 2px; margin-top: 4px; background: #687089; transform: rotate(45deg); }
+  #sugg { list-style: none; margin: 6px 0 0; padding: 6px; background: var(--card); backdrop-filter: blur(8px); border-radius: 14px; box-shadow: 0 8px 24px rgba(20,40,80,.22); }
+  #sugg li { padding: 8px 10px; border-radius: 9px; cursor: pointer; display: flex; justify-content: space-between; gap: 12px; }
+  #sugg li small { opacity: .55; }
+  #sugg li:hover, #sugg li.sel { background: rgba(255,79,123,.14); }
+  #tools { position: fixed; right: 12px; bottom: max(12px, env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 8px; z-index: 3; }
+  #tools button { width: 44px; height: 44px; border-radius: 50%; border: 0; background: var(--card); box-shadow: 0 4px 14px rgba(20,40,80,.2); font-size: 19px; cursor: pointer; }
+  #card { position: fixed; left: 12px; bottom: max(12px, env(safe-area-inset-bottom)); max-width: min(340px, calc(100vw - 80px)); background: var(--card); backdrop-filter: blur(8px); border-radius: 16px; padding: 12px 14px; box-shadow: 0 8px 26px rgba(20,40,80,.25); z-index: 3; }
+  #card-name { font-weight: 700; font-size: 18px; word-break: break-all; padding-right: 22px; }
+  #card-meta { font-size: 13px; opacity: .7; margin: 2px 0 8px; }
+  #card-go { border: 0; border-radius: 10px; padding: 7px 12px; background: var(--accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+  #card-close { position: absolute; top: 6px; right: 8px; border: 0; background: none; font-size: 20px; cursor: pointer; opacity: .55; }
+  #tags { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 2; }
+  .tag { position: absolute; left: 0; top: 0; padding: 2px 8px; border-radius: 10px; background: rgba(255,255,255,.88); font-size: 12px; font-weight: 600; white-space: nowrap; box-shadow: 0 2px 6px rgba(0,0,0,.15); will-change: transform; }
+  .tag::after { content: ""; position: absolute; left: 50%; bottom: -4px; margin-left: -4px; border: 4px solid transparent; border-bottom: 0; border-top-color: rgba(255,255,255,.88); }
+  #loading { position: fixed; inset: 0; display: grid; place-items: center; background: linear-gradient(#8ccaff, #ffe2c4); font-weight: 700; font-size: 20px; z-index: 5; transition: opacity .6s; }
+  #loading.gone { opacity: 0; pointer-events: none; }
+  #toast { position: fixed; left: 50%; top: 80px; transform: translateX(-50%); background: var(--ink); color: #fff; padding: 8px 14px; border-radius: 12px; z-index: 4; }
+  #help { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(20,30,50,.35); z-index: 6; }
+  #help div { background: #fff; border-radius: 18px; padding: 18px 22px; max-width: min(420px, calc(100vw - 32px)); box-shadow: 0 10px 40px rgba(0,0,0,.3); }
+  #help h2 { margin: 0 0 8px; font-size: 18px; }
+  #help ul { margin: 0; padding-left: 18px; }
+  #debug { position: fixed; left: 12px; top: 74px; font: 12px monospace; background: rgba(0,0,0,.55); color: #fff; padding: 4px 8px; border-radius: 6px; z-index: 3; }
+  #debug:empty { display: none; }
+  [hidden] { display: none !important; }
+  @media (max-width: 640px), (max-height: 460px) {
+    #top { flex-wrap: wrap; left: 8px; right: 8px; top: max(8px, env(safe-area-inset-top)); }
+    #brand { padding: 6px 10px; }
+    #brand b { font-size: 14px; }
+    #find { flex: 1 1 200px; }
+    #search { padding: 10px 12px 10px 38px; }
+    #tools { right: 8px; bottom: max(8px, env(safe-area-inset-bottom)); flex-direction: row; }
+    #tools button { width: 40px; height: 40px; font-size: 17px; }
+    #card { left: 8px; bottom: calc(max(8px, env(safe-area-inset-bottom)) + 50px); max-width: calc(100vw - 16px); }
+  }
+  @media (max-height: 460px) { #card { bottom: max(8px, env(safe-area-inset-bottom)); max-width: calc(100vw - 180px); } #tools { flex-direction: column; } }
+</style>
+</head>
+<body>
+<canvas id="c" tabindex="0"></canvas>
+<div id="tags"></div>
+<div id="top">
+  <div id="brand"><b>Follower<span>Town</span></b><span id="count">loading…</span></div>
+  <div id="find">
+    <input id="search" type="search" placeholder="Find a follower’s home…" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="go" aria-label="Search followers">
+    <ul id="sugg" hidden></ul>
+  </div>
+</div>
+<div id="tools">
+  <button id="btn-time" title="Time of day" aria-label="Time of day">☀️</button>
+  <button id="btn-home" title="Back to downtown" aria-label="Back to downtown">🏙️</button>
+  <button id="btn-help" title="How to fly" aria-label="Help">?</button>
+</div>
+<div id="card" hidden>
+  <button id="card-close" aria-label="Close">×</button>
+  <div id="card-name"></div>
+  <div id="card-meta"></div>
+  <button id="card-go">Fly there</button>
+</div>
+<div id="toast" hidden></div>
+<div id="help" hidden><div>
+  <h2>Flying around</h2>
+  <ul>
+    <li><b>Look:</b> drag. <b>Pan:</b> right-drag, shift-drag or two fingers.</li>
+    <li><b>Fly:</b> mouse wheel or pinch; W A S D / arrows, Q and E for down and up, shift to go fast.</li>
+    <li><b>Find someone:</b> type their name in the search box.</li>
+    <li><b>Who lives here?</b> Tap a home.</li>
+  </ul>
+  <p>Every follower gets a home, forever in the same spot. Newer followers move in further out.</p>
+</div></div>
+<div id="debug"></div>
+<div id="loading">Building the town…</div>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
