@@ -98,6 +98,7 @@ export class MB {
   // Residential walls with baked shade: the 0.7 m under the eaves darkens to 60% (vertex colours),
   // so the shade under the roof works on every preset with zero shader cost.
   boxEave(x0, y0, z0, x1, y1, z1, c, top, m, a, band = 0.7) {
+    if (LITE) { this.box(x0, y0, z0, x1, y1, z1, c, top, m, a, y0 / FLOOR_H); return; }   // lite: no eave band (8 tris a house)
     const ys = y1 - band, cd = shade(c, 0.6);
     this.box(x0, y0, z0, x1, ys, z1, c, -1, m, a, y0 / FLOOR_H);   // window rows count from the ground
     const v0 = ys / FLOOR_H, v1 = y1 / FLOOR_H, sp = 2.6;
@@ -135,7 +136,7 @@ export class MB {
   // Flat-roof parapet ring: outer faces, coping on top, inner faces (not on lite); optional roof membrane.
   parapet(x0, z0, x1, z1, y, h, sideC, capC, a, membrane = -1) {
     const t = 0.22, yt = y + h;
-    if (membrane !== -1 && membrane !== false && membrane !== true) this.q(x0, y + 0.02, z1, x1, y + 0.02, z1, x1, y + 0.02, z0, x0, y + 0.02, z0, 0, 1, 0, 0, 0, 0, 0, M.PLAIN, membrane, a);
+    if (membrane !== -1 && membrane !== false && membrane !== true) this.q(x0, y + 0.02, z1, x1, y + 0.02, z1, x1, y + 0.02, z0, x0, y + 0.02, z0, 0, 1, 0, 0, 0, 0, 0, M.ROOF, membrane, (a & 0xf0) | (((a >> 4) & 3) << 2) | 3);   // flat roof surface from the atlas (alpha: tile << 2 | 3)
     this.wq(x0, x1, y, yt, z1, 1, sideC, M.PLAIN, a); this.wq(x0, x1, y, yt, z0, -1, sideC, M.PLAIN, a);
     this.xq(x1, z0, z1, y, yt, 1, sideC, M.PLAIN, a); this.xq(x0, z0, z1, y, yt, -1, sideC, M.PLAIN, a);
     const top = (ax0, az0, ax1, az1) => this.q(ax0, yt, az1, ax1, yt, az1, ax1, yt, az0, ax0, yt, az0, 0, 1, 0, 0, 0, 0, 0, M.PLAIN, capC, a);
@@ -495,6 +496,23 @@ function door(mb, x, zw, fs, r, rc, a) {
   } else if (r.hash & 32) mb.cbox(x, 2.6, zw + fs * 0.5, 2.0, 0.12, 1.0, rc, M.PLAIN, a);
 }
 const F = {};
+// Rooftop clutter on a flat roof (round M): a stair hut in the wall colour with a door, an AC condenser,
+// and on fuller meshes a water tank on a stand and a solar water heater. ~20 tris lite, ~60 full.
+function roofClutter(mb, x0, z0, x1, z1, top, wall, h, a) {
+  const cast = mb.cast; mb.cast = false;
+  const w = x1 - x0, d = z1 - z0, hx = (h & 1) ? x0 + 1.5 : x1 - 1.5, hz = (h & 2) ? z0 + 1.6 : z1 - 1.6;
+  mb.box(hx - 1.1, top, hz - 1.2, hx + 1.1, top + 2.5, hz + 1.2, shade(wall, 0.92), 0x6e7378, M.PLAIN, a);   // stair hut
+  mb.wq(hx - 0.45, hx + 0.45, top + 0.05, top + 2.0, (h & 2) ? hz + 1.21 : hz - 1.21, (h & 2) ? 1 : -1, 0x5a5f66, M.METAL, a);
+  if (!LITE) {
+    mb.cbox(x0 + w * 0.5, top, z0 + d * ((h & 4) ? 0.3 : 0.7), 0.9, 0.65, 0.4, 0xe9e9e6, M.METAL, a);       // AC condenser
+    const tx = (h & 1) ? x1 - 1.4 : x0 + 1.4, tz = z0 + d * 0.5;
+    for (const [lx, lz] of [[-0.5, -0.5], [0.5, 0.5]]) mb.cbox(tx + lx, top, tz + lz, 0.08, 0.9, 0.08, 0x5a5f66, M.METAL, a);
+    mb.cyl(tx, top + 0.9, tz, 0.7, top + 2.1, 0.7, 6, 0x9fb3c2, M.METAL, a);                                // tank on a stand
+    if (h & 8) mb.q(x0 + w * 0.3, top + 0.3, z0 + d * 0.62, x0 + w * 0.3 + 2, top + 0.3, z0 + d * 0.62, x0 + w * 0.3 + 2, top + 1.1, z0 + d * 0.62 - 0.9, x0 + w * 0.3, top + 1.1, z0 + d * 0.62 - 0.9, 0, 0.75, -0.66, 0, 0, 0, 0, M.GLASS, 0x2b3d5c, a);   // solar heater
+  }
+  mb.cast = cast;
+}
+
 // Shop house on a shotengai (town.js shopLaneX): ground-floor shop facing the lane (r.shop = +-1 along x),
 // recessed glazing with a warm interior, an awning, a lit vertical sign; flats above with city windows.
 const AWNING = [0x2f6f8f, 0xb8452f, 0x3d7a4f, 0x7a3b5e];
@@ -508,8 +526,12 @@ function shopHouse(mb, f, r, lod, a) {
   mb.box(x0, 0, z0, x1, gh, z1, shade(r.wall, 0.72), -1, M.PLAIN, a);
   // shopfront: dark frame, warm lit interior, a mid mullion and a lit fascia band
   mb.xq(fx + fs * 0.02, z0 + 0.5, z1 - 0.5, 0.15, 3.0, fs, 0x2a2f36, M.PLAIN, a);
-  mb.xq(fx + fs * 0.04, z0 + 0.8, z1 - 0.8, 0.35, 2.75, fs, (r.sign & 1) ? 0xf3dcb0 : 0xdfe8ef, M.LIGHT, a);
-  for (const zz of [z0 + (z1 - z0) / 3, z0 + (z1 - z0) * 2 / 3]) mb.cbox(fx + fs * 0.06, 0.15, zz, 0.08, 2.85, 0.12, 0x2a2f36, M.METAL, a);
+  {   // the shop itself from the atlas (u = tile .. tile + 1): shelves, noren, shutter or vending pair
+    const t = (r.hash >>> 17) % 4, za = z0 + 0.8, zb = z1 - 0.8, xf = fx + fs * 0.04;
+    if (fs > 0) mb.q(xf, 0.35, zb, xf, 0.35, za, xf, 2.75, za, xf, 2.75, zb, 1, 0, 0, t, 0, t + 1, 1, M.LIGHT, 0xffffff, 255);
+    else mb.q(xf, 0.35, za, xf, 0.35, zb, xf, 2.75, zb, xf, 2.75, za, -1, 0, 0, t, 0, t + 1, 1, M.LIGHT, 0xffffff, 255);
+  }
+  if (!LITE) for (const zz of [z0 + (z1 - z0) / 3, z0 + (z1 - z0) * 2 / 3]) mb.cbox(fx + fs * 0.06, 0.15, zz, 0.08, 2.85, 0.12, 0x2a2f36, M.METAL, a);
   mb.xq(fx + fs * 0.03, z0 + 0.3, z1 - 0.3, 3.05, 3.55, fs, ACCENT_SIGN[r.sign], M.LIGHT, a);   // fascia sign
   // awning: a sloped sheet over the shopfront
   const ac = AWNING[r.awning], ax = fx + fs * 1.4;
@@ -524,12 +546,14 @@ function shopHouse(mb, f, r, lod, a) {
   } else {
     mb.boxEave(x0, gh, z0, x1, top, z1, r.wall, mem, M.WIN, wa, 0.4);
     mb.parapet(x0, z0, x1, z1, top, 0.6, shade(r.wall, 0.85), 0xd9d3c7, a, mem);
-    if (!LITE) mb.cyl(x0 + (x1 - x0) / 2, top, z0 + 3, 0.7, top + 1.2, 0.7, 6, 0x9fb3c2, M.METAL, a);
+    roofClutter(mb, x0, z0, x1, z1, top, r.wall, r.hash >>> 5, a);
     // a rooftop billboard on some corner shops, readable from the drone views
     if ((r.hash >>> 13) % 3 === 0) {
       const bz0 = z0 + 4, bz1 = z1 - 4, bx = fx - fs * 1.2;
-      mb.xq(bx, bz0, bz1, top + 0.8, top + 3.2, fs, ACCENT_SIGN[(r.sign + 1) % ACCENT_SIGN.length], M.LIGHT, a);
-      mb.xq(bx - fs * 0.05, bz0, bz1, top + 0.8, top + 3.2, -fs, 0x3a3e45, M.PLAIN, a);
+      const bc = ACCENT_SIGN[(r.sign + 1) % ACCENT_SIGN.length], ba = a & 0xfe;
+      if (fs > 0) mb.q(bx, top + 0.8, bz1, bx, top + 0.8, bz0, bx, top + 3.2, bz0, bx, top + 3.2, bz1, 1, 0, 0, 0, 0, 3, 1, M.LIGHT, bc, ba);
+      else mb.q(bx, top + 0.8, bz0, bx, top + 0.8, bz1, bx, top + 3.2, bz1, bx, top + 3.2, bz0, -1, 0, 0, 0, 0, 3, 1, M.LIGHT, bc, ba);
+      if (!LITE) mb.xq(bx - fs * 0.05, bz0, bz1, top + 0.8, top + 3.2, -fs, 0x3a3e45, M.PLAIN, a);
     }
   }
   // vertical sign on the lane corner: big enough to read from the opening camera
@@ -554,7 +578,7 @@ function shrine(mb, X, Z, h, lod) {
   mb.box(X - 6, 0, Z - 16, X + 6, 1.0, Z - 6, 0xd8d3c6, -1, M.PLAIN, 1);            // stone platform
   mb.box(X - 5, 1.0, Z - 15, X + 5, 5.2, Z - 7, 0x6b4a32, -1, M.PLAIN, 1);          // hall
   mb.gable(X - 6.5, Z - 16.5, X + 6.5, Z - 5.5, 5.2, 3.8, 0x3a3e45, 0x6b4a32, 1, true, true, 0x2a2c30);
-  const n = lod ? 10 : 22;
+  const n = lod || LITE ? 10 : 22;
   for (let t = 0; t < n; t++) {
     const a = (t / n) * Math.PI * 2, r = 17 + (hash3(X, Z, 500 + t) % 3);
     const x = Math.cos(a) * r, z = Math.sin(a) * r;
@@ -570,7 +594,7 @@ function school(mb, X, Z, h, lod) {
   mb.cbox(X, 4 * FLOOR_H - 2.6, Z - 8.9, 2.0, 2.0, 0.15, 0xf6f5f0, M.LIGHT, 1);     // clock face
   mb.cbox(X, 4 * FLOOR_H - 1.7, Z - 8.8, 0.12, 0.8, 0.1, 0x2a2c30, M.PLAIN, 1);
   mb.q(X - 18, 0.04, Z + 19, X + 18, 0.04, Z + 19, X + 18, 0.04, Z - 6, X - 18, 0.04, Z - 6, 0, 1, 0, 0, 0, 0, 0, M.PLAIN, 0xb08a5c, 1);   // field
-  if (!lod) {
+  if (!lod && !LITE) {
     mb.q(X - 14, 0.06, Z + 15, X + 14, 0.06, Z + 15, X + 14, 0.06, Z + 14.6, X - 14, 0.06, Z + 14.6, 0, 1, 0, 0, 0, 0, 0, M.PLAIN, 0xf2f0ea, 1);
     mb.q(X - 14, 0.06, Z - 2, X + 14, 0.06, Z - 2, X + 14, 0.06, Z - 2.4, X - 14, 0.06, Z - 2.4, 0, 1, 0, 0, 0, 0, 0, M.PLAIN, 0xf2f0ea, 1);
     mb.q(X - 0.2, 0.06, Z + 15, X + 0.2, 0.06, Z + 15, X + 0.2, 0.06, Z - 2.4, X - 0.2, 0.06, Z - 2.4, 0, 1, 0, 0, 0, 0, 0, M.PLAIN, 0xf2f0ea, 1);
@@ -623,12 +647,7 @@ export function home(mb, bx, bz, f, r, lod) {
       if (r.roofType === 3) mb.mono(x0, rz0, x1, rz1, o, top, 2.2, fs, rc, r.wall, a, shade(rc, 0.55), true);
       else if (r.roofType === 0) mb.gable(x0 - o, rz0 - o, x1 + o, rz1 + o, top, 1.6, rc, r.wall, a, true, true, shade(rc, 0.55));
       else mb.parapet(x0, rz0, x1, rz1, top, 0.6, shade(r.wall, 0.82), 0xd9d3c7, a, flatMem(r));
-      if (r.roofType === 2 && !lod && !LITE) {                // rooftop clutter: water tank and an AC unit
-        mb.cast = false;
-        mb.cyl(x0 + 1.4, top, (rz0 + rz1) / 2, 0.75, top + 1.3, 0.75, 6, 0x9fb3c2, M.METAL, a);
-        mb.cbox(x1 - 1.3, top, (rz0 + rz1) / 2 + 1, 0.9, 0.6, 0.6, 0x707479, M.METAL, a);
-        mb.cast = true;
-      }
+      if (r.roofType === 2 && !lod) roofClutter(mb, x0, rz0, x1, rz1, top, r.wall, r.hash, a);
       mb.cast = false;
       // built-in garage: dark opening with a light lintel
       if (r.garage) {
@@ -739,6 +758,7 @@ export function home(mb, bx, bz, f, r, lod) {
       if (r.mansard) mb.mansard(x0, z0, x1, z1, top, 1.4, 0x7a2f26, r.roofMem, a);
       else { mb.parapet(x0, z0, x1, z1, top, 0.6, shade(r.wall, 0.85), 0xd9d3c7, a, r.roofMem); }
       if (!LITE) mb.cyl(x0 + 1.6, top, (z0 + z1) / 2, 0.9, top + 1.6, 0.9, 6, (r.hash >>> 7) & 1 ? 0x2f6fb0 : 0xd9a441, M.METAL, a);
+      if (!r.mansard) roofClutter(mb, x0 + 2.6, z0, x1, z1, top, r.wall, r.hash >>> 3, a);
       door(mb, f.x, wallZ, fs, r, ROOF[r.roof], a);
       mb.noCast = false;
     }
@@ -919,10 +939,10 @@ export function buildChunk(L, cx, cz, lod, customs, lite = false) {
               mb.cyl(px, 0, pzz, 0.17, 9.0, 0.12, LITE ? 4 : 6, 0xa7a49c, M.PLAIN, hb & 255, false);
               if (!LITE) { mb.cbox(px, 8.2, pzz, 1.4, 0.12, 0.12, 0x8a877f, M.PLAIN, 0); mb.cbox(px + 0.3, 6.6, pzz, 0.35, 0.5, 0.35, 0x7f8a8a, M.METAL, 0); }
             };
-            for (const px of [X - 18, X + 6]) { pole(px, pz); wires(mb, px, X + (px === X - 18 ? 6 : 30), pz, LITE ? 2 : 3, false); }
+            for (const px of [X - 18, X + 6]) { pole(px, pz); wires(mb, px, X + (px === X - 18 ? 6 : 30), pz, LITE ? 1 : 3, false); }
             // and along the west kerb, so north-south lanes have them too
             const wx = X - 19.6;
-            for (const pzz of [Z - 6, Z + 18]) { pole(wx, pzz); wires(mb, pzz, Z + (pzz === Z - 6 ? 18 : 42), wx, LITE ? 2 : 3, true); }
+            for (const pzz of [Z - 6, Z + 18]) { pole(wx, pzz); wires(mb, pzz, Z + (pzz === Z - 6 ? 18 : 42), wx, LITE ? 1 : 3, true); }
             if (!LITE) lamp(mb, X - 19.3, Z + 19.3, hb & 255);
           } else {
             lamp(mb, X - 19.3, Z - 19.3, hb & 255);
@@ -1133,9 +1153,9 @@ const SHIPS = ships();
 export const SKY = 2 * REGION;
 // Mid-band tiles (round M): MID x MID blocks of low massing for the ring just beyond the house ring, so
 // rooftops run on to the towers instead of a flat painted band. Per row of homes two masses (left and right
-// half, heights by hash) with windows from the facade shader and the row's roof colour; ~40 tris a block.
+// heights by hash) with windows from the facade shader and the row's roof colour; ~20 tris a block.
 // Not TALL: GEO_VS (skyline mode) grows them in exactly as the real homes shrink away.
-export const MID = 8;
+export const MID = 16;
 export function buildMid(L, mx, mz) {
   const ox = (mx * MID + MID / 2 - 0.5) * PITCH, oz = (mz * MID + MID / 2 - 0.5) * PITCH;
   const mb = new MB(ox, oz, 4096);
@@ -1148,12 +1168,13 @@ export function buildMid(L, mx, mz) {
     const occ = occupied(L, bx, bz);
     if (!occ) continue;
     const X = bx * PITCH, Z = bz * PITCH;
-    for (let row = 0; row < 2; row++) for (let half = 0; half < 2; half++) {
-      const slot = row * 4 + half * 2;
+    for (let row = 0; row < 2; row++) {
+      // one mass per row of homes, 30 m wide (packed window u stays < 32 m): 10 tris
+      const slot = row * 4;
       if (slot >= occ) continue;
       const r = recipe(bx, bz, slot, zone, null), h = hash3(bx, bz, 91 + slot);
       const top = (zone === 1 ? 12.5 : 6.6) + (h % 6) * 0.7;
-      const x0 = half ? X + 1 : X - 19, x1 = half ? X + 19 : X - 1;
+      const x0 = X - 15, x1 = X + 15;
       const z0 = row ? Z + 2 : Z - 18, z1 = row ? Z + 18 : Z - 2;
       const roof = zone === 1 ? (r.roofMem || 0x4f8a6e) : ROOF[r.roof];
       mb.box(x0, 0, z0, x1, top, z1, r.wall, roof, M.WIN, (h & 0xfc) | 1);

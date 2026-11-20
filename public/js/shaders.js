@@ -86,12 +86,12 @@ uniform sampler2D uAtlas;
 vec4 winTex(uint wt, uint cell, vec2 uvw, vec2 gx, vec2 gy) {
   vec2 t = wt == 2u ? vec2(float((cell >> 6u) & 1u), 1.0) : wt == 3u ? vec2(2.0 + float((cell >> 7u) & 1u), 1.0) : vec2(float((cell >> 4u) & 3u), 0.0);
   const float P = 6.0 / 256.0;
-  vec2 uv = (t + P + clamp(vec2(uvw.x, 1.0 - uvw.y), 0.0, 1.0) * (1.0 - 2.0 * P)) * 0.25;
+  vec2 uv = (t + P + clamp(vec2(uvw.x, 1.0 - uvw.y), 0.0, 1.0) * (1.0 - 2.0 * P)) * vec2(0.25, 0.125);   // 4 x 8 tiles
   return textureGrad(uAtlas, uv, gx, gy);
 }
 // paint the window opening [r0, r1] (cell units) of a residential cell from the atlas
 void atlasWindow(inout vec3 col, inout vec3 emis, vec2 f, vec2 g, vec2 r0, vec2 r1, float has, uint wt, uint cell, vec3 n, vec3 amb, vec3 key, vec3 refl, float lit, vec3 warm) {
-  vec2 sz = r1 - r0, sc = (1.0 - 2.0 * 6.0 / 256.0) * 0.25 / sz;
+  vec2 sz = r1 - r0, sc = (1.0 - 2.0 * 6.0 / 256.0) * vec2(0.25, 0.125) / sz;
   vec2 dgx = dFdx(g) * sc * vec2(1.0, -1.0), dgy = dFdy(g) * sc * vec2(1.0, -1.0);
   vec4 at = winTex(wt, cell, (f - r0) / sz, dgx, dgy);
   vec2 w = fwidth(g);
@@ -101,6 +101,10 @@ void atlasWindow(inout vec3 col, inout vec3 emis, vec2 f, vec2 g, vec2 r0, vec2 
   vec3 wc = at.rgb * lightW;
   wc = mix(wc, wc * 0.55 + refl * 0.55, at.a * 0.4 * (1.0 - uNight));      // the sky in the glass
   wc *= mix(1.0, 0.35, at.a * uNight);                                        // dark glass at night
+  // rain streaks: grime washed down from each sill, fading over a storey (round M)
+  float sx = smoothstep(r0.x - w.x, r0.x + 0.1, f.x) * (1.0 - smoothstep(r1.x - 0.1, r1.x + w.x, f.x));
+  float streak = sx * (1.0 - smoothstep(0.0, r0.y + 0.3, r0.y - f.y)) * step(f.y, r0.y) * has * (0.55 + 0.45 * fract(sin(floor(f.x * 9.0) * 12.9 + float(cell & 63u)) * 437.5));
+  col *= 1.0 - 0.16 * streak * (1.0 - uNight);
   col = mix(col, wc, inW);
   emis = warm * lit * at.a * inW * smoothstep(0.05, 0.6, uNight);
 }
@@ -261,11 +265,20 @@ void main() {
     if (glass > 0.5) col *= 1.0 - 0.35 * step(fract((v + float((seed >> 3) % 8u) + 3.0) / 8.0), 0.125) * clamp(1.4 - fwidth(v) * 0.6, 0.0, 1.0);   // mechanical floor every 8 storeys, offset per tower (no city-wide line)
     // far away the windows merge, so the glow stays a little brighter and whiter to stay readable
     emis = mix(vec3(1.0, 0.78, 0.45), warm, k) * lit * pane * (1.0 - mull * k) * smoothstep(0.05, 0.6, uNight) * mix(0.7 * towerGlow, 1.05, k) * mix(1.0, 1.25 - 0.45 * fy, k);
-    if (glass < 0.5 && facade == 9u && step(0.3, v) > 0.0) atlasWindow(col, emis, f, g, glo - fw, ghi + fw, has, wt, cell, n, amb * ao, key, refl, lit, warm);
+    if (glass < 0.5 && facade == 9u && k > 0.05 && step(0.3, v) > 0.0) atlasWindow(col, emis, f, g, glo - fw, ghi + fw, has, wt, cell, n, amb * ao, key, refl, lit, warm);
 #endif
 #ifdef LOWQ
     }
 #endif
+  } else if (vMat == 7 && (uint(vCol.a * 255.0 + 0.5) & 3u) == 3u) {
+    // flat roofs (round M): membrane / asphalt / pavers / stained membrane from atlas row 4, 4 m a tile
+    uint t = (uint(vCol.a * 255.0 + 0.5) >> 2u) & 3u;
+    vec2 q = vW.xz / 4.0;
+    const float P = 6.0 / 256.0;
+    vec2 uv = (vec2(float(t), 4.0) + P + fract(q) * (1.0 - 2.0 * P)) * vec2(0.25, 0.125);
+    vec2 sc = (1.0 - 2.0 * P) * vec2(0.25, 0.125);
+    vec4 rt = textureGrad(uAtlas, uv, dFdx(q) * sc, dFdy(q) * sc);
+    col *= rt.rgb * 1.75;
   } else if (vMat == 7) {
     // roof tiles: courses along the slope, darker eaves, faded with distance
     float kt = clamp(1.2 - fwidth(vW.y) * 5.0, 0.0, 1.0);
@@ -274,6 +287,14 @@ void main() {
     col *= 0.92 + 0.08 * fract(sin(dot(floor(vW.xz * 1.6), vec2(12.9, 78.2))) * 437.5) * kt;
   } else if (vMat == 2) {
     col += base * 0.18 * sun;                                             // leaves glow a bit in the sun
+  } else if (vMat == 4 && uint(vCol.a * 255.0 + 0.5) == 255u) {
+    // shopfronts (round M): atlas row 5; u carries the tile (k..k+1), v the height (0..1)
+    float u = vUV.x / 8.0, v = vUV.y / 4.0;
+    const float P = 6.0 / 256.0;
+    vec2 uv = (vec2(floor(u), 5.0) + P + vec2(fract(u), 1.0 - clamp(v, 0.0, 1.0)) * (1.0 - 2.0 * P)) * vec2(0.25, 0.125);
+    vec4 sf = textureGrad(uAtlas, uv, dFdx(vec2(u, -v)) * (1.0 - 2.0 * P) * vec2(0.25, 0.125), dFdy(vec2(u, -v)) * (1.0 - 2.0 * P) * vec2(0.25, 0.125));
+    col = sf.rgb * (amb * 0.8 + 0.35 + key * max(dot(n, uSunDir), 0.0) * 0.4);   // interiors are lit from inside
+    emis = sf.rgb * sf.a * (0.25 + 1.1 * uNight);
   } else if (vMat == 4) {
     // pale lamps and lanterns look like frosted glass by day; coloured lights (pin, signs) keep their colour
     float sat = max(base.r, max(base.g, base.b)) - min(base.r, min(base.g, base.b));

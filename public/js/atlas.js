@@ -7,7 +7,10 @@
 //   row 1: 0-1 small frosted windows, 2-3 balcony doors with an aluminium railing and laundry
 //   row 2: tower glass (ribbon, fins, punched stone grid, bronze curtain wall)
 //   row 3: 0 kawara tiles, 1 galvalume standing seams, 2 ALC wall panels, 3 ceramic siding
-export const ATLAS_TILES = 4, ATLAS_SIZE = 1024;
+//   row 4: flat roof surfaces (grey, multiplied by the roof colour): 0 urethane membrane with seams and a drain,
+//          1 asphalt sheet with tar patches, 2 concrete pavers, 3 membrane with rust stains
+//   row 5: shopfronts: 0 lit shelves with goods, 1 noren over a dark entrance, 2 roller shutter, 3 vending pair
+export const ATLAS_TILES = 4, ATLAS_SIZE = 1024, ATLAS_ROWS = 8, ATLAS_H = 2048;
 const T = ATLAS_SIZE / ATLAS_TILES, PAD = 6;   // a gutter inside each tile so mip levels don't bleed
 
 function rng(seed) { let s = seed >>> 0; return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296); }
@@ -46,11 +49,11 @@ function tile(g, i, j, paint) {
 
 // alpha is painted by drawing the glass mask into a second canvas and combining at the end
 export function buildAtlas() {
-  const c = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(ATLAS_SIZE, ATLAS_SIZE) : Object.assign(document.createElement('canvas'), { width: ATLAS_SIZE, height: ATLAS_SIZE });
-  const m = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(ATLAS_SIZE, ATLAS_SIZE) : Object.assign(document.createElement('canvas'), { width: ATLAS_SIZE, height: ATLAS_SIZE });
+  const mk = () => (typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(ATLAS_SIZE, ATLAS_H) : Object.assign(document.createElement('canvas'), { width: ATLAS_SIZE, height: ATLAS_H }));
+  const c = mk(), m = mk();
   const g = c.getContext('2d'), gm = m.getContext('2d');
-  g.fillStyle = '#7a7a78'; g.fillRect(0, 0, ATLAS_SIZE, ATLAS_SIZE);
-  gm.fillStyle = '#000'; gm.fillRect(0, 0, ATLAS_SIZE, ATLAS_SIZE);
+  g.fillStyle = '#7a7a78'; g.fillRect(0, 0, ATLAS_SIZE, ATLAS_H);
+  gm.fillStyle = '#000'; gm.fillRect(0, 0, ATLAS_SIZE, ATLAS_H);
   const R = rng(7);
   const ALU = ['#3c3f43', '#4a4d51', '#c9c7c0', '#5b5148'];
   const mask = (i, j, x, y, w, h) => { gm.fillStyle = '#fff'; gm.fillRect(i * T + PAD + x, j * T + PAD + y, w, h); };
@@ -139,8 +142,67 @@ export function buildAtlas() {
     for (let k = 0; k < 10; k++) { const v = 140 + 20 * R(); g.fillStyle = `rgb(${v},${v},${v})`; g.fillRect(0, k * s / 10, s, s / 10); g.fillStyle = 'rgb(105,105,105)'; g.fillRect(0, k * s / 10 + s / 10 - 4, s, 4); }
   });
 
+  // ---- row 4: flat roof surfaces (grey ~0.55, multiplied by the membrane colour in the shader) ----
+  const grey = (v) => `rgb(${v},${v},${v})`;
+  tile(g, 0, 4, (s) => {                                                            // urethane membrane
+    g.fillStyle = grey(140); g.fillRect(0, 0, s, s);
+    g.fillStyle = grey(118); for (let k = 1; k < 4; k++) { g.fillRect(k * s / 4 - 2, 0, 4, s); }
+    g.fillStyle = grey(105); g.beginPath(); g.arc(s * 0.7, s * 0.3, s * 0.07, 0, 7); g.fill();
+    g.fillStyle = grey(60); g.beginPath(); g.arc(s * 0.7, s * 0.3, s * 0.025, 0, 7); g.fill();
+    for (let k = 0; k < 40; k++) { g.fillStyle = grey(125 + R() * 30); g.fillRect(R() * s, R() * s, 6, 6); }
+  });
+  tile(g, 1, 4, (s) => {                                                            // asphalt sheet, tar patches
+    g.fillStyle = grey(120); g.fillRect(0, 0, s, s);
+    for (let k = 0; k < 900; k++) { g.fillStyle = grey(100 + R() * 45); g.fillRect(R() * s, R() * s, 3, 3); }
+    g.fillStyle = grey(70); for (let k = 0; k < 5; k++) { g.beginPath(); g.ellipse(R() * s, R() * s, 18 + R() * 30, 8 + R() * 14, R() * 3, 0, 7); g.fill(); }
+    g.fillStyle = grey(95); for (let k = 1; k < 3; k++) g.fillRect(0, k * s / 3 - 2, s, 3);
+  });
+  tile(g, 2, 4, (s) => {                                                            // concrete pavers, 0.6 m grid
+    for (let j = 0; j < 6; j++) for (let i = 0; i < 6; i++) { g.fillStyle = grey(140 + R() * 22); g.fillRect(i * s / 6, j * s / 6, s / 6 - 4, s / 6 - 4); }
+  });
+  tile(g, 3, 4, (s) => {                                                            // membrane with rust stains under the clutter
+    g.fillStyle = grey(138); g.fillRect(0, 0, s, s);
+    g.fillStyle = grey(116); for (let k = 1; k < 4; k++) g.fillRect(0, k * s / 4 - 2, s, 4);
+    for (let k = 0; k < 4; k++) { const x = R() * s, y = R() * s; const gr = g.createRadialGradient(x, y, 2, x, y, 40); gr.addColorStop(0, 'rgba(70,60,50,0.6)'); gr.addColorStop(1, 'rgba(70,60,50,0)'); g.fillStyle = gr; g.fillRect(x - 40, y - 40, 80, 80); }
+  });
+
+  // ---- row 5: shopfronts (full colour; v = 0 at the pavement) ----
+  tile(g, 0, 5, (s) => {                                                            // lit shelves with goods
+    g.fillStyle = '#f4ead6'; g.fillRect(0, 0, s, s);
+    for (let r = 0; r < 4; r++) {
+      g.fillStyle = '#c9c2b4'; g.fillRect(0, s * (0.2 + r * 0.2), s, 5);
+      for (let k = 0; k < 14; k++) { g.fillStyle = ['#e2574c', '#f2c14e', '#4f9de0', '#5bbf6a', '#f08a3c', '#ffffff'][(k + r) % 6]; g.fillRect(4 + k * s / 14, s * (0.2 + r * 0.2) - 16 - R() * 10, s / 14 - 5, 16 + R() * 8); }
+    }
+    g.fillStyle = 'rgba(40,46,56,0.9)'; g.fillRect(0, s * 0.92, s, s * 0.08);
+    g.fillStyle = 'rgba(255,255,255,0.18)'; g.fillRect(s * 0.1, 0, s * 0.08, s);
+    mask(0, 5, 0, 0, s, s);
+  });
+  tile(g, 1, 5, (s) => {                                                            // noren over a dark entrance
+    g.fillStyle = '#2a2622'; g.fillRect(0, 0, s, s);
+    g.fillStyle = '#f2d7a0'; g.fillRect(s * 0.62, s * 0.15, s * 0.3, s * 0.7);       // warm lit side window
+    g.fillStyle = '#1f3a5f'; for (let k = 0; k < 4; k++) g.fillRect(s * 0.08 + k * s * 0.12, s * 0.08, s * 0.1, s * 0.34);
+    g.fillStyle = '#f4f1ea'; g.font = `${s * 0.12}px serif`; g.fillText('\u3086', s * 0.14, s * 0.3);
+    mask(1, 5, s * 0.62, s * 0.15, s * 0.3, s * 0.7);
+  });
+  tile(g, 2, 5, (s) => {                                                            // roller shutter
+    for (let k = 0; k < 24; k++) { g.fillStyle = grey(150 + (k & 1) * 20); g.fillRect(0, k * s / 24, s, s / 24); }
+    g.fillStyle = '#e8e4da'; g.fillRect(s * 0.62, s * 0.4, s * 0.18, s * 0.14);       // a sticker
+    g.fillStyle = grey(70); g.fillRect(0, s * 0.95, s, s * 0.05);
+  });
+  tile(g, 3, 5, (s) => {                                                            // vending pair
+    g.fillStyle = '#3a3e45'; g.fillRect(0, 0, s, s);
+    for (let k = 0; k < 2; k++) {
+      const x = s * (0.08 + k * 0.46), w = s * 0.4;
+      g.fillStyle = k ? '#d8342c' : '#2a62b8'; g.fillRect(x, s * 0.05, w, s * 0.9);
+      g.fillStyle = '#eef3f6'; g.fillRect(x + w * 0.08, s * 0.12, w * 0.84, s * 0.42);
+      for (let r = 0; r < 3; r++) for (let q = 0; q < 5; q++) { g.fillStyle = ['#e2574c', '#f2c14e', '#4f9de0', '#5bbf6a', '#f08a3c'][(q + r) % 5]; g.fillRect(x + w * 0.12 + q * w * 0.16, s * (0.16 + r * 0.13), w * 0.1, s * 0.08); }
+      g.fillStyle = '#1b1d22'; g.fillRect(x + w * 0.15, s * 0.72, w * 0.7, s * 0.08);
+    }
+    mask(3, 5, 0, 0, s, s * 0.6);
+  });
+
   // combine: rgb from c, alpha from the glass mask
-  const img = g.getImageData(0, 0, ATLAS_SIZE, ATLAS_SIZE), al = gm.getImageData(0, 0, ATLAS_SIZE, ATLAS_SIZE).data, d = img.data;
+  const img = g.getImageData(0, 0, ATLAS_SIZE, ATLAS_H), al = gm.getImageData(0, 0, ATLAS_SIZE, ATLAS_H).data, d = img.data;
   for (let p = 3; p < d.length; p += 4) d[p] = al[p - 3];
   return img;
 }
@@ -150,7 +212,7 @@ export function uploadAtlas(gl) {
   const tex = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, tex);
   gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, ATLAS_SIZE, ATLAS_SIZE, 0, gl.RGBA, gl.UNSIGNED_BYTE, img.data);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, ATLAS_SIZE, ATLAS_H, 0, gl.RGBA, gl.UNSIGNED_BYTE, img.data);
   gl.generateMipmap(gl.TEXTURE_2D);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);

@@ -88,7 +88,8 @@ const quality = { mode: qParam, ...(qParam === 'high' ? PRESETS.high : qParam ==
 quality.maxS = quality.s; quality.maxPr = quality.pr;
 const RAD = { r0: 0, r1: 0, rs: 0 };
 function radii() {          // fills one object (no per-frame allocation)
-  RAD.r0 = 320 * Math.max(0.6, quality.s); RAD.r1 = 1100 * quality.s * (isLow() ? 0.6 : 1); RAD.rs = Math.min(5000, 7000 * quality.s * quality.s);
+  // low (round M): full houses only; the massing tiles replace the simplified-house ring
+  RAD.r0 = 320 * Math.max(0.6, quality.s); RAD.r1 = isLow() ? RAD.r0 * 1.12 : 1100 * quality.s; RAD.rs = Math.min(5000, 7000 * quality.s * quality.s);
   return RAD;
 }
 // shared state the modules read live
@@ -173,6 +174,8 @@ function onLayout(lt, ground) {
     fail(`This town is too large for this GPU (${ground.size} > ${gl.getParameter(gl.MAX_TEXTURE_SIZE)}).`);
     return;
   }
+  // a ground window requested before this commit was built from the old layout: never let it land
+  groundWin.req = 0;
   const old = app.L;
   app.L = finishLayout(lt);
   sup.commit(lt);                                   // every worker, the builder too (it built into a local)

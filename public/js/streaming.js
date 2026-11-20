@@ -8,7 +8,7 @@ import { PITCH, CHUNK, chunkLod, chunkLite, skyLite, regionKey, regionOf } from 
 import { SKY, MID } from './mesher.js';
 import { hyp2 } from './gfx.js';
 
-export const MID_OUT = 1.9;
+export const MID_OUT = 3.25;   // low: x r1 (= 1.12 r0), ~700 m
 export const ckey = (x, z) => (x + 32768) * 65536 + (z + 32768);   // numeric map keys: no strings in the stream loop
 const byWantD = (a, b) => a.d - b.d;
 const byTargetDist = (a, b) => (a.t.d || 0) - (b.t.d || 0);
