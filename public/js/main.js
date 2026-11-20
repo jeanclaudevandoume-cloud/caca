@@ -91,7 +91,7 @@ function upload(m) {
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
   gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, m.ib, gl.STATIC_DRAW);
   gl.bindVertexArray(null);
-  return { vao, vbo, ibo, n: m.ib.length - (m.so || 0), so: (m.so || 0) * m.ib.BYTES_PER_ELEMENT, ns: m.ns, ymax: m.ymax, it: m.ib.BYTES_PER_ELEMENT === 2 ? gl.UNSIGNED_SHORT : gl.UNSIGNED_INT, bytes: m.vb.byteLength + m.ib.byteLength };
+  return { vao, vbo, ibo, n: m.ib.length - (m.so || 0), so: (m.so || 0) * m.ib.BYTES_PER_ELEMENT, nso: m.so || 0, ns: m.ns, ymax: m.ymax, it: m.ib.BYTES_PER_ELEMENT === 2 ? gl.UNSIGNED_SHORT : gl.UNSIGNED_INT, bytes: m.vb.byteLength + m.ib.byteLength };
 }
 function release(g) { if (!g) return; gl.deleteVertexArray(g.vao); gl.deleteBuffer(g.vbo); gl.deleteBuffer(g.ibo); }
 
@@ -199,13 +199,18 @@ const reqs = new Map();
 let nextId = 1;
 function onWorker(e) {
   const m = e.data;
-  if (m.type === 'layout') { onLayout(m.layout, m.ground); return; }
+  if (m.type === 'layout') { if (build && m.build === build.id) { build = null; onLayout(m.layout, m.ground); } return; }   // stale builds are ignored
   const r = reqs.get(m.id);
   reqs.delete(m.id);
   if (r) r.w.load--;
   if (m.type === 'error') {
     console.error(m.message);
-    if (m.fatal) { fail('Worker: ' + m.message); layoutStage = null; }   // a failed layout update is abandoned; later updates still apply
+    if (m.fatal) {                              // a layout build failed: abandon it; the old layout and manifest stay
+      if (build && m.build === build.id) build = null;
+      if (layoutStage) badBuilt = layoutStage.manifest.built;
+      layoutStage = null;
+      fail('Worker: ' + m.message);
+    }
     if (r && r.target.req === m.id) {          // only the request that failed; give up after 3 tries
       const t = r.target;
       t.req = 0; t.fails = (t.fails || 0) + 1;
@@ -236,18 +241,19 @@ function drainUploads() {
     t.g = g; t.lod = lod; t.loaded = true;
   }
 }
-// A worker that dies (out of memory on a phone, a crash) or hangs is replaced: its requests are released
-// so their chunks are asked for again (worker deaths never count as mesh failures), and the new worker
-// gets the current layout. If it was building a new layout, that build is re-posted. Before the first
-// layout exists a dead worker is fatal. More than 6 deaths within a minute: stop replacing, say so once.
-let lastLayout = null, deaths = [], backoff = 0, initPending = false;
+// Worker supervisor. A worker that dies (out of memory on a phone, a crash) or hangs is replaced: its
+// requests are released so their chunks are asked for again (deaths never count as mesh failures) and the
+// new worker gets the current layout. More than 6 deaths in a minute: stop replacing for 30 s (running on the
+// survivors, or on none: requests simply wait), say so once, then refill to NW. Before the first layout
+// exists a dead worker is fatal. A layout build is tracked on its own (`build`): only its worker's death or
+// hang re-posts it, and a reply from an older build is ignored.
+let lastLayout = null, deaths = [], backoff = 0, build = null, buildSeq = 0, badBuilt = null;
 function spawnWorker(i) {
   const w = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
   w.load = 0; w.onmessage = onWorker;
   w.onerror = (e) => { if (e.preventDefault) e.preventDefault(); workerDied(w, e.message || 'failed to start'); };
   workers[i] = w;
   if (lastLayout) w.postMessage({ type: 'init', layout: lastLayout });
-  if (initPending && i === 0) { initPending = false; initLayout(); }   // a layout build waited for a worker
   return w;
 }
 function workerDied(w, why) {
@@ -260,22 +266,25 @@ function workerDied(w, why) {
   const now = performance.now();
   deaths = deaths.filter((t) => now - t < 60000); deaths.push(now);
   workers.splice(i, 1);
-  if (deaths.length <= 6) spawnWorker(workers.length);        // replace it
-  else if (!workers.length) setTimeout(() => { if (!workers.length) spawnWorker(0); }, 2000);   // never none for long
-  else if (!backoff) {
-    // dying over and over (out of memory?): run on the survivors; with none left, pause 30 s; then refill to NW
-    backoff = setTimeout(() => { backoff = 0; deaths = []; while (workers.length < NW) spawnWorker(workers.length); }, 30000);
-    fail('A background worker keeps failing; running with fewer for 30 s.');
+  if (backoff) { /* already pausing: the refill brings the pool back */ }
+  else if (deaths.length <= 6) spawnWorker(workers.length);
+  else {
+    backoff = setTimeout(() => {
+      backoff = 0; deaths = [];
+      while (workers.length < NW) spawnWorker(workers.length);
+      if (build && !build.w) postBuild();              // a build that was waiting for a worker
+    }, 30000);
+    fail(workers.length ? 'A background worker keeps failing; running with fewer for 30 s.' : 'The background worker keeps failing; retrying in 30 s.');
   }
-  if (layoutStage) initLayout();                     // a layout build in flight may have died with it
+  if (build && build.w === w) postBuild();            // only the builder's death re-posts the build
 }
 // a request that never answers (a hung worker) counts as a dead worker; a hidden tab pauses the clock
 function sweepStale(now) {
   if (document.hidden) return;
-  if (layoutStage && now - layoutStage.t0 > 30000) { layoutStage.t0 = now; workerDied(workers[0], 'layout update: no reply in 30 s'); return; }
+  if (build && build.w && now - build.t0 > 30000) { workerDied(build.w, 'layout build: no reply in 30 s'); return; }
   for (const r of reqs.values()) if (now - r.t0 > 20000) { workerDied(r.w, 'no reply in 20 s'); return; }
 }
-document.addEventListener('visibilitychange', () => { const t = performance.now(); for (const r of reqs.values()) r.t0 = t; if (layoutStage) layoutStage.t0 = t; });
+document.addEventListener('visibilitychange', () => { const t = performance.now(); for (const r of reqs.values()) r.t0 = t; if (build) build.t0 = t; });
 for (let i = 0; i < NW; i++) spawnWorker(i);
 function send(msg, target, lod) {
   if (!workers.length) return;                       // backing off after repeated worker deaths
@@ -298,12 +307,18 @@ async function loadManifest() {
 let layoutStage = null;
 let groundTex = null, groundExt = 0, groundBytes = 0, tallRegions = new Set();
 function onLayout(lt, ground) {
+  // validate before touching anything: a rejected layout leaves the current one (and every worker) as it was
+  if (ground.size > gl.getParameter(gl.MAX_TEXTURE_SIZE)) {
+    if (layoutStage) badBuilt = layoutStage.manifest.built;
+    layoutStage = null;
+    fail(`This town is too large for this GPU (${ground.size} > ${gl.getParameter(gl.MAX_TEXTURE_SIZE)}).`);
+    return;
+  }
   const nl = finishLayout(lt);
   const old = L;
   L = nl;
   lastLayout = lt;
-  for (let i = 1; i < workers.length; i++) workers[i].postMessage({ type: 'init', layout: lt });
-  if (ground.size > gl.getParameter(gl.MAX_TEXTURE_SIZE)) { L = old; fail(`This town is too large for this GPU (${ground.size} > ${gl.getParameter(gl.MAX_TEXTURE_SIZE)}).`); return; }
+  for (const w of workers) w.postMessage({ type: 'init', layout: lt });   // the builder too: it built into a local
   if (!groundTex) groundTex = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, groundTex);
   gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
@@ -323,7 +338,7 @@ function onLayout(lt, ground) {
     // commit the update: new manifest, fresh name caches (names may have changed), tags rescanned
     manifest = layoutStage.manifest;
     nameCache.clear(); shardCache.clear(); nameMemo.clear(); nameEpoch++; PLOT.clear(); tagCam[0] = NaN;
-    for (const c of CAND) c.key = -1;
+    for (const c of CAND) { c.key = -1; c.name = null; c.pending = -1; }
     if (old) flushChanged(old, layoutStage.oldC);
   }
   layoutStage = null;
@@ -370,16 +385,22 @@ function customFor(cx, cz) {
 }
 // The block order is prebuilt by tools/build.mjs (order.bin), so phones don't sort the town at boot.
 // A layout update builds against the staged manifest; it becomes `manifest` only when its layout arrives
-// (onLayout), so a failed build leaves the old manifest and layout consistent and the next poll retries.
+// (onLayout), so a failed build leaves the old manifest and layout consistent.
 async function initLayout() {
   const mf = layoutStage ? layoutStage.manifest : manifest;
   let order = null;
   if (mf.order) {
     try { const r = await fetch(`${TOWN_URL}order.bin?v=${mf.order}`); if (r.ok) order = await r.arrayBuffer(); } catch { /* fall back */ }
   }
-  if (!workers.length) { initPending = true; return; }
-  if (order) workers[0].postMessage({ type: 'init', n: mf.n, order }, [order]);
-  else workers[0].postMessage({ type: 'init', n: mf.n });
+  build = { id: ++buildSeq, n: mf.n, order, w: null, t0: performance.now() };
+  postBuild();
+}
+function postBuild() {
+  build.w = workers[0] || null;                         // none during a back-off: posted at the refill
+  build.t0 = performance.now();
+  if (!build.w) return;
+  // the order buffer is copied, not transferred, so a re-post after a worker death still has it
+  build.w.postMessage({ type: 'init', n: build.n, order: build.order ? build.order.slice(0) : null, build: build.id });
 }
 let stage = 'starting';
 setTimeout(() => { if (!ready) fail('Still not ready after 25 s. Last step: ' + stage + '.'); }, 25000);
@@ -391,8 +412,8 @@ async function boot() {
   setInterval(async () => {
     try {
       const m = await loadManifest();
-      if (m.built !== manifest.built && !layoutStage) {   // skip while a previous update is still being applied
-        layoutStage = { oldC: manifest.c, manifest: m, t0: performance.now() };
+      if (m.built !== manifest.built && m.built !== badBuilt && !layoutStage) {   // skip while one is applied, and a rejected build
+        layoutStage = { oldC: manifest.c, manifest: m };
         initLayout();
       }
     } catch { /* offline: keep the town we have */ }
@@ -471,7 +492,7 @@ function stream(now) {
 // ---------------- time of day ----------------
 // keys: 0 noon, 1 sunset, 2 night, 3 dawn (cycle of 4)
 const KEYS = [
-  { top: [0.14, 0.4, 0.86], hor: [0.64, 0.79, 0.95], sun: [1.42, 1.24, 1.0], sky: [0.30, 0.35, 0.44], gnd: [0.40, 0.34, 0.27], fog: [0.68, 0.79, 0.93], el: 0.62, night: 0 },
+  { top: [0.14, 0.4, 0.86], hor: [0.64, 0.79, 0.95], sun: [1.3, 1.15, 0.95], sky: [0.28, 0.33, 0.43], gnd: [0.40, 0.34, 0.27], fog: [0.68, 0.79, 0.93], el: 0.62, night: 0 },
   { top: [0.22, 0.3, 0.62], hor: [1.0, 0.64, 0.42], sun: [1.05, 0.7, 0.42], sky: [0.42, 0.46, 0.62], gnd: [0.36, 0.3, 0.28], fog: [0.84, 0.66, 0.6], el: 0.12, night: 0.25 },
   { top: [0.015, 0.025, 0.08], hor: [0.06, 0.08, 0.18], sun: [0.22, 0.28, 0.42], sky: [0.26, 0.31, 0.5], gnd: [0.12, 0.12, 0.16], fog: [0.06, 0.08, 0.16], el: 0.9, night: 1 },
   { top: [0.3, 0.42, 0.75], hor: [1.0, 0.78, 0.62], sun: [1.0, 0.78, 0.56], sky: [0.45, 0.48, 0.65], gnd: [0.4, 0.34, 0.3], fog: [0.92, 0.8, 0.72], el: 0.14, night: 0.2 },
@@ -690,11 +711,13 @@ function render(now) {
     gl.enable(gl.BLEND); gl.blendFunc(gl.DST_COLOR, gl.ZERO);
     gl.enable(gl.STENCIL_TEST); gl.stencilFunc(gl.EQUAL, 0, 0xff); gl.stencilOp(gl.KEEP, gl.KEEP, gl.INCR);
     for (const c of drawn) {
-      if (!c.g.ns) continue;
+      // low preset: only the homes' shadow proxies (trees and the few taller casters are painted / skipped)
+      const n = isLow() && c.g.nso ? c.g.nso : c.g.ns;
+      if (!n) continue;
       gl.uniform3f(sh.u.uOrigin, (c.cx * CHUNK + 1.5) * PITCH, 0, (c.cz * CHUNK + 1.5) * PITCH);
       gl.bindVertexArray(c.g.vao);
-      gl.drawElements(gl.TRIANGLES, c.g.ns, c.g.it, 0);
-      tris += c.g.ns / 3; draws++;
+      gl.drawElements(gl.TRIANGLES, n, c.g.it, 0);
+      tris += n / 3; draws++;
     }
     gl.disable(gl.STENCIL_TEST); gl.disable(gl.BLEND);
   }
@@ -1030,7 +1053,7 @@ function updateInput(dt) {
 
 // ---------------- fly-to ----------------
 let fly = null;
-function cancelFly() { fly = null; }
+function cancelFly() { fly = null; uiSeq++; }      // a manual move also outranks a pending tap or search
 function homeView(p) {
   const { bx, bz, slot } = plotOf(L, p);
   const zone = zoneLevel(bx, bz);
@@ -1047,16 +1070,23 @@ function homeView(p) {
   // across the street and up: never inside the house opposite (its roof is checked around the camera too),
   // and high enough that the whole target home, roof included, is in view over anything in between
   // three-quarter view: 24 m out from the front, 25° off the axis, a storey or two above the roof
-  // above the middle of the street in front of the home, a little to one side, looking down at ~45°: nothing
-  // stands between the camera and the front of the home, and its roof and neighbours frame it
-  const side = (hash3(bx, bz, slot) & 1) ? 1 : -1;
-  const q = plotInfo(bx, bz, slot, zone).q, hx = (q[0] + q[2]) / 2, hz = (q[1] + q[3]) / 2;   // the house, not the plot
+  // street view: standing in the lane (Tokyo lanes are ~8 m, so any camera further out would be inside the
+  // house opposite), 5.5 m off the facade and 17 m along the street, eye at ~7 m: the facade, door and roof
+  // edge at a three-quarter angle. Pick the side where nothing tall stands between camera and home.
+  const q = plotInfo(bx, bz, slot, zone).q, hx = (q[0] + q[2]) / 2, hz = (q[1] + q[3]) / 2;
   const front = face < 0 ? q[1] : q[3];
-  const x = hx + side * 9, z = front + face * 4.5;   // the street is 8 m: stay over it, never above the house opposite
-  let y = Math.max(16, top + 10);
-  for (let dz = -6; dz <= 6; dz += 3) for (let dx = -6; dx <= 6; dx += 3) y = Math.max(y, heightAt(x + dx, z + dz) + 6);
-  for (let k = 0.1; k < 0.6; k += 0.05) y = Math.max(y, heightAt(x + (f.x - x) * k, z + (f.z - z) * k) + 5 + 12 * k);   // not the target itself
-  return { x, y, z, yaw: 0, pitch: -0.2, bx, bz, slot, zone, tx: hx, tz: hz, ty: top };
+  const z = front + face * 5.5;
+  const pref = (hash3(bx, bz, slot) & 1) ? 1 : -1;
+  let x = hx + pref * 17, best = Infinity;
+  for (const sd of [pref, -pref]) for (const along of [17, 13, 21]) {
+    const cx = hx + sd * along;
+    if (heightAt(cx, z) > 0) continue;                 // never start inside a building
+    let block = 0;
+    for (let k = 0.15; k < 0.85; k += 0.1) block = Math.max(block, heightAt(cx + (hx - cx) * k, z + (front - z) * k));
+    if (block < best) { best = block; x = cx; }
+  }
+  const y = Math.max(6.5, Math.min(top + 2, 7.5 + best * 0.3));
+  return { x, y, z, yaw: 0, pitch: -0.2, bx, bz, slot, zone, tx: hx, tz: front - face * 1.5, ty: top * 0.7, px: hx, py: top + 0.8, pz: hz };   // p*: the pin, on the roof
 }
 function lookAtYaw(v) {
   const dx = v.tx - v.x, dz = v.tz - v.z;
@@ -1072,10 +1102,11 @@ function flyTo(p, instant) {
   let dyaw = v.yaw - from.yaw; dyaw = Math.atan2(Math.sin(dyaw), Math.cos(dyaw));
   // the arc must clear every building under the path (a short hop through the towers would fly through them)
   let clear = 0;
-  for (let k = 1; k < 32; k++) {
-    const t = k / 32, h = heightAt(from.x + (v.x - from.x) * t, from.z + (v.z - from.z) * t);
+  const steps = Math.max(32, Math.min(600, Math.ceil(d / 10)));   // every <= 10 m (up to 6 km)
+  for (let k = 1; k < steps; k++) {
+    const t = k / steps, h = heightAt(from.x + (v.x - from.x) * t, from.z + (v.z - from.z) * t);
     const base = from.y + (v.y - from.y) * t, arc = Math.sin(Math.PI * t);
-    if (h > 0) clear = Math.max(clear, (h + 15 - base) / Math.max(0.2, arc));
+    if (h > 0 && h + 15 > base) clear = Math.max(clear, (h + 15 - base) / Math.max(0.05, arc));
   }
   fly = { from, to: v, dyaw, t0: performance.now(), dur: Math.min(7000, 1800 + Math.sqrt(d) * 45), lift: Math.min(1800, Math.max(d * 0.35, clear)) };
   return v;
@@ -1121,7 +1152,7 @@ async function flyToName(name, instant) {
   const hit = list.find((e) => e[0] === norm) || list[0];
   if (!hit) { toast(`No home for “${name}” yet`); return false; }
   const v = flyTo(hit[1], instant);
-  pin = { x: v.tx, y: v.zone >= 2 ? v.ty * 0.6 + 9 : v.ty + 0.8, z: v.tz, key: plotKey(v.bx, v.bz, v.slot) };
+  pin = { x: v.px !== undefined ? v.px : v.tx, y: v.py !== undefined ? v.py : v.ty * 0.6 + 9, z: v.pz !== undefined ? v.pz : v.tz, key: plotKey(v.bx, v.bz, v.slot) };
   showCard(hit[0], hit[1], v);
   history.replaceState(null, '', '#u=' + encodeURIComponent(hit[0]));
   return true;
@@ -1167,8 +1198,8 @@ function showCard(name, p, v) {
   c.hidden = false;
   c.dataset.p = p;
 }
-$('#card-close').onclick = () => { $('#card').hidden = true; pin = null; };
-$('#card-go').onclick = () => { const p = +$('#card').dataset.p; if (p >= 0) flyTo(p); };
+$('#card-close').onclick = () => { uiSeq++; $('#card').hidden = true; pin = null; };
+$('#card-go').onclick = () => { uiSeq++; const p = +$('#card').dataset.p; if (p >= 0) flyTo(p); };
 let uiSeq = 0;                                       // only the latest tap / search may set the card, pin and flight
 async function onTap(x, y) {
   if (!L || !invVP) return;
@@ -1187,7 +1218,7 @@ function toast(t) { const el = $('#toast'); el.textContent = t; el.hidden = fals
 // ---------------- buttons ----------------
 const TODS = [0.22, 1, 2];
 $('#btn-time').onclick = () => { const i = TODS.findIndex((t) => Math.abs(t - tod) < 0.3); setTod(TODS[(i + 1) % TODS.length]); };
-$('#btn-home').onclick = () => { fly = { from: { ...cam }, to: { ...HOME }, dyaw: Math.atan2(Math.sin(HOME.yaw - cam.yaw), Math.cos(HOME.yaw - cam.yaw)), t0: performance.now(), dur: 3000, lift: 300 }; };
+$('#btn-home').onclick = () => { uiSeq++; fly = { from: { ...cam }, to: { ...HOME }, dyaw: Math.atan2(Math.sin(HOME.yaw - cam.yaw), Math.cos(HOME.yaw - cam.yaw)), t0: performance.now(), dur: 3000, lift: 300 }; };
 $('#btn-help').onclick = () => { $('#help').hidden = !$('#help').hidden; };
 $('#help').onclick = () => { $('#help').hidden = true; };
 

@@ -10,19 +10,20 @@ onmessage = (e) => {
   const m = e.data;
   if (m.type === 'init') {
     try {
-    customs.clear();
-    if (m.layout) L = finishLayout(m.layout);
+    if (m.layout) { L = finishLayout(m.layout); customs.clear(); }   // the main thread committed this layout
     else {
-      L = null;
+      // build a new layout into a local: this worker keeps meshing the current one until the main thread
+      // commits the new one (it may reject it), and a failed build changes nothing here
+      let nl = null;
       if (m.order && m.order.byteLength % 4 === 0) {           // validate the prebuilt order; fall back to sorting
         const t = layoutFromOrder(m.n, new Int16Array(m.order));
-        if (t.start[t.count] >= m.n) L = t;
+        if (t.start[t.count] >= m.n) nl = t;
       }
-      if (!L) L = buildLayout(m.n);
-      const g = buildGround(L);
-      postMessage({ type: 'layout', layout: layoutTransfer(L), ground: g }, [g.data.buffer]);
+      if (!nl) nl = buildLayout(m.n);
+      const g = buildGround(nl);
+      postMessage({ type: 'layout', build: m.build, layout: layoutTransfer(nl), ground: g }, [g.data.buffer]);
     }
-    } catch (err) { postMessage({ type: 'error', fatal: true, message: 'layout: ' + String((err && err.stack) || err) }); }
+    } catch (err) { postMessage({ type: 'error', fatal: true, build: m.build, message: 'layout: ' + String((err && err.stack) || err) }); }
     return;
   }
   try {

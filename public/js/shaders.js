@@ -89,8 +89,8 @@ void main() {
   bool city = vMat == 5 || (vMat == 1 && (sa & 3u) == 3u);
   // canyon shade: city walls darken strongly toward the street (no building-on-building shadows otherwise)
   float ao = mix(1.0, city ? mix(0.45, 1.0, smoothstep(0.0, 30.0, vW.y)) : mix(0.6, 1.0, smoothstep(0.0, 2.5, vW.y)), wall);
-  float avert = mix(1.0, city ? 0.8 : 0.7, wall * step(dot(n, uSunDir), 0.0));             // faces turned from the sun
-  float jitter = (vMat == 5 ? 0.62 : city ? 0.85 : 0.8) + (vMat == 5 ? 0.42 : city ? 0.15 : 0.2) * float((sa * 2654435761u) >> 24u) / 255.0;   // towers: dark to light glass   // neighbours separate
+  float avert = mix(1.0, city ? 0.8 : 0.58, wall * step(dot(n, uSunDir), 0.0));             // faces turned from the sun
+  float jitter = (vMat == 5 ? 0.62 : city ? 0.85 : 0.74) + (vMat == 5 ? 0.42 : city ? 0.15 : 0.26) * float((sa * 2654435761u) >> 24u) / 255.0;   // towers: dark to light glass   // neighbours separate
   vec3 col = base * jitter * (amb * ao * avert + key * sun);
   vec3 emis = vec3(0.0);
   uint seedAll = uint(vCol.a * 255.0 + 0.5);
@@ -584,7 +584,7 @@ vec4 groundBase(vec2 p, vec3 dir, float t, float w) {
     float along = sx != 0 ? l.y : l.x;
     float fade = 1.0 - smoothstep(0.4, 1.2, w);
     uvec4 cn = cellAt(bx + sx, bz + sz);
-    bool resid = k == 0u && k2 == 0u && (c.g & 3u) <= 1u && (cn.g & 3u) <= 1u;
+    bool resid = (k == 0u || k == 2u) && (k2 == 0u || k2 == 2u) && (c.g & 3u) <= 1u && (cn.g & 3u) <= 1u;   // homes or a pocket park: still a lane
     if (resid) {
       // Tokyo residential lane: white edge lines 0.5 m from the kerb, a stop bar before the junction, no centre line
       float edgeL = step(abs(abs(across) - 3.45), 0.075);

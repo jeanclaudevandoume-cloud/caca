@@ -143,7 +143,8 @@ export function roofIdx(bx, bz, slot) {
 export const districtAccent = (bx, bz) => hash3(fdiv(bx, 4), fdiv(bz, 4), 31) % 6;
 
 // Palettes (0xRRGGBB). The ground shader holds ROOF too.
-export const WALL = [0xf0ece2, 0xe2d8c4, 0xcdbfa5, 0xd99a6c, 0xf4f2ec, 0xc9b49a, 0xb8c9a3, 0x5c6870];   // ART.md: Tokyo/Seoul palette (round B: one house in ~4 is dark, for rhythm)
+export const WALL = [0xf0ece2, 0xe2d8c4, 0xcdbfa5, 0xd99a6c, 0xf4f2ec, 0xc9b49a, 0xb8c9a3, 0x5c6870];   // ART.md: cream, sand, terracotta, sage, slate (picked through WALL_PICK)
+const WALL_PICK = [0, 1, 2, 3, 4, 5, 6, 7, 3, 6];   // terracotta (3) and sage (6) twice: less cream, more colour
 // townhouses: three brick tones, then stucco
 export const TOWN = [0xb46a4c, 0xb07a5a, 0xc8b08e, 0xc9a27e, 0xe3dccf];
 export const ROOF = [0x3a3e45, 0x4b5663, 0x2f5d8a, 0x2f4d7a, 0x8a4a34, 0x9a4a30, 0x3f6b6e, 0x7a3b2a];   // ART.md: charcoal/slate, Japanese blue, navy, terracotta, teal, oxblood (round H: 2 of 8 grey, not 4); green only on villas
@@ -167,7 +168,7 @@ export function recipe(bx, bz, slot, zone, custom) {
     r.d = 11 + ((h >>> 4) % 4) * 0.75;
     const rt = (h >>> 8) % 20;
     r.roofType = rt < 9 ? 3 : rt < 15 ? 0 : 2;  // 3 mono-pitch, 0 low gable, 2 flat with parapet
-    r.wall = WALL[(h >>> 11) % 8];
+    r.wall = WALL[WALL_PICK[(h >>> 11) % WALL_PICK.length]];   // creams (0,1,4) are 3 in 10, not 3 in 8
     r.style = (h >>> 26) & 1;                 // 1 = ceramic siding (vertical joints)
     r.twoTone = ((h >>> 27) & 1) === 1;       // darker ground storey + string course
     r.side = h & 8 ? 1 : -1;                  // the house sits 0.9 m from this side line
@@ -183,7 +184,7 @@ export function recipe(bx, bz, slot, zone, custom) {
     r.roofType = 2;
     r.mansard = (h >>> 8) % 10 < 3;
     const mr = (h >>> 20) % 20;
-    r.roofMem = mr < 12 ? 0x4f8a6e : mr < 15 ? 0x5f86a8 : 0x8c8f93;   // Seoul green / blue / grey roofs
+    r.roofMem = mr < 12 ? 0x4f8a6e : mr < 15 ? 0x5f86a8 : 0x5a5f66;   // Seoul green / blue / grey roofs
     const ti = (h >>> 11) % 5;
     r.wall = TOWN[ti];
     r.style = ti < 2 ? 2 : 0;                 // 2 = brick
@@ -427,10 +428,12 @@ export const lowNext = (prev, s) => (prev === null || (prev && s > 0.74) || (!pr
 
 // ---- follower names (build time) ----
 // NFC; no control or format characters (bidi overrides, zero-width spaces, line separators) except a ZWJ
-// between two pictographs (emoji sequences) and tag characters after a black flag (England, Scotland, Wales);
+// inside an emoji sequence, ZWJ/ZWNJ inside Arabic/Indic/Sinhala words and tag characters after a black flag (England, Scotland, Wales);
 // runs of combining marks capped at 4 (no "zalgo" towers; Hebrew and Tibetan names keep theirs); truncated to
 // 40 grapheme clusters so no emoji is split. A name with nothing visible left becomes ''.
 const SEG = typeof Intl !== 'undefined' && Intl.Segmenter ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null;
+// scripts whose words need ZWJ / ZWNJ to render correctly (elsewhere they are only invisible spoofing material)
+const JOINING = /[\p{Script=Arabic}\p{Script=Syriac}\p{Script=Devanagari}\p{Script=Bengali}\p{Script=Gurmukhi}\p{Script=Gujarati}\p{Script=Oriya}\p{Script=Tamil}\p{Script=Telugu}\p{Script=Kannada}\p{Script=Malayalam}\p{Script=Sinhala}]/u;
 const ZWJ = String.fromCharCode(0x200d), ZWNJ = String.fromCharCode(0x200c), BLACK_FLAG = String.fromCodePoint(0x1f3f4);
 export function cleanName(s) {
   const cps = Array.from(String(s).normalize('NFC'));
@@ -446,7 +449,7 @@ export function cleanName(s) {
       let p = out.length - 1;
       while (p >= 0 && /[\p{M}\p{Emoji_Modifier}\uFE0F]/u.test(out[p])) p--;
       const next = cps[k + 1];
-      if ((c === ZWJ && pict(out[p]) && pict(next)) || (/[^\P{L}\p{Script=Latin}]/u.test(out[p] || '') && next !== undefined && /[\p{L}\p{M}]/u.test(next))) out.push(c);
+      if ((c === ZWJ && pict(out[p]) && pict(next)) || (JOINING.test(out[p] || '') && next !== undefined && /[\p{L}\p{M}]/u.test(next))) out.push(c);
       continue;
     }
     if (isTag(c)) {                                          // tag characters only in a run right after a black flag

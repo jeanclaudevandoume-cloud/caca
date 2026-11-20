@@ -44,7 +44,10 @@ check('layoutFromOrder == buildLayout', LO.count === L.count && LO.maxD2 === L.m
 // follower names: no bidi/zero-width/control characters, emoji and flags intact, grapheme-safe truncation
 {
   const C = String.fromCodePoint, fam = C(0x1F468, 0x200D, 0x1F469, 0x200D, 0x1F467), eng = C(0x1F3F4, 0xE0067, 0xE0062, 0xE0065, 0xE006E, 0xE0067, 0xE007F);
-  const cases = [['a' + C(0x202E) + 'b', 'ab'], ['x' + C(0x200B) + 'y', 'xy'], ['a' + C(0x2028) + 'b', 'ab'], [C(0x200D), ''], [' ', ''], ['ab' + C(1) + C(0xE0041) + C(1) + C(0xE0042) + 'c', 'abc'], ['a' + C(0) + 'b', 'ab'], ['a' + C(0xE0041), 'a'], ['a' + C(0x200D) + 'b', 'ab'],
+  const cases = [['a' + C(0x202E) + 'b', 'ab'], ['x' + C(0x200B) + 'y', 'xy'], ['a' + C(0x2028) + 'b', 'ab'], [C(0x200D), ''], [' ', ''], ['ab' + C(1) + C(0xE0041) + C(1) + C(0xE0042) + 'c', 'abc'], ['a' + C(0) + 'b', 'ab'], ['a' + C(0xE0041), 'a'], ['a' + C(0x200D) + 'b', 'ab'], ['x' + C(0x200D), 'x'], ['1' + C(0x200C), '1'],
+    [C(0x1F468, 0x1F3FD, 0x200D, 0x1F4BB), C(0x1F468, 0x1F3FD, 0x200D, 0x1F4BB)], [C(0x1FAF1, 0x1F3FB, 0x200D, 0x1FAF2, 0x1F3FF), C(0x1FAF1, 0x1F3FB, 0x200D, 0x1FAF2, 0x1F3FF)],
+    ['\u0645\u06cc' + C(0x200C) + '\u062e\u0648\u0627\u0647\u0645', '\u0645\u06cc' + C(0x200C) + '\u062e\u0648\u0627\u0647\u0645'], ['\u0915\u094d' + C(0x200D) + '\u0937', '\u0915\u094d' + C(0x200D) + '\u0937'],
+    ['\u0434' + C(0x200D) + '\u0430', '\u0434\u0430'], ['\u4e2d' + C(0x200C) + '\u6587', '\u4e2d\u6587'],
     [fam.repeat(41), fam.repeat(40)], [eng, eng], ['</script>', '</script>'], ['z' + C(0x300, 0x301, 0x302, 0x303, 0x304, 0x305), 'z' + C(0x300, 0x301, 0x302, 0x303)]];
   const bad = cases.filter(([i, o]) => T.cleanName(i) !== o).map(([i]) => JSON.stringify(i));
   check('cleanName strips control/format characters, keeps emoji and flags, truncates by grapheme', !bad.length, bad.join(' '));

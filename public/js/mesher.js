@@ -301,6 +301,9 @@ const shade = (c, f) => {
   const r = Math.min(255, Math.round(((c >> 16) & 255) * f)), g = Math.min(255, Math.round(((c >> 8) & 255) * f)), b = Math.min(255, Math.round((c & 255) * f));
   return (r << 16) | (g << 8) | b;
 };
+// flat-roof membranes on houses: Seoul green, blue, slate, olive (V .35-.50: always darker than the wall)
+const FLAT_MEM = [0x4f7d6e, 0x3f6f8c, 0x5a5f66, 0x6b7a5a];
+const flatMem = (r) => FLAT_MEM[(r.hash >>> 21) & 3];
 const LEAVES = [0x3e7d3a, 0x4f8f3f, 0x2f6b3c, 0x5f9a45, 0x6d8f3a, 0x467f43];
 const BLOSSOM = [0xf2a7c3, 0xe98fb4, 0xf7c1d5];
 const TRUNK = 0x7a5233;
@@ -509,7 +512,7 @@ export function home(mb, bx, bz, f, r, lod) {
     if (r.shape) {
       shape(mb, r.shape, (x0 + x1) / 2, 0, (z0 + z1) / 2, 0.95, r.color, a & 0xfc, lod);
     } else if (lod) {
-      mb.box(x0, 0, z0, x1, top, z1, r.wall, r.roofType === 2 ? 0x8c8f93 : -1, M.WIN, wa);
+      mb.box(x0, 0, z0, x1, top, z1, r.wall, r.roofType === 2 ? flatMem(r) : -1, M.WIN, wa);
       if (r.roofType === 3) mb.mono(x0, z0, x1, z1, 0.2, top, 2.2, fs, rc, r.wall, a, 0, false);
       else if (r.roofType === 0) mb.gable(x0 - 0.3, z0 - 0.3, x1 + 0.3, z1 + 0.3, top, 1.6, rc, r.wall, a, true, false);
     } else {
@@ -524,16 +527,22 @@ export function home(mb, bx, bz, f, r, lod) {
         // stepped massing: the top storey sits back from the street (0 / 1.5 / 2.2 m), its roof terrace in front
         const sb = [0, 1.5, 2.2][(r.hash >>> 28) % 3];
         const zs0 = f.face < 0 ? cz0 + sb : cz0, zs1 = f.face < 0 ? cz1 : cz1 - sb;
-        mb.box(x0, FLOOR_H, cz0, x1, 2 * FLOOR_H, cz1, r.wall, 0x8c8f93, M.WIN, wa, 1);
-        mb.boxEave(x0, 2 * FLOOR_H, zs0, x1, top, zs1, r.wall, r.roofType === 2 ? 0x8c8f93 : -1, M.WIN, wa, 0.4);
+        mb.box(x0, FLOOR_H, cz0, x1, 2 * FLOOR_H, cz1, r.wall, flatMem(r), M.WIN, wa, 1);
+        mb.boxEave(x0, 2 * FLOOR_H, zs0, x1, top, zs1, r.wall, r.roofType === 2 ? flatMem(r) : -1, M.WIN, wa, 0.4);
         var rz0 = zs0, rz1 = zs1;
-      } else { mb.boxEave(x0, FLOOR_H, cz0, x1, top, cz1, r.wall, r.roofType === 2 ? 0x8c8f93 : -1, M.WIN, wa, 0.4); var rz0 = cz0, rz1 = cz1; }
+      } else { mb.boxEave(x0, FLOOR_H, cz0, x1, top, cz1, r.wall, r.roofType === 2 ? flatMem(r) : -1, M.WIN, wa, 0.4); var rz0 = cz0, rz1 = cz1; }
       if (r.twoTone && !LITE) { mb.cast = false; mb.box(x0 - 0.03, FLOOR_H - 0.05, z0 - 0.03, x1 + 0.03, FLOOR_H + 0.02, z1 + 0.03, 0x3a3836, -1, M.PLAIN, a); mb.cast = true; }
       // roof: mono-pitch / low gable with thin eaves and a dark fascia / flat with a parapet ring
       const o = 0.65;
       if (r.roofType === 3) mb.mono(x0, rz0, x1, rz1, o, top, 2.2, fs, rc, r.wall, a, shade(rc, 0.55), true);
       else if (r.roofType === 0) mb.gable(x0 - o, rz0 - o, x1 + o, rz1 + o, top, 1.6, rc, r.wall, a, true, true, shade(rc, 0.55));
-      else mb.parapet(x0, rz0, x1, rz1, top, 0.6, shade(r.wall, 0.82), 0xd9d3c7, a, 0x8c8f93);
+      else mb.parapet(x0, rz0, x1, rz1, top, 0.6, shade(r.wall, 0.82), 0xd9d3c7, a, flatMem(r));
+      if (r.roofType === 2 && !lod && !LITE) {                // rooftop clutter: water tank and an AC unit
+        mb.cast = false;
+        mb.cyl(x0 + 1.4, top, (rz0 + rz1) / 2, 0.75, top + 1.3, 0.75, 6, 0x9fb3c2, M.METAL, a);
+        mb.cbox(x1 - 1.3, top, (rz0 + rz1) / 2 + 1, 0.9, 0.6, 0.6, 0x707479, M.METAL, a);
+        mb.cast = true;
+      }
       mb.cast = false;
       // built-in garage: dark opening with a light lintel
       if (r.garage) {

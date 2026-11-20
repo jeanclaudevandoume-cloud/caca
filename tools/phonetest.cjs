@@ -5,6 +5,13 @@ const { chromium, devices } = require('playwright');
 const path = require('path');
 (async () => {
   const file = 'file://' + path.resolve(process.argv[2] || 'dist/follower-town.html');
+  // refuse to test a phone file older than the code it claims to be (a stale dist once hid an untested change)
+  {
+    const fs = require('fs'), src = path.join(__dirname, '..', 'public', 'js');
+    const newest = Math.max(...fs.readdirSync(src).map((f) => fs.statSync(path.join(src, f)).mtimeMs));
+    const built = fs.statSync(path.resolve(process.argv[2] || 'dist/follower-town.html')).mtimeMs;
+    if (built < newest) { console.log('FAIL: the phone file is older than public/js; rebuild it with tools/single.mjs'); process.exit(1); }
+  }
   const b = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
   let ok = true;
   for (const [name, vp] of [['portrait', null], ['landscape', { width: 915, height: 412 }]]) {
@@ -44,11 +51,9 @@ const path = require('path');
       for (let k = 0; k < 10; k++) {                  // kills while chunks are in flight (the camera keeps moving)
         await p.evaluate((k) => { const t = window.__town; t.cam.x += 200; t.cam.z -= 120 * (k & 1 ? -1 : 1); t.killWorker(0); }, k);
         await p.waitForTimeout(400);
-        const nw = await p.evaluate(() => window.__town.dbg.loads.length);
-        if (nw < 1) { await p.waitForTimeout(2500); if ((await p.evaluate(() => window.__town.dbg.loads.length)) < 1) { pass = false; why += ` no worker after kill ${k + 1};`; } }
       }
       await p.waitForFunction(() => window.__town.idle(), null, { timeout: 90000, polling: 500 });
-      // after the back-off the pool is refilled
+      // a burst of deaths pauses replacement for 30 s (possibly with no worker at all); then the pool is refilled
       await p.waitForTimeout(31000);
       const pool = await p.evaluate(() => window.__town.dbg.loads.length);
       if (pool < 2 && (await p.evaluate(() => navigator.hardwareConcurrency)) > 2) { pass = false; why += ` pool not refilled (${pool});`; }

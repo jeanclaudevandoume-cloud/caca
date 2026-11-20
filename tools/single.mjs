@@ -80,7 +80,7 @@ if (fs.existsSync(path.join(townDir, 'order.bin'))) bins['order.bin'] = fs.readF
 const manifest = JSON.parse(files['manifest.json']);
 
 let stamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
-try { stamp = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { stdio: 'pipe', cwd: ROOT }).toString().trim() + ' ' + stamp; } catch { /* not a git checkout */ }
+try { stamp = execFileSync('git', ['describe', '--always', '--dirty'], { stdio: 'pipe', cwd: ROOT }).toString().trim() + ' ' + stamp; } catch { /* not a git checkout */ }   // -dirty: built from uncommitted code
 
 const prelude = `
 window.FT_BUILD = ${JSON.stringify(stamp)};
@@ -115,6 +115,10 @@ for (const [label, src] of [['main bundle', mainSrc], ['worker bundle', workerSr
     vm.runInContext(workerSrc, ctx, { timeout: 30000 });
     if (typeof ctx.onmessage !== 'function') die('worker bundle did not install onmessage');
     ctx.onmessage({ data: { type: 'init', n: Math.min(manifest.n || 1000, 5000) } });
+    // the commit path: a worker that receives a finished layout (every worker after a build) must mesh with it
+    const lay = replies.find((r) => r.type === 'layout');
+    if (!lay) die('worker bundle: init produced no layout');
+    ctx.onmessage({ data: { type: 'init', layout: lay.layout } });
     ctx.onmessage({ data: { type: 'chunk', id: 1, cx: 0, cz: 0, lod: 0, custom: null } });
     ctx.onmessage({ data: { type: 'chunk', id: 2, cx: 1, cz: 0, lod: 0, custom: null, lite: true } });
     ctx.onmessage({ data: { type: 'sky', id: 3, rx: 0, rz: 0 } });
