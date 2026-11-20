@@ -41,6 +41,53 @@ check('layoutFromOrder == buildLayout', LO.count === L.count && LO.maxD2 === L.m
   }
   check('shadow-only proxies: 0 < so <= ns <= n, and the colour range never draws a proxy vertex', !bad, bad);
 }
+// worker supervisor (public/js/supervisor.js) with fake workers and a fake clock
+{
+  const { Supervisor, MAX_DEATHS } = await import('../public/js/supervisor.js');
+  const mk = (size) => {
+    let t = 0; const timers = [], notices = [], fatal = [], spawned = [];
+    const sup = new Supervisor({ size, now: () => t, later: (fn, ms) => { timers.push({ fn, at: t + ms }); return timers.length; },
+      notice: (x) => notices.push(x), onFatal: (x) => fatal.push(x),
+      spawn: () => { const w = { sent: [], dead: false, postMessage(m) { this.sent.push(m); }, terminate() { this.dead = true; } }; spawned.push(w); return w; } });
+    const tick = (ms) => { t += ms; for (const x of timers.splice(0)) if (x.at <= t) x.fn(); else timers.push(x); };
+    return { sup, tick, notices, fatal, spawned };
+  };
+  const bad = [];
+  const ok = (c, msg) => { if (!c) bad.push(msg); };
+  // 1. before the first layout a death is fatal
+  { const h = mk(2); h.sup.start(); h.sup.died(h.sup.workers[0], 'x'); ok(h.fatal.length === 1, 'death before layout not fatal'); }
+  // 2. a death releases its requests (target asked again) and is replaced
+  { const h = mk(2); h.sup.start(); h.sup.commit({}); const tg = {}; h.sup.request({}, tg, 0); const w = h.sup.reqs.get(tg.req).w;
+    h.sup.died(w, 'x'); ok(tg.req === 0 && h.sup.reqs.size === 0, 'requests not released'); ok(h.sup.workers.length === 2 && w.dead, 'not replaced');
+    ok(h.sup.workers.every((x) => x.sent.some((m) => m.type === 'init' && m.layout)), 'replacement did not get the layout'); }
+  // 3. a burst of deaths: back-off with one notice, no spawns during it, refilled after it
+  { const h = mk(3); h.sup.start(); h.sup.commit({});
+    for (let k = 0; k < MAX_DEATHS + 3; k++) if (h.sup.workers.length) h.sup.died(h.sup.workers[0], 'x');
+    const during = h.spawned.length; ok(h.notices.length === 1, `notices ${h.notices.length}`);
+    h.tick(10000); ok(h.spawned.length === during, 'spawned during back-off');
+    h.tick(25000); ok(h.sup.workers.length === 3 && !h.sup.backoff, 'pool not refilled after back-off'); }
+  // 4. a hung request kills its worker; a hidden-tab clock reset prevents it
+  { const h = mk(1); h.sup.start(); h.sup.commit({}); const tg = {}; h.sup.request({}, tg, 0);
+    h.tick(15000); h.sup.resetClocks(); h.tick(15000); h.sup.sweep(); ok(h.sup.reqs.size === 1, 'reset clock still killed');
+    h.tick(6000); h.sup.sweep(); ok(h.sup.reqs.size === 0 && tg.req === 0, 'hung worker not replaced'); }
+  // 5. builds: stale replies ignored; only the builder's death re-posts; waits for a worker during back-off
+  { const h = mk(2); h.sup.start(); h.sup.commit({});
+    const b1 = h.sup.startBuild(10, null), b2 = h.sup.startBuild(20, null);
+    ok(!h.sup.finishBuild(b1), 'stale build accepted');
+    const builder = h.sup.build.w, other = h.sup.workers.find((w) => w !== builder);
+    const posts = () => h.spawned.reduce((n, w) => n + w.sent.filter((m) => m.build === b2).length, 0);
+    const p0 = posts(); h.sup.died(other, 'x'); ok(posts() === p0, 'non-builder death re-posted the build');
+    h.sup.died(builder, 'x'); ok(posts() === p0 + 1, 'builder death did not re-post');
+    ok(h.sup.finishBuild(b2) && !h.sup.build, 'current build not finished'); }
+  { const h = mk(1); h.sup.start(); h.sup.commit({});
+    for (let k = 0; k < MAX_DEATHS + 1; k++) h.sup.died(h.sup.workers[0], 'x');
+    const id = h.sup.startBuild(5, new ArrayBuffer(8)); ok(h.sup.build.w === null, 'build posted with no worker');
+    h.tick(31000); ok(h.sup.build && h.sup.build.w && h.sup.build.w.sent.some((m) => m.build === id && m.order && m.order.byteLength === 8), 'build not posted after refill'); }
+  // 6. no worker: a request waits instead of throwing
+  { const h = mk(1); h.sup.start(); h.sup.commit({}); for (let k = 0; k < MAX_DEATHS + 1; k++) h.sup.died(h.sup.workers[0], 'x');
+    const tg = {}; ok(h.sup.request({}, tg, 0) === 0 && !tg.req, 'request with no worker'); }
+  check('worker supervisor: fatal before layout, release + replace, back-off + refill, hang sweep, build tracking', !bad.length, bad.join('; '));
+}
 // follower names: no bidi/zero-width/control characters, emoji and flags intact, grapheme-safe truncation
 {
   const C = String.fromCodePoint, fam = C(0x1F468, 0x200D, 0x1F469, 0x200D, 0x1F467), eng = C(0x1F3F4, 0xE0067, 0xE0062, 0xE0065, 0xE006E, 0xE0067, 0xE007F);

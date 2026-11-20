@@ -4,6 +4,7 @@ import {
   occupied, slotAt, ROOF, chunkLod, chunkLite, skyLite, lowNext, plotIndex, homeRect, regionKey, regionOf, lineIndex, normName, shardFor, hash3,
 } from './town.js';
 import { MB, M, SKY } from './mesher.js';
+import { Supervisor } from './supervisor.js';
 import { GEO_VS, GEO_FS, SHADOW_VS, SHADOW_FS, FULL_VS, FULL_FS, COPY_FS } from './shaders.js';
 
 window.__ftBooted = true;
@@ -194,19 +195,30 @@ let restoredCam = false;
 
 // ---------------- workers ----------------
 const NW = Math.max(1, Math.min(3, (navigator.hardwareConcurrency || 2) - 1));
-const workers = [];
-const reqs = new Map();
-let nextId = 1;
+// The pool, requests, back-off and layout-build tracking live in supervisor.js (unit-tested in selftest).
+let badBuilt = null;
+const sup = new Supervisor({
+  size: NW,
+  now: () => performance.now(),
+  later: (fn, ms) => setTimeout(fn, ms),
+  notice: (t) => fail(t),
+  onFatal: (t) => fail(t),
+  spawn: (s) => {
+    const w = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
+    w.onmessage = onWorker;
+    w.onerror = (e) => { if (e.preventDefault) e.preventDefault(); console.error('worker died:', e.message); s.died(w, e.message || 'failed to start'); };
+    return w;
+  },
+});
+const reqs = sup.reqs;                                 // read-only views for streaming, idle() and the probe
 function onWorker(e) {
   const m = e.data;
-  if (m.type === 'layout') { if (build && m.build === build.id) { build = null; onLayout(m.layout, m.ground); } return; }   // stale builds are ignored
-  const r = reqs.get(m.id);
-  reqs.delete(m.id);
-  if (r) r.w.load--;
+  if (m.type === 'layout') { if (sup.finishBuild(m.build)) onLayout(m.layout, m.ground); return; }   // stale builds are ignored
+  const r = sup.reply(m.id);
   if (m.type === 'error') {
     console.error(m.message);
     if (m.fatal) {                              // a layout build failed: abandon it; the old layout and manifest stay
-      if (build && m.build === build.id) build = null;
+      sup.finishBuild(m.build);
       if (layoutStage) badBuilt = layoutStage.manifest.built;
       layoutStage = null;
       fail('Worker: ' + m.message);
@@ -241,62 +253,9 @@ function drainUploads() {
     t.g = g; t.lod = lod; t.loaded = true;
   }
 }
-// Worker supervisor. A worker that dies (out of memory on a phone, a crash) or hangs is replaced: its
-// requests are released so their chunks are asked for again (deaths never count as mesh failures) and the
-// new worker gets the current layout. More than 6 deaths in a minute: stop replacing for 30 s (running on the
-// survivors, or on none: requests simply wait), say so once, then refill to NW. Before the first layout
-// exists a dead worker is fatal. A layout build is tracked on its own (`build`): only its worker's death or
-// hang re-posts it, and a reply from an older build is ignored.
-let lastLayout = null, deaths = [], backoff = 0, build = null, buildSeq = 0, badBuilt = null;
-function spawnWorker(i) {
-  const w = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
-  w.load = 0; w.onmessage = onWorker;
-  w.onerror = (e) => { if (e.preventDefault) e.preventDefault(); workerDied(w, e.message || 'failed to start'); };
-  workers[i] = w;
-  if (lastLayout) w.postMessage({ type: 'init', layout: lastLayout });
-  return w;
-}
-function workerDied(w, why) {
-  const i = workers.indexOf(w);
-  if (i < 0) return;                                   // already replaced
-  console.error('worker died:', why);
-  if (!lastLayout) { fail('Worker: ' + why); return; }
-  try { w.terminate(); } catch { /* already gone */ }
-  for (const [id, r] of reqs) if (r.w === w) { reqs.delete(id); if (r.target.req === id) r.target.req = 0; }
-  const now = performance.now();
-  deaths = deaths.filter((t) => now - t < 60000); deaths.push(now);
-  workers.splice(i, 1);
-  if (backoff) { /* already pausing: the refill brings the pool back */ }
-  else if (deaths.length <= 6) spawnWorker(workers.length);
-  else {
-    backoff = setTimeout(() => {
-      backoff = 0; deaths = [];
-      while (workers.length < NW) spawnWorker(workers.length);
-      if (build && !build.w) postBuild();              // a build that was waiting for a worker
-    }, 30000);
-    fail(workers.length ? 'A background worker keeps failing; running with fewer for 30 s.' : 'The background worker keeps failing; retrying in 30 s.');
-  }
-  if (build && build.w === w) postBuild();            // only the builder's death re-posts the build
-}
-// a request that never answers (a hung worker) counts as a dead worker; a hidden tab pauses the clock
-function sweepStale(now) {
-  if (document.hidden) return;
-  if (build && build.w && now - build.t0 > 30000) { workerDied(build.w, 'layout build: no reply in 30 s'); return; }
-  for (const r of reqs.values()) if (now - r.t0 > 20000) { workerDied(r.w, 'no reply in 20 s'); return; }
-}
-document.addEventListener('visibilitychange', () => { const t = performance.now(); for (const r of reqs.values()) r.t0 = t; if (build) build.t0 = t; });
-for (let i = 0; i < NW; i++) spawnWorker(i);
-function send(msg, target, lod) {
-  if (!workers.length) return;                       // backing off after repeated worker deaths
-  let w = workers[0];
-  for (const x of workers) if (x.load < w.load) w = x;
-  const id = nextId++;
-  msg.id = id;
-  w.load++;
-  reqs.set(id, { w, target, lod, t0: performance.now() });
-  target.req = id;
-  w.postMessage(msg);
-}
+document.addEventListener('visibilitychange', () => sup.resetClocks());
+sup.start();
+const send = (msg, target, lod) => sup.request(msg, target, lod);
 
 // ---------------- boot ----------------
 async function loadManifest() {
@@ -317,8 +276,7 @@ function onLayout(lt, ground) {
   const nl = finishLayout(lt);
   const old = L;
   L = nl;
-  lastLayout = lt;
-  for (const w of workers) w.postMessage({ type: 'init', layout: lt });   // the builder too: it built into a local
+  sup.commit(lt);                                   // every worker, the builder too (it built into a local)
   if (!groundTex) groundTex = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, groundTex);
   gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
@@ -392,15 +350,7 @@ async function initLayout() {
   if (mf.order) {
     try { const r = await fetch(`${TOWN_URL}order.bin?v=${mf.order}`); if (r.ok) order = await r.arrayBuffer(); } catch { /* fall back */ }
   }
-  build = { id: ++buildSeq, n: mf.n, order, w: null, t0: performance.now() };
-  postBuild();
-}
-function postBuild() {
-  build.w = workers[0] || null;                         // none during a back-off: posted at the refill
-  build.t0 = performance.now();
-  if (!build.w) return;
-  // the order buffer is copied, not transferred, so a re-post after a worker death still has it
-  build.w.postMessage({ type: 'init', n: build.n, order: build.order ? build.order.slice(0) : null, build: build.id });
+  sup.startBuild(mf.n, order);
 }
 let stage = 'starting';
 setTimeout(() => { if (!ready) fail('Still not ready after 25 s. Last step: ' + stage + '.'); }, 25000);
@@ -425,7 +375,7 @@ let lastStream = 0;
 function stream(now) {
   if (!L || now - lastStream < 150) return;
   lastStream = now;
-  sweepStale(now);
+  if (!document.hidden) sup.sweep();
   const { r0, r1, rs } = radii();
   const C = CHUNK * PITCH;
   const ccx = Math.floor((cam.x + 24) / C), ccz = Math.floor((cam.z + 24) / C);
@@ -441,7 +391,7 @@ function stream(now) {
   }
   want.sort((a, b) => a.d - b.d);
   const seen = new Set();
-  let budget = workers.length * 3 - reqs.size;
+  let budget = sup.workers.length * 3 - reqs.size;
   for (const w of want) {
     const key = w.cx + ',' + w.cz;
     seen.add(key);
@@ -1225,8 +1175,8 @@ $('#help').onclick = () => { $('#help').hidden = true; };
 // ---------------- debug / automation hooks ----------------
 window.__town = {
   cam, stats, quality, chunks, skies, flyToName, setTod,
-  killWorker: (i) => workerDied(workers[i], 'killed by test'),
-  probe, spin, get dbg() { return { reqs: reqs.size, upq: UPQ.length, budget: workers.length * 3 - reqs.size, loads: workers.map((w) => w.load) }; }, get layout() { return L; }, get ready() { return ready; }, get VP() { return VP; },
+  killWorker: (i) => sup.died(sup.workers[i], 'killed by test'),
+  probe, spin, get dbg() { return { reqs: reqs.size, upq: UPQ.length, budget: sup.workers.length * 3 - reqs.size, loads: sup.workers.map((w) => w.load) }; }, get layout() { return L; }, get ready() { return ready; }, get VP() { return VP; },
   idle() {
     if (!ready || reqs.size || UPQ.length) return false;
     for (const c of chunks.values()) if (c.lod !== c.want || c.stale) return false;
