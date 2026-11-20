@@ -353,7 +353,8 @@ precision highp usampler2D;
 ${COMMON}
 uniform mat4 uInvVP;
 uniform usampler2D uGround;   // per-block data from town.buildGround
-uniform vec4 uTown;   // x townD2, y ground texture extent, z seaX, w seaBx
+uniform vec4 uTown;   // x townD2, y ground texture size, z seaX, w seaBx
+uniform vec2 uGroundO;   // the block at texel (0, 0) of the ground window
 uniform float uPx, uClouds;
 uniform vec4 uFar;    // x roof fade start, y roof fade end, z quality (0 low, 1 high), w shadow len
 in vec2 vNdc;
@@ -377,8 +378,9 @@ bool portAt(int bx, int bz) { if (bx < 25 || bx > 40) return false; int e = 1 - 
 
 // K: 0 HOMES 1 PLAZA 2 PARK 3 LAKE 4 RIVER 5 AVENUE 6 COUNTRY 7 HIGHWAY 8 PORT 9 SEA
 uvec4 cellAt(int bx, int bz) {
-  int e = int(uTown.y);
-  if (abs(bx) <= e && abs(bz) <= e) return texelFetch(uGround, ivec2(bx + e, bz + e), 0);
+  ivec2 q = ivec2(bx, bz) - ivec2(uGroundO);
+  int S = int(uTown.y);
+  if (q.x >= 0 && q.y >= 0 && q.x < S && q.y < S) return texelFetch(uGround, q, 0);
   uint k = bx >= int(uTown.w) || bayAt(bx, bz) ? 9u : portAt(bx, bz) ? 8u : isRiver(bx, bz) ? 4u : (bx == 0 || bz == 0) ? 7u : 6u;
   return uvec4(k, 0u, 0u, 0u);
 }

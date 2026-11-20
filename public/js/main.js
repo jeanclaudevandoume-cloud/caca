@@ -2,8 +2,7 @@
 // The parts live in their own modules: gfx (GL helpers, maths), streaming (chunk requests and uploads),
 // data (names, search, custom homes), view (heights, picking, arrival camera, flights), tags (which names
 // show where), render (one frame), ui (page, input, card, tag overlay), supervisor (the worker pool).
-import { finishLayout, zoneLevel, fdiv, regionKey, ROOF, lowNext } from './town.js';
-import { SKY } from './mesher.js';
+import { finishLayout, ROOF, lowNext } from './town.js';
 import { Supervisor } from './supervisor.js';
 import { uploadAtlas } from './atlas.js';
 import { GEO_VS, GEO_FS, SHADOW_VS, SHADOW_FS, FULL_VS, FULL_FS, COPY_FS } from './shaders.js';
@@ -121,11 +120,14 @@ const sup = new Supervisor({
     return w;
   },
 });
+// the ground data texture's window (render.js uploads it, streaming.js asks for a new one as the camera moves)
+const groundWin = { ox: 0, oz: 0, cx: 0, cz: 0, full: true, req: 0 };
 const streamer = createStreamer({
   sup, customFor: (cx, cz) => data.customFor(cx, cz), upload: gfx.upload, release: gfx.release, isLow, radii,
+  groundWin,
   onTick: () => { if (!document.hidden) sup.sweep(); },
 });
-const renderer = createRenderer({ gl, gfx, P, geoProg, app, streamer, quality, isLow, radii, hasStencil, atlasTex, canvas, fullres: params.has('fullres'), frozenT, t0 });
+const renderer = createRenderer({ gl, gfx, P, geoProg, app, streamer, quality, isLow, radii, hasStencil, atlasTex, canvas, groundWin, fullres: params.has('fullres'), frozenT, t0 });
 function flyTo(p, instant) {
   const v = view.lookAtYaw(view.homeView(p, innerWidth / innerHeight));
   app.fly = view.planFly(cam, v, performance.now(), instant);
@@ -138,6 +140,7 @@ const reqs = sup.reqs;
 let badBuilt = null, layoutStage = null, tallRegions = new Set();
 function onWorker(e) {
   const m = e.data;
+  if (m.type === 'ground') { sup.reply(m.id); if (groundWin.req === m.id) { groundWin.req = 0; renderer.setGround(m.ground); } return; }   // a new ground window
   if (m.type === 'layout') { if (sup.finishBuild(m.build)) onLayout(m.layout, m.ground); return; }   // stale builds are ignored
   const r = sup.reply(m.id);
   if (m.type === 'error') {
@@ -173,12 +176,7 @@ function onLayout(lt, ground) {
   const old = app.L;
   app.L = finishLayout(lt);
   sup.commit(lt);                                   // every worker, the builder too (it built into a local)
-  // regions that can hold skyline buildings (so empty ones are never requested)
-  tallRegions = new Set(['0_0']);
-  for (let i = 0; i < app.L.count; i++) {
-    const bx = app.L.blocks[2 * i], bz = app.L.blocks[2 * i + 1];
-    if (zoneLevel(bx, bz) >= 2) tallRegions.add(regionKey(fdiv(bx, SKY), fdiv(bz, SKY)));
-  }
+  tallRegions = new Set(app.L.tall);                 // regions that can hold skyline buildings (computed by the worker)
   if (layoutStage) {
     // commit the update: new manifest, fresh name caches (names may have changed), tags rescanned; rebuild
     // only what changed: the ring of new homes and regions whose custom file changed
@@ -206,16 +204,12 @@ function onLayout(lt, ground) {
     if (u && !restoredCam) ui.flyToName(u, params.has('instant'));   // after a context-loss reload, stay where the viewer was
   }
 }
-// The block order is prebuilt by tools/build.mjs (order.bin), so phones don't sort the town at boot.
-// A layout update builds against the staged manifest; it becomes current only when its layout arrives
-// (onLayout), so a failed build leaves the old manifest and layout consistent.
-async function initLayout() {
+// The layout is a formula (town.js): the worker builds a few small tables from n. A layout update builds
+// against the staged manifest; it becomes current only when its layout arrives (onLayout), so a failed build
+// leaves the old manifest and layout consistent.
+function initLayout() {
   const mf = layoutStage ? layoutStage.manifest : data.manifest;
-  let order = null;
-  if (mf.order) {
-    try { const r = await fetch(`${TOWN_URL}order.bin?v=${mf.order}`); if (r.ok) order = await r.arrayBuffer(); } catch { /* fall back */ }
-  }
-  sup.startBuild(mf.n, order);
+  sup.startBuild(mf.n, null);
 }
 let stage = 'starting';
 setTimeout(() => { if (!ready) fail('Still not ready after 25 s. Last step: ' + stage + '.'); }, 25000);

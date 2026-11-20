@@ -39,7 +39,7 @@ function sortByDist(arr) {   // insertion sort: allocation-free, fast on nearly 
 }
 
 // deps: gl, gfx, P (shadow/full/copy programs), geoProg(name), app (cam, L, pin, tod, bootMs), streamer,
-// quality, isLow, radii, hasStencil, atlasTex, canvas, fullres, frozenT, t0
+// quality, isLow, radii, hasStencil, atlasTex, canvas, groundWin, fullres, frozenT, t0
 export function createRenderer(d) {
   const { gl, gfx, P, geoProg, app, streamer, quality, isLow, radii, hasStencil, canvas } = d;
   const { chunks, skies, mids } = streamer;
@@ -50,8 +50,12 @@ export function createRenderer(d) {
   const FWD = new Float64Array(3), EYE = new Float64Array(3), SHD = new Float32Array(3);
   let pinMesh = null;
   let groundTex = null, groundExt = 0, groundBytes = 0;
+  // The ground data texture is a window of at most 641^2 blocks (1.6 MB) (town.js buildGround): the whole town when it
+  // fits, otherwise centred near the camera and replaced by a worker-built window when the camera has moved
+  // more than 96 blocks from its centre (streaming.js asks for it). Same size at 1M and 10M followers.
+  const groundWin = d.groundWin;                     // shared with streaming.js, which asks for new windows
   let halfRT = null, halfActive = false, halfBroken = false;
-  const r = { stats, VP: null, invVP: null, PL: null, PROBE: null };
+  const r = { stats, VP: null, invVP: null, PL: null, PROBE: null, groundWin };
 
   function render(now) {
     const cam = app.cam;
@@ -215,6 +219,7 @@ export function createRenderer(d) {
     setCommonU(u, T, time, fogD);
     gl.uniformMatrix4fv(u.uInvVP, false, r.invVP);
     gl.uniform4f(u.uTown, L ? L.townD2 : 100, groundExt, L ? L.seaX : 1e9, L ? L.seaBx : 1e6);
+    gl.uniform2f(u.uGroundO, groundWin.ox, groundWin.oz);
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, groundTex); gl.uniform1i(u.uGround, 0);
     const shDir = shadowDir(T);
     gl.uniform4f(u.uFar, r1 * 0.72, r1 * 0.96, !isLow() ? 1 : hasStencil ? -LOW_SHADOW : 0, 5 / shDir[1] * 0.5);   // z < 0: low preset with cast shadows out to -z
@@ -276,7 +281,8 @@ export function createRenderer(d) {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    groundExt = ground.ext; groundBytes = ground.size * ground.size * 4;
+    groundExt = ground.size; groundBytes = ground.size * ground.size * 4;
+    Object.assign(groundWin, { ox: ground.ox, oz: ground.oz, cx: ground.cx, cz: ground.cz, full: ground.full });
     return true;
   };
   r.render = render;

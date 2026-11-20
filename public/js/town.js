@@ -272,7 +272,77 @@ export function parseColor(s, dflt) {
 // Residential blocks are ordered by squared distance from the plaza, ties broken by hash.
 // Follower #n gets plot #n forever (append-only growth).
 
+// Layout (round M): the order is a pure function: blocks sorted by squared distance from the plaza, ties by
+// (hash3(bx,bz,77), bx, bz), each block holding plotsIn() homes, followers filling them in order. So it is
+// stored as one small table — the distinct squared distances that hold homes (`dv`) and the number of homes
+// before each (`cs`), ~1.3 MB at 10M followers — and the blocks on one ring are enumerated when needed.
+// No per-block arrays, no order.bin, nothing that grows per block is copied between threads.
+// buildLayoutRef (below) is the old sort, kept so tools/selftest.mjs can prove the two agree.
 export function buildLayout(n) {
+  let R = Math.ceil(Math.sqrt(Math.max(n, 1) / (8 * 0.5) / Math.PI)) + 4;
+  for (;;) {
+    const R2 = R * R, cnt = new Int32Array(R2 + 1), tallD = new Map();   // region -> nearest tall block's d2
+    for (let bz = -R; bz <= R; bz++) {
+      const dz = bz * bz;
+      if (dz > R2) continue;
+      const w = isqrt(R2 - dz);                                   // only the disk: no per-block d2 rejection
+      for (let bx = -w; bx <= w; bx++) {
+        if (cellKind(bx, bz) !== K.HOMES) continue;
+        const d2 = bx * bx + dz, z = zoneLevel(bx, bz);
+        cnt[d2] += z === 2 ? 16 : 8;                              // = plotsIn
+        if (z >= 2) { const rk = regionKey(fdiv(bx, 16), fdiv(bz, 16)), o = tallD.get(rk); if (o === undefined || d2 < o) tallD.set(rk, d2); }
+      }
+    }
+    let total = 0, nd = 0, maxD2 = 0;
+    for (let d = 0; d <= R2 && total < n; d++) if (cnt[d]) { total += cnt[d]; nd++; maxD2 = d; }
+    if (total >= n || n === 0) {
+      const dv = new Int32Array(nd), cs = new Int32Array(nd + 1);
+      let k = 0, acc = 0;
+      for (let d = 0; d <= maxD2; d++) if (cnt[d]) { dv[k] = d; cs[k] = acc; acc += cnt[d]; k++; }
+      cs[nd] = acc;
+      // regions that can hold skyline buildings (SKY = 16 in mesher.js), so empty skyline tiles are never requested
+      const tall = ['0_0'];
+      for (const [rk, d2] of tallD) if (d2 <= maxD2 && rk !== '0_0') tall.push(rk);
+      return finishLayout({ n, dv, cs, maxD2, tall });
+    }
+    R = Math.ceil(R * 1.25);
+  }
+}
+
+// Blocks with homes on the ring bx^2+bz^2 = d, in layout order. Cached (rings are re-read a lot).
+const RINGS = new Map();
+function ring(d) {
+  let r = RINGS.get(d);
+  if (r) return r;
+  const out = [], m = isqrt(d);
+  for (let bx = -m; bx <= m; bx++) {
+    const rest = d - bx * bx, z = isqrt(rest);
+    if (z * z !== rest) continue;
+    for (const bz of z ? [-z, z] : [0]) { const p = plotsIn(bx, bz); if (p) out.push([bx, bz, p, hash3(bx, bz, 77)]); }
+  }
+  out.sort((a, b) => (a[3] !== b[3] ? (a[3] < b[3] ? -1 : 1) : a[0] !== b[0] ? a[0] - b[0] : a[1] - b[1]));
+  if (RINGS.size > 8192) RINGS.clear();
+  RINGS.set(d, out);
+  return out;
+}
+function ringIndex(L, d) {                         // index of d in L.dv, or -1
+  let lo = 0, hi = L.dv.length - 1;
+  while (lo <= hi) { const m = (lo + hi) >> 1, v = L.dv[m]; if (v === d) return m; if (v < d) lo = m + 1; else hi = m - 1; }
+  return -1;
+}
+// first plot index of a block (or -1 if the block is outside the town or holds no homes)
+export function blockStart(L, bx, bz) {
+  const d = bx * bx + bz * bz;
+  if (d > L.maxD2) return -1;
+  const k = ringIndex(L, d);
+  if (k < 0) return -1;
+  let s = L.cs[k];
+  for (const e of ring(d)) { if (e[0] === bx && e[1] === bz) return s; s += e[2]; }
+  return -1;
+}
+
+// Reference implementation: the original sort (tools/selftest.mjs only).
+export function buildLayoutRef(n) {
   // Counting sort by squared distance into typed arrays (no per-block JS objects), ties by
   // (hash, bx, bz) inside each distance bucket. Same order as a full comparison sort.
   let R = Math.ceil(Math.sqrt(Math.max(n, 1) / (8 * 0.5) / Math.PI)) + 4;
@@ -311,24 +381,10 @@ export function buildLayout(n) {
         start[i] = acc; acc += cp[c]; maxD2 = cd2[c];
       }
       start[count] = acc;
-      return finishLayout({ n, count, blocks, start, plots, maxD2 });
+      return { n, count, blocks, start, plots, maxD2 };
     }
     R = Math.ceil(R * 1.25);
   }
-}
-
-// Layout from the prebuilt block order (order.bin: int16 bx,bz pairs written by tools/build.mjs).
-export function layoutFromOrder(n, o) {
-  const count = o.length >> 1;
-  const blocks = new Int32Array(count * 2), start = new Int32Array(count + 1), plots = new Uint8Array(count);
-  let acc = 0, maxD2 = 0;
-  for (let i = 0; i < count; i++) {
-    const bx = o[2 * i], bz = o[2 * i + 1];
-    blocks[2 * i] = bx; blocks[2 * i + 1] = bz; plots[i] = plotsIn(bx, bz);
-    start[i] = acc; acc += plots[i]; maxD2 = bx * bx + bz * bz;
-  }
-  start[count] = acc;
-  return finishLayout({ n, count, blocks, start, plots, maxD2 });
 }
 
 // Rebuild derived fields (also used after posting a layout between threads).
@@ -339,26 +395,22 @@ export function finishLayout(L) {
   L.seaBx = Math.max(rB + 7, 46);
   L.portX = 32 * PITCH;
   L.seaX = L.seaBx * PITCH - 24;
-  const G = 2 * rB + 3;
-  L.G = G;
-  if (!L.grid) {
-    L.grid = new Int32Array(G * G);
-    for (let i = 0; i < L.count; i++) {
-      const gx = L.blocks[2 * i] + rB + 1, gz = L.blocks[2 * i + 1] + rB + 1;
-      L.grid[gz * G + gx] = i + 1;
-    }
-  }
   return L;
 }
 
 // Per-block data for the ground shader (so it does not re-derive the rules per pixel).
 // RGBA8, (2*ext+1)^2 texels centred on the plaza, ext = rB + 10:
 //   R kind · G zone | inhabited<<2 | avenueX<<3 | avenueZ<<4 · B roof colours c0 | c1<<3 · A c2
-export function buildGround(L) {
-  const ext = L.rB + 10, S = 2 * ext + 1;
+// A window of at most GROUND_MAX^2 blocks (round M; 641: a 1.2M-follower town fits whole): the whole town when it fits, otherwise centred on
+// (cx, cz) — the main thread asks for a new window when the camera moves far — so the texture is the same
+// size at 1M and at 10M followers. ox/oz: the block at texel (0, 0).
+export const GROUND_MAX = 641;
+export function buildGround(L, cx = 0, cz = 0) {
+  const full = 2 * (L.rB + 10) + 1, S = Math.min(full, GROUND_MAX), h = (S - 1) / 2;
+  const ox = full <= GROUND_MAX ? -h : cx - h, oz = full <= GROUND_MAX ? -h : cz - h;
   const d = new Uint8Array(S * S * 4);
   for (let j = 0; j < S; j++) for (let i = 0; i < S; i++) {
-    const bx = i - ext, bz = j - ext, o = (j * S + i) * 4;
+    const bx = i + ox, bz = j + oz, o = (j * S + i) * 4;
     const k = kindAt(L, bx, bz);
     const homes = k === K.HOMES;
     const base = hash3(fdiv(bx, 5), fdiv(bz, 5), 101);
@@ -367,7 +419,7 @@ export function buildGround(L) {
     d[o + 2] = (base % 8) | (((base >>> 4) % 8) << 3);
     d[o + 3] = (base >>> 8) % 8;
   }
-  return { ext, size: S, data: d };
+  return { size: S, ox, oz, cx, cz, full: full <= GROUND_MAX, data: d };
 }
 
 // Footprint of a regular home on its plot (matches mesher.home), world metres.
@@ -383,38 +435,30 @@ export function homeRect(f, r) {
 }
 
 export function layoutTransfer(L) {
-  return { n: L.n, count: L.count, blocks: L.blocks, start: L.start, plots: L.plots, maxD2: L.maxD2, grid: L.grid };
-}
-
-// Order index of a block (or -1).
-export function blockOrder(L, bx, bz) {
-  const gx = bx + L.rB + 1, gz = bz + L.rB + 1;
-  if (gx < 0 || gz < 0 || gx >= L.G || gz >= L.G) return -1;
-  return L.grid[gz * L.G + gx] - 1;
+  return { n: L.n, dv: L.dv, cs: L.cs, maxD2: L.maxD2, tall: L.tall };
 }
 
 // Occupied slots in a block (0 if nobody lives there).
 export function occupied(L, bx, bz) {
-  const i = blockOrder(L, bx, bz);
-  if (i < 0) return 0;
-  return Math.min(L.plots[i], L.n - L.start[i]);
+  const st = blockStart(L, bx, bz);
+  if (st < 0 || st >= L.n) return 0;
+  return Math.min(plotsIn(bx, bz), L.n - st);
 }
 
 // Plot index of a slot (or -1).
 export function plotIndex(L, bx, bz, slot) {
-  const i = blockOrder(L, bx, bz);
-  if (i < 0 || slot >= Math.min(L.plots[i], L.n - L.start[i])) return -1;
-  return L.start[i] + slot;
+  const st = blockStart(L, bx, bz);
+  if (st < 0 || slot >= Math.min(plotsIn(bx, bz), L.n - st)) return -1;
+  return st + slot;
 }
 
 // Plot #p -> block and slot.
 export function plotOf(L, p) {
-  let lo = 0, hi = L.count - 1;
-  while (lo < hi) {
-    const m = (lo + hi + 1) >> 1;
-    if (L.start[m] <= p) lo = m; else hi = m - 1;
-  }
-  return { bx: L.blocks[2 * lo], bz: L.blocks[2 * lo + 1], slot: p - L.start[lo] };
+  let lo = 0, hi = L.dv.length - 1;
+  while (lo < hi) { const m = (lo + hi + 1) >> 1; if (L.cs[m] <= p) lo = m; else hi = m - 1; }
+  let s = L.cs[lo];
+  for (const e of ring(L.dv[lo])) { if (p < s + e[2]) return { bx: e[0], bz: e[1], slot: p - s }; s += e[2]; }
+  return { bx: 0, bz: 0, slot: 0 };
 }
 
 // ---- data files ----

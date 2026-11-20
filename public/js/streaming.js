@@ -13,7 +13,7 @@ export const ckey = (x, z) => (x + 32768) * 65536 + (z + 32768);   // numeric ma
 const byWantD = (a, b) => a.d - b.d;
 const byTargetDist = (a, b) => (a.t.d || 0) - (b.t.d || 0);
 
-export function createStreamer({ sup, customFor, upload, release, isLow, radii, onTick = () => {} }) {
+export function createStreamer({ sup, customFor, upload, release, isLow, radii, groundWin = { full: true }, onTick = () => {} }) {
   const chunks = new Map();     // key -> {cx,cz,lod,g,want,req,seen}
   const skies = new Map();      // key -> {rx,rz,g,req,seen}
   const mids = new Map();       // mid-band massing tiles beyond the house ring, same shape as skies
@@ -31,6 +31,11 @@ export function createStreamer({ sup, customFor, upload, release, isLow, radii, 
     const C = CHUNK * PITCH;
     const ccx = Math.floor((cam.x + 24) / C), ccz = Math.floor((cam.z + 24) / C);
     const n = Math.ceil(r1 / C) + 1;
+    // a big town: keep the ground window around the camera
+    if (!groundWin.full && !groundWin.req) {
+      const bx = Math.floor((cam.x + 24) / PITCH), bz = Math.floor((cam.z + 24) / PITCH);
+      if (Math.max(Math.abs(bx - groundWin.cx), Math.abs(bz - groundWin.cz)) > 96) sup.request({ type: 'ground', cx: bx, cz: bz }, groundWin, 0);
+    }
     // allocation-free (round M): pooled wants, numeric keys, reused sets
     const want = WANT;
     want.length = 0;
