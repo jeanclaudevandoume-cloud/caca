@@ -114,18 +114,9 @@ for (const sub of ['n', 'c', 's']) {
   }
 }
 
-// prebuilt block order so clients skip the sort (int16 bx,bz per inhabited block)
-const ord = new Int16Array(L.count * 2);
-for (let i = 0; i < L.count * 2; i++) ord[i] = L.blocks[i];
-const ordBuf = Buffer.from(ord.buffer);
-{
-  const f = path.join(out, 'order.bin');
-  live.add(path.normalize(f));
-  let same = false;
-  try { same = fs.readFileSync(f).equals(ordBuf); } catch { /* new */ }
-  if (!same) { fs.mkdirSync(out, { recursive: true }); fs.writeFileSync(f + '.tmp', ordBuf); fs.renameSync(f + '.tmp', f); written++; } else kept++;
-}
-const manifestBody = { v: 3, n, c: cman, split, nh, sh, order: hash(ordBuf) };
+// the block order is computed from a formula on every client now (town.js buildLayout): no order.bin
+try { fs.unlinkSync(path.join(out, 'order.bin')); written++; } catch { /* none */ }
+const manifestBody = { v: 4, n, c: cman, split, nh, sh };
 const built = hash(JSON.stringify(manifestBody) + JSON.stringify([...regions.keys()].sort()) + written);
 let prev = null;
 try { prev = JSON.parse(fs.readFileSync(path.join(out, 'manifest.json'), 'utf8')); } catch { /* first build */ }

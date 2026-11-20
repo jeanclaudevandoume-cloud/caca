@@ -291,11 +291,7 @@ function onLayout(lt, ground) {
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   groundExt = ground.ext; groundBytes = ground.size * ground.size * 4;
   // regions that can hold skyline buildings (so empty ones are never requested)
-  tallRegions = new Set(['0_0']);
-  for (let i = 0; i < L.count; i++) {
-    const bx = L.blocks[2 * i], bz = L.blocks[2 * i + 1];
-    if (zoneLevel(bx, bz) >= 2) tallRegions.add(regionKey(fdiv(bx, SKY), fdiv(bz, SKY)));
-  }
+  tallRegions = new Set(L.tall);                     // computed by the worker with the layout (no main-thread scan)
   if (layoutStage) {
     // commit the update: new manifest, fresh name caches (names may have changed), tags rescanned
     manifest = layoutStage.manifest;

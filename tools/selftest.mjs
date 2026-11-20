@@ -19,16 +19,24 @@ const h = (x) => crypto.createHash('sha1').update(typeof x === 'string' ? x : Bu
 const check = (name, ok, detail = '') => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}${detail ? '  ' + detail : ''}`); if (!ok) fails++; };
 const golden = (name, value) => { got[name] = value; if (!update) check(name, gold[name] === value, gold[name] === value ? '' : `expected ${gold[name]} got ${value}`); };
 
-// 1. layout: deterministic, prefix-stable (append-only), and order.bin equivalent
+// 1. layout: the compact formula layout assigns every follower exactly as the reference sort, and is append-only
 const L = T.buildLayout(100000);
-golden('layout 1e5 blocks', h(L.blocks));
-const L2 = T.buildLayout(100500);
-let prefix = true;
-for (let i = 0; i < L.count * 2 - 2; i++) if (L.blocks[i] !== L2.blocks[i]) { prefix = false; break; }
-check('layout is append-only (1e5 is a prefix of 1e5+500)', prefix);
-const ord = new Int16Array(L.blocks.length); for (let i = 0; i < ord.length; i++) ord[i] = L.blocks[i];
-const LO = T.layoutFromOrder(100000, ord);
-check('layoutFromOrder == buildLayout', LO.count === L.count && LO.maxD2 === L.maxD2 && h(LO.start) === h(L.start));
+{
+  const R = T.buildLayoutRef(100000);
+  let bad = 0;
+  for (let i = 0; i < R.count; i++) {
+    const p = T.plotOf(L, R.start[i]);
+    if (p.bx !== R.blocks[2 * i] || p.bz !== R.blocks[2 * i + 1] || p.slot !== 0 || T.occupied(L, p.bx, p.bz) !== Math.min(R.plots[i], 100000 - R.start[i])) bad++;
+  }
+  check('formula layout == reference sort (every block of 1e5)', bad === 0 && L.maxD2 === R.maxD2, `${bad} mismatches`);
+  golden('layout 1e5 blocks', h(R.blocks));
+}
+{
+  const L2 = T.buildLayout(100500);
+  let prefix = true;
+  for (let p = 0; p < 100000; p += 97) { const a = T.plotOf(L, p), b = T.plotOf(L2, p); if (a.bx !== b.bx || a.bz !== b.bz || a.slot !== b.slot) { prefix = false; break; } }
+  check('layout is append-only (1e5 is a prefix of 1e5+500)', prefix);
+}
 
 // shadow-only proxies come first and the colour range never starts inside them
 {

@@ -1,6 +1,6 @@
 // Builds the layout, the ground data texture and chunk/skyline meshes off the main thread.
 // Custom-home files are fetched once by the main thread and arrive with each chunk request.
-import { buildLayout, layoutFromOrder, buildGround, finishLayout, layoutTransfer, regionKey, fdiv, CHUNK, REGION } from './town.js';
+import { buildLayout, buildGround, finishLayout, layoutTransfer, regionKey, fdiv, CHUNK, REGION } from './town.js';
 import { buildChunk, buildSkyline, buildMid } from './mesher.js';
 
 let L = null;
@@ -14,12 +14,7 @@ onmessage = (e) => {
     else {
       // build a new layout into a local: this worker keeps meshing the current one until the main thread
       // commits the new one (it may reject it), and a failed build changes nothing here
-      let nl = null;
-      if (m.order && m.order.byteLength % 4 === 0) {           // validate the prebuilt order; fall back to sorting
-        const t = layoutFromOrder(m.n, new Int16Array(m.order));
-        if (t.start[t.count] >= m.n) nl = t;
-      }
-      if (!nl) nl = buildLayout(m.n);
+      const nl = buildLayout(m.n);                              // a few small tables: no per-block arrays
       const g = buildGround(nl);
       postMessage({ type: 'layout', build: m.build, layout: layoutTransfer(nl), ground: g }, [g.data.buffer]);
     }
