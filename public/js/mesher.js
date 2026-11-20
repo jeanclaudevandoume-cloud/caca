@@ -493,6 +493,7 @@ function door(mb, x, zw, fs, r, rc, a) {
 }
 const F = {};
 export function home(mb, bx, bz, f, r, lod) {
+  mb.noCast = false;                                  // never inherit a house's 'detail does not cast' state
   const a = r.hash & 255;
   const front = f.face < 0 ? f.z - f.d / 2 : f.z + f.d / 2;        // street edge of the plot
   mb.flag = r.height >= 6 * FLOOR_H ? TALL : 0;

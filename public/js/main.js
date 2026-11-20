@@ -10,8 +10,8 @@ window.__ftBooted = true;
 const $ = (s) => document.querySelector(s);
 // ---- diagnostics: on any failure show the reason on screen (phones have no console) ----
 const DIAG = [];
-function fail(msg) {
-  if (window.__ftGL && window.__ftGL.isContextLost()) return;      // the context-lost handler reloads; not an error
+function fail(msg, force = false) {
+  if (!force && window.__ftGL && window.__ftGL.isContextLost()) return;   // force: terminal messages about the context itself      // the context-lost handler reloads; not an error
   if (window.__ftReady && !String(msg).includes('lost')) { console.error(msg); try { toast('Something went wrong: ' + String(msg).slice(0, 80)); } catch { /* ignore */ } return; }
   DIAG.push(String(msg).slice(0, 600) + (window.FT_BUILD ? '\n(build ' + window.FT_BUILD + ')' : ''));
   const el = document.getElementById('loading');
@@ -37,10 +37,15 @@ canvas.addEventListener('webglcontextlost', (e) => {
   e.preventDefault();
   let n = 0;
   try { n = +(sessionStorage.getItem('ft-lost') || 0); sessionStorage.setItem('ft-lost', String(n + 1)); } catch { n = 9; }
-  // keep the view across the reload (cam is defined later; the handler only runs after boot)
-  try { sessionStorage.setItem('ft-cam', [cam.x, cam.y, cam.z, cam.yaw, cam.pitch].map((v) => v.toFixed(3)).join(',')); } catch { /* ignore */ }
-  if (n < 1) setTimeout(() => location.reload(), 500);
-  else fail('The graphics context was lost twice (the GPU ran out of memory or was reset). Try ?q=low or close other tabs.');
+  if (n < 1) {
+    // keep the view across the reload (cam is defined later; the handler only runs after boot)
+    try { sessionStorage.setItem('ft-cam', [cam.x, cam.y, cam.z, cam.yaw, cam.pitch].map((v) => v.toFixed(3)).join(',')); } catch { /* ignore */ }
+    setTimeout(() => location.reload(), 500);
+  } else {
+    try { sessionStorage.removeItem('ft-cam'); } catch { /* ignore */ }
+    window.__ftReady = false;                       // show the panel, not a toast
+    fail('The graphics context was lost twice (the GPU ran out of memory or was reset). Try ?q=low or close other tabs.', true);
+  }
 });
 setTimeout(() => { try { sessionStorage.removeItem('ft-lost'); } catch { /* ignore */ } }, 20000);
 
@@ -157,8 +162,8 @@ function inFrustum(pl, x, y, z, r) {
 // ---------------- state ----------------
 // ART.md composition (round F): a low drone over dense jutaku and villa lanes south-west of the river, the
 // towers and spire as the backdrop. The product is "your follower's home", so homes fill the opening frame.
-const HOME = { x: -188, y: 48, z: 1175, yaw: 0.0, pitch: -0.33 };
-if (innerWidth / innerHeight > 1.2) Object.assign(HOME, { y: 40, pitch: -0.24 });   // landscape: wider frame, flatter
+const HOME = { x: -168, y: 38, z: 1190, yaw: 0.0, pitch: -0.27 };   // over a north-south lane: the street leads the eye to the towers
+if (innerWidth / innerHeight > 1.2) Object.assign(HOME, { y: 34, pitch: -0.30 });   // landscape: wider frame; a little steeper so the far field (tris, draws) stays in budget
 const cam = { ...HOME };
 const PRESETS = { low: { s: 0.55, pr: 1 }, mid: { s: 0.8, pr: 1.5 }, high: { s: 1, pr: 2 } };
 const isPhone = PHONE;
@@ -172,7 +177,7 @@ const quality = { mode: qParam, ...(qParam === 'high' ? PRESETS.high : qParam ==
 quality.maxS = quality.s; quality.maxPr = quality.pr;
 const RAD = { r0: 0, r1: 0, rs: 0 };
 function radii() {          // fills one object (no per-frame allocation)
-  RAD.r0 = 320 * Math.max(0.6, quality.s); RAD.r1 = 1100 * quality.s * (isLow() ? 0.62 : 1); RAD.rs = Math.min(5000, 7000 * quality.s * quality.s);
+  RAD.r0 = 320 * Math.max(0.6, quality.s); RAD.r1 = 1100 * quality.s * (isLow() ? 0.72 : 1); RAD.rs = Math.min(5000, 7000 * quality.s * quality.s);
   return RAD;
 }
 const stats = { tris: 0, draws: 0, sky: 0, chunks: 0, mb: 0, fps: 0, ms: 0 };
@@ -200,7 +205,7 @@ function onWorker(e) {
   if (r) r.w.load--;
   if (m.type === 'error') {
     console.error(m.message);
-    if (m.fatal) fail('Worker: ' + m.message);
+    if (m.fatal) { fail('Worker: ' + m.message); layoutStage = null; }   // a failed layout update is abandoned; later updates still apply
     if (r && r.target.req === m.id) {          // only the request that failed; give up after 3 tries
       const t = r.target;
       t.req = 0; t.fails = (t.fails || 0) + 1;
@@ -256,17 +261,24 @@ function workerDied(w, why) {
   if (deaths.length > 6 && workers.length > 1) {      // keep going on the others
     workers.splice(i, 1);
     if (!gaveUp) { gaveUp = true; fail('A background worker kept failing; continuing with fewer.'); }
+  } else if (deaths.length > 6) {                     // the only worker: back off (30 s), then try again
+    workers.splice(i, 1);
+    if (!gaveUp) { gaveUp = true; fail('The background worker keeps failing; retrying in 30 s.'); }
+    setTimeout(() => { gaveUp = false; deaths = []; workers.splice(i, 0, null); spawnWorker(i); if (layoutStage) initLayout(); }, 30000);
+    return;
   } else spawnWorker(i);
   if (i === 0 && layoutStage) initLayout();           // it was building the new layout
 }
 // a request that never answers (a hung worker) counts as a dead worker; a hidden tab pauses the clock
 function sweepStale(now) {
   if (document.hidden) return;
+  if (layoutStage && now - layoutStage.t0 > 30000) { layoutStage.t0 = now; workerDied(workers[0], 'layout update: no reply in 30 s'); return; }
   for (const r of reqs.values()) if (now - r.t0 > 20000) { workerDied(r.w, 'no reply in 20 s'); return; }
 }
-document.addEventListener('visibilitychange', () => { const t = performance.now(); for (const r of reqs.values()) r.t0 = t; });
+document.addEventListener('visibilitychange', () => { const t = performance.now(); for (const r of reqs.values()) r.t0 = t; if (layoutStage) layoutStage.t0 = t; });
 for (let i = 0; i < NW; i++) spawnWorker(i);
 function send(msg, target, lod) {
+  if (!workers.length) return;                       // backing off after repeated worker deaths
   let w = workers[0];
   for (const x of workers) if (x.load < w.load) w = x;
   const id = nextId++;
@@ -372,7 +384,7 @@ async function boot() {
       if (m.built !== manifest.built && !layoutStage) {   // skip while a previous update is still being applied
         const oldC = manifest.c;
         manifest = m;
-        layoutStage = { oldC };
+        layoutStage = { oldC, t0: performance.now() };
         initLayout();
         nameCache.clear(); shardCache.clear(); nameMemo.clear();
       }
@@ -470,8 +482,8 @@ function todState(t) {
   }
   TOD.night = a.night + (b.night - a.night) * s;
   const el = a.el + (b.el - a.el) * s;
-  const az = 1.89 + t * 0.9;     // day: sun from the south-south-west, ~30° off the grid: the street fronts the
-  // opening camera sees are lit, side walls alternate lit/unlit, and shadows fall north-east beside each house
+  const az = 3.51 + t * 0.9;     // day: the sun rakes from the west-north-west, ~30° off the grid: from the opening camera
+  // (looking north) street fronts read in soft light, east walls in shade, and shadows fall across the lanes toward the camera
   TOD.dir[0] = Math.cos(el) * Math.cos(az); TOD.dir[1] = Math.sin(el); TOD.dir[2] = Math.cos(el) * Math.sin(az);
   return TOD;
 }
@@ -489,7 +501,14 @@ function changed() {            // did anything that affects the image change? (
   return c;
 }
 const refresh = { samples: [], ms: 16.7 };
+let UI_TOP = 0, UI_TOOLS_X = 1e9, UI_TOOLS_Y = 1e9;
+function uiRects() {
+  const t = $('#top'), b = $('#tools');
+  if (t) UI_TOP = t.getBoundingClientRect().bottom + 6;
+  if (b) { const r = b.getBoundingClientRect(); UI_TOOLS_X = r.left - 8; UI_TOOLS_Y = r.top - 8; }
+}
 function resize() {
+  uiRects();
   const pr = Math.min(window.devicePixelRatio || 1, quality.pr);
   const w = Math.round(innerWidth * pr), h = Math.round(innerHeight * pr);
   if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
@@ -858,6 +877,14 @@ function tags(now) {
       list.sort((a, b) => a.d - b.d);
     }
     tagList = list.slice(0, 40);
+    // occlusion is tested here (every 300 ms), not per frame: heightAt runs the house recipe and allocates
+    for (const t of tagList) {
+      t.hidden = false;
+      for (let k = 1; k < 6 && !t.hidden; k++) {
+        const f = k / 6, x = cam.x + (t.x - cam.x) * f, y = cam.y + (t.y - cam.y) * f, z = cam.z + (t.z - cam.z) * f;
+        if (Math.hypot(x - t.x, z - t.z) > 8 && y < heightAt(x, z)) t.hidden = true;
+      }
+    }
     for (const t of tagList) {
       const key = t.bx + ',' + t.bz + ',' + t.s;
       if (nameMemo.has(key)) t.name = nameMemo.get(key);
@@ -876,14 +903,10 @@ function tags(now) {
     if (c[3] <= 0.5) continue;
     const sx = (c[0] / c[3] * 0.5 + 0.5) * W, sy = (0.5 - c[1] / c[3] * 0.5) * H;
     if (sx < -50 || sx > W + 50 || sy < -20 || sy > H + 20) continue;
-    // hidden behind a building? test a few points along the line of sight
-    let hidden = false;
-    for (let k = 1; k < 6 && !hidden; k++) {
-      const f = k / 6, x = cam.x + (t.x - cam.x) * f, y = cam.y + (t.y - cam.y) * f, z = cam.z + (t.z - cam.z) * f;
-      if (Math.hypot(x - t.x, z - t.z) > 8 && y < heightAt(x, z)) hidden = true;
-    }
-    if (hidden) continue;
+    if (t.hidden) continue;                     // behind a building (tested at the last scan)
     const w = t.name.length * 7 + 16;
+    // never under the search bar or the round buttons (rects refreshed on resize)
+    if (sy - 26 < UI_TOP || (sx + w / 2 > UI_TOOLS_X && sy > UI_TOOLS_Y)) continue;
     let clash = false;
     for (let q = 0; q < placed.length; q += 3) if (Math.abs(placed[q] - sx) < (placed[q + 2] + w) / 2 && Math.abs(placed[q + 1] - sy) < 20) { clash = true; break; }
     if (clash) continue;
@@ -891,8 +914,13 @@ function tags(now) {
     let el = tagPool[used];
     if (!el) { el = document.createElement('div'); el.className = 'tag'; $('#tags').appendChild(el); tagPool.push(el); }
     if (el.textContent !== t.name) el.textContent = t.name;
-    el.style.transform = `translate(${sx.toFixed(1)}px,${sy.toFixed(1)}px) translate(-50%,-100%)`;
-    el.style.opacity = String(Math.max(0.45, 1 - t.d / 400));
+    // touch the DOM only when the tag actually moved (each write builds a string)
+    if (!(Math.abs(el.sx - sx) <= 0.5 && Math.abs(el.sy - sy) <= 0.5) || el.style.display === 'none') {   // !(<=): a new tag (sx undefined) is placed
+      el.sx = sx; el.sy = sy;
+      el.style.transform = `translate(${sx.toFixed(1)}px,${sy.toFixed(1)}px) translate(-50%,-100%)`;
+    }
+    const op = Math.round(Math.max(0.45, 1 - t.d / 400) * 20);
+    if (el.op !== op) { el.op = op; el.style.opacity = String(op / 20); }
     el.style.display = '';
     used++;
   }

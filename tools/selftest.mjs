@@ -30,10 +30,21 @@ const ord = new Int16Array(L.blocks.length); for (let i = 0; i < ord.length; i++
 const LO = T.layoutFromOrder(100000, ord);
 check('layoutFromOrder == buildLayout', LO.count === L.count && LO.maxD2 === L.maxD2 && h(LO.start) === h(L.start));
 
+// shadow-only proxies come first and the colour range never starts inside them
+{
+  let bad = '';
+  for (const [cx, cz, lite] of [[11, 6, false], [11, 6, true], [3, 2, false]]) {
+    const m = Mz.buildChunk(L, cx, cz, 0, null, lite), ib = m.ib;
+    if (!(m.so > 0 && m.so <= m.ns && m.ns <= ib.length && m.so % 3 === 0)) { bad += ` ${cx},${cz}: so=${m.so} ns=${m.ns} n=${ib.length}`; continue; }
+    const proxyV = new Set(ib.subarray(0, m.so));
+    for (let i = m.so; i < ib.length; i++) if (proxyV.has(ib[i])) { bad += ` ${cx},${cz}: colour range uses proxy vertex ${ib[i]}`; break; }
+  }
+  check('shadow-only proxies: 0 < so <= ns <= n, and the colour range never draws a proxy vertex', !bad, bad);
+}
 // follower names: no bidi/zero-width/control characters, emoji and flags intact, grapheme-safe truncation
 {
   const C = String.fromCodePoint, fam = C(0x1F468, 0x200D, 0x1F469, 0x200D, 0x1F467), eng = C(0x1F3F4, 0xE0067, 0xE0062, 0xE0065, 0xE006E, 0xE0067, 0xE007F);
-  const cases = [['a' + C(0x202E) + 'b', 'ab'], ['x' + C(0x200B) + 'y', 'xy'], ['a' + C(0x2028) + 'b', 'ab'], [C(0x200D), ''], [' ', ''],
+  const cases = [['a' + C(0x202E) + 'b', 'ab'], ['x' + C(0x200B) + 'y', 'xy'], ['a' + C(0x2028) + 'b', 'ab'], [C(0x200D), ''], [' ', ''], ['ab' + C(1) + C(0xE0041) + C(1) + C(0xE0042) + 'c', 'abc'], ['a' + C(0) + 'b', 'ab'], ['a' + C(0xE0041), 'a'], ['a' + C(0x200D) + 'b', 'ab'],
     [fam.repeat(41), fam.repeat(40)], [eng, eng], ['</script>', '</script>'], ['z' + C(0x300, 0x301, 0x302, 0x303, 0x304, 0x305), 'z' + C(0x300, 0x301, 0x302, 0x303)]];
   const bad = cases.filter(([i, o]) => T.cleanName(i) !== o).map(([i]) => JSON.stringify(i));
   check('cleanName strips control/format characters, keeps emoji and flags, truncates by grapheme', !bad.length, bad.join(' '));

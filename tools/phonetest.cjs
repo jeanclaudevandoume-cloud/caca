@@ -35,11 +35,13 @@ const path = require('path');
     const p = await ctx.newPage();
     const errs = [];
     p.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
+    // console errors fail the run, except the ones this test provokes on purpose
+    p.on('console', (m) => { if (m.type() === 'error' && !/worker died|killed by test|kept failing|context|WebGL/i.test(m.text())) errs.push('console: ' + m.text()); });
     await p.goto(file + '#u=');
     let pass = true, why = '';
     try {
       await p.waitForFunction(() => window.__town && window.__town.ready && window.__town.idle(), null, { timeout: 100000, polling: 500 });
-      for (let k = 0; k < 10; k++) {
+      for (let k = 0; k < 10; k++) {                  // kills while chunks are in flight (the camera keeps moving)
         await p.evaluate((k) => { const t = window.__town; t.cam.x += 200; t.cam.z -= 120 * (k & 1 ? -1 : 1); t.killWorker(0); }, k);
         await p.waitForTimeout(400);
       }
@@ -55,6 +57,11 @@ const path = require('path');
       if (Math.hypot(after[0] - before[0], after[1] - before[1], after[2] - before[2]) > 1) { pass = false; why += ` camera not restored (${after.map((v) => v.toFixed(0))});`; }
       const diag = await p.evaluate(() => { const el = document.getElementById('loading'); return el && !el.classList.contains('gone') ? el.textContent : ''; });
       if (diag) { pass = false; why += ' diagnostics shown: ' + diag.slice(0, 200); }
+      // a second loss within 20 s must explain itself instead of reloading forever
+      await p.evaluate(() => document.querySelector('canvas').getContext('webgl2').getExtension('WEBGL_lose_context').loseContext());
+      await p.waitForTimeout(1500);
+      const diag2 = await p.evaluate(() => { const el = document.getElementById('loading'); return el && !el.classList.contains('gone') ? el.textContent : ''; });
+      if (!/lost twice/.test(diag2)) { pass = false; why += ' second context loss showed no message;'; }
     } catch (e) { pass = false; why += ' ' + String(e.message || e).slice(0, 200); }
     if (errs.length) { pass = false; why += ' ' + errs.join('; ').slice(0, 300); }
     ok = ok && pass;
