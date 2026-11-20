@@ -89,7 +89,7 @@ void main() {
   bool city = vMat == 5 || (vMat == 1 && (sa & 3u) == 3u);
   // canyon shade: city walls darken strongly toward the street (no building-on-building shadows otherwise)
   float ao = mix(1.0, city ? mix(0.45, 1.0, smoothstep(0.0, 30.0, vW.y)) : mix(0.6, 1.0, smoothstep(0.0, 2.5, vW.y)), wall);
-  float avert = mix(1.0, city ? 0.8 : 0.7, wall * step(dot(n, uSunDir), 0.0));             // faces turned from the sun
+  float avert = mix(1.0, city ? 0.8 : 0.62, wall * step(dot(n, uSunDir), 0.0));             // faces turned from the sun
   float jitter = (vMat == 5 ? 0.62 : city ? 0.85 : 0.8) + (vMat == 5 ? 0.42 : city ? 0.15 : 0.2) * float((sa * 2654435761u) >> 24u) / 255.0;   // towers: dark to light glass   // neighbours separate
   vec3 col = base * jitter * (amb * ao * avert + key * sun);
   vec3 emis = vec3(0.0);
@@ -113,8 +113,8 @@ void main() {
       // floors still read at a kilometre: anti-aliased spandrel lines every floor, a plant band every 8 floors
       float fy = vW.y / 3.2, fwy = fwidth(fy);
       float spand = (1.0 - smoothstep(0.22 - fwy, 0.22 + fwy, fract(fy))) * clamp(1.6 - fwy * 2.2, 0.0, 1.0);
-      float plant = 1.0 - smoothstep(0.85 - fwy * 0.125, 0.85 + fwy * 0.125, fract(fy / 8.0) * 1.0 + 0.0) ;
-      col *= 1.0 - (0.22 * spand + 0.25 * (1.0 - plant) * step(20.0, vW.y)) * mix(0.5, 1.0, glass) * (1.0 - uNight);
+      float plant = smoothstep(0.85 - fwy * 0.125, 0.85 + fwy * 0.125, fract(fy / 8.0));   // top floor of every 8: plant band
+      col *= 1.0 - (0.22 * spand + 0.25 * plant * step(20.0, vW.y)) * mix(0.5, 1.0, glass) * (1.0 - uNight);
       float share0 = 18.0 + float(ih(seed * 31u + 7u) % 82u);
       emis = vec3(1.0, 0.78, 0.45) * (share0 / 512.0) * mix(0.22, 0.75, glass) * smoothstep(0.05, 0.6, uNight) * 0.7;
     } else {

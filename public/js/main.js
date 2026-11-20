@@ -11,6 +11,7 @@ const $ = (s) => document.querySelector(s);
 // ---- diagnostics: on any failure show the reason on screen (phones have no console) ----
 const DIAG = [];
 function fail(msg) {
+  if (window.__ftGL && window.__ftGL.isContextLost()) return;      // the context-lost handler reloads; not an error
   if (window.__ftReady && !String(msg).includes('lost')) { console.error(msg); try { toast('Something went wrong: ' + String(msg).slice(0, 80)); } catch { /* ignore */ } return; }
   DIAG.push(String(msg).slice(0, 600) + (window.FT_BUILD ? '\n(build ' + window.FT_BUILD + ')' : ''));
   const el = document.getElementById('loading');
@@ -26,8 +27,10 @@ const TOWN_URL = 'town/';
 const canvas = $('#c');
 const qParam = params.get('q') || 'auto';
 const PHONE = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) || Math.min(screen.width, screen.height) < 600;
-// phones (auto) and q=low run the low preset without MSAA: its window shader assumes hard edges
-const gl = canvas.getContext('webgl2', { antialias: !(qParam === 'low' || (qParam === 'auto' && PHONE)), stencil: true, alpha: false, powerPreference: 'high-performance', preserveDrawingBuffer: params.has('shot') });
+// MSAA on phones too (round G: jagged roof edges were the first "cheap" signal; on tile-based phone GPUs 4x
+// MSAA resolves on chip and costs little). Only an explicit q=low (the budget test preset) goes without.
+const gl = canvas.getContext('webgl2', { antialias: qParam !== 'low', stencil: true, alpha: false, powerPreference: 'high-performance', preserveDrawingBuffer: params.has('shot') });
+window.__ftGL = gl;
 if (!gl) { fail('This town needs WebGL2, which this browser does not provide.'); throw new Error('no webgl2'); }
 // Context lost: reload once; if it happens again soon, explain instead of looping forever.
 canvas.addEventListener('webglcontextlost', (e) => {
@@ -154,8 +157,8 @@ function inFrustum(pl, x, y, z, r) {
 // ---------------- state ----------------
 // ART.md composition (round F): a low drone over dense jutaku and villa lanes south-west of the river, the
 // towers and spire as the backdrop. The product is "your follower's home", so homes fill the opening frame.
-const HOME = { x: -192, y: 40, z: 1150, yaw: -0.17, pitch: -0.40 };
-if (innerWidth / innerHeight > 1.2) Object.assign(HOME, { y: 34, pitch: -0.30 });   // landscape: wider frame, flatter
+const HOME = { x: -188, y: 48, z: 1175, yaw: 0.0, pitch: -0.33 };
+if (innerWidth / innerHeight > 1.2) Object.assign(HOME, { y: 40, pitch: -0.24 });   // landscape: wider frame, flatter
 const cam = { ...HOME };
 const PRESETS = { low: { s: 0.55, pr: 1 }, mid: { s: 0.8, pr: 1.5 }, high: { s: 1, pr: 2 } };
 const isPhone = PHONE;
@@ -181,7 +184,8 @@ const frozenT = params.has('t') ? parseFloat(params.get('t')) : null;
 let tod = params.has('tod') ? parseFloat(params.get('tod')) : 0.22;
 const showTags = !params.has('notags');
 
-{ let c = params.get('cam'); try { if (!c) c = sessionStorage.getItem('ft-cam'); sessionStorage.removeItem('ft-cam'); } catch { /* ignore */ } if (c) { const v = c.split(',').map(Number); if (v.length === 5 && v.every(Number.isFinite)) Object.assign(cam, { x: v[0], y: v[1], z: v[2], yaw: v[3], pitch: v[4] }); } }
+let restoredCam = false;
+{ let c = params.get('cam'); try { if (!c) { c = sessionStorage.getItem('ft-cam'); restoredCam = !!c; } sessionStorage.removeItem('ft-cam'); } catch { /* ignore */ } if (c) { const v = c.split(',').map(Number); if (v.length === 5 && v.every(Number.isFinite)) Object.assign(cam, { x: v[0], y: v[1], z: v[2], yaw: v[3], pitch: v[4] }); } }
 
 // ---------------- workers ----------------
 const NW = Math.max(1, Math.min(3, (navigator.hardwareConcurrency || 2) - 1));
@@ -227,13 +231,15 @@ function drainUploads() {
     t.g = g; t.lod = lod; t.loaded = true;
   }
 }
-// A worker that dies (out of memory on a phone, a crash) is replaced: its requests are released so their
-// chunks are asked for again, and the new worker gets the layout. Before the layout exists a dead worker is fatal.
-let lastLayout = null, respawns = 0;
+// A worker that dies (out of memory on a phone, a crash) or hangs is replaced: its requests are released
+// so their chunks are asked for again (worker deaths never count as mesh failures), and the new worker
+// gets the current layout. If it was building a new layout, that build is re-posted. Before the first
+// layout exists a dead worker is fatal. More than 6 deaths within a minute: stop replacing, say so once.
+let lastLayout = null, deaths = [], gaveUp = false;
 function spawnWorker(i) {
   const w = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
   w.load = 0; w.onmessage = onWorker;
-  w.onerror = (e) => { e.preventDefault && e.preventDefault(); workerDied(w, e.message || 'failed to start'); };
+  w.onerror = (e) => { if (e.preventDefault) e.preventDefault(); workerDied(w, e.message || 'failed to start'); };
   workers[i] = w;
   if (lastLayout) w.postMessage({ type: 'init', layout: lastLayout });
   return w;
@@ -242,18 +248,23 @@ function workerDied(w, why) {
   const i = workers.indexOf(w);
   if (i < 0) return;                                   // already replaced
   console.error('worker died:', why);
-  if (!lastLayout || ++respawns > 6) { fail('Worker: ' + why); return; }
+  if (!lastLayout) { fail('Worker: ' + why); return; }
   try { w.terminate(); } catch { /* already gone */ }
-  for (const [id, r] of reqs) if (r.w === w) {
-    reqs.delete(id);
-    if (r.target.req === id) { r.target.req = 0; r.target.fails = (r.target.fails || 0) + 1; if (r.target.fails >= 3) { r.target.loaded = true; r.target.lod = r.lod; } }
-  }
-  spawnWorker(i);
+  for (const [id, r] of reqs) if (r.w === w) { reqs.delete(id); if (r.target.req === id) r.target.req = 0; }
+  const now = performance.now();
+  deaths = deaths.filter((t) => now - t < 60000); deaths.push(now);
+  if (deaths.length > 6 && workers.length > 1) {      // keep going on the others
+    workers.splice(i, 1);
+    if (!gaveUp) { gaveUp = true; fail('A background worker kept failing; continuing with fewer.'); }
+  } else spawnWorker(i);
+  if (i === 0 && layoutStage) initLayout();           // it was building the new layout
 }
-// a request that never answers (a hung worker) counts as a dead worker
+// a request that never answers (a hung worker) counts as a dead worker; a hidden tab pauses the clock
 function sweepStale(now) {
+  if (document.hidden) return;
   for (const r of reqs.values()) if (now - r.t0 > 20000) { workerDied(r.w, 'no reply in 20 s'); return; }
 }
+document.addEventListener('visibilitychange', () => { const t = performance.now(); for (const r of reqs.values()) r.t0 = t; });
 for (let i = 0; i < NW; i++) spawnWorker(i);
 function send(msg, target, lod) {
   let w = workers[0];
@@ -307,7 +318,7 @@ function onLayout(lt, ground) {
     bootMs = performance.now();
     $('#loading').classList.add('gone');
     const u = params.get('u') || hashParams().get('u');
-    if (u) flyToName(u, params.has('instant'));
+    if (u && !restoredCam) flyToName(u, params.has('instant'));   // after a context-loss reload, stay where the viewer was
   }
 }
 function flushChanged(old, oldC) {
@@ -678,7 +689,7 @@ function setFull(u, T, time, fogD, r1) {
   gl.uniform4f(u.uTown, L ? L.townD2 : 100, groundExt, L ? L.seaX : 1e9, L ? L.seaBx : 1e6);
   gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, groundTex); gl.uniform1i(u.uGround, 0);
   const shDir = shadowDir(T);
-  gl.uniform4f(u.uFar, r1 * 0.72, r1 * 0.96, quality.s > 0.7 ? 1 : hasStencil ? -LOW_SHADOW : 0, 5 / shDir[1] * 0.5);   // z < 0: low preset with cast shadows out to -z
+  gl.uniform4f(u.uFar, r1 * 0.72, r1 * 0.96, !isLow() ? 1 : hasStencil ? -LOW_SHADOW : 0, 5 / shDir[1] * 0.5);   // z < 0: low preset with cast shadows out to -z
   gl.uniform1f(u.uClouds, 1);
   gl.uniform1f(u.uPx, halfActive ? 0.5 : 1);
 }
@@ -881,7 +892,7 @@ function tags(now) {
     if (!el) { el = document.createElement('div'); el.className = 'tag'; $('#tags').appendChild(el); tagPool.push(el); }
     if (el.textContent !== t.name) el.textContent = t.name;
     el.style.transform = `translate(${sx.toFixed(1)}px,${sy.toFixed(1)}px) translate(-50%,-100%)`;
-    el.style.opacity = String(Math.max(0.4, 1 - t.d / 260));
+    el.style.opacity = String(Math.max(0.45, 1 - t.d / 400));
     el.style.display = '';
     used++;
   }
@@ -1098,6 +1109,7 @@ $('#help').onclick = () => { $('#help').hidden = true; };
 // ---------------- debug / automation hooks ----------------
 window.__town = {
   cam, stats, quality, chunks, skies, flyToName, setTod,
+  killWorker: (i) => workerDied(workers[i], 'killed by test'),
   probe, spin, get dbg() { return { reqs: reqs.size, upq: UPQ.length, budget: workers.length * 3 - reqs.size, loads: workers.map((w) => w.load) }; }, get layout() { return L; }, get ready() { return ready; }, get VP() { return VP; },
   idle() {
     if (!ready || reqs.size || UPQ.length) return false;

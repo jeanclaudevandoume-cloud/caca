@@ -7,7 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { buildLayout, plotOf, regionOf, regionKey, lineIndex, normName, shardKey, SHAPES, GARDEN, REGION, SLOTS } from '../public/js/town.js';
+import { buildLayout, plotOf, regionOf, regionKey, lineIndex, normName, cleanName, shardKey, SHAPES, GARDEN, REGION, SLOTS } from '../public/js/town.js';
 
 const src = process.argv[2] || 'data/live';
 const out = process.argv[3] || 'public/town';
@@ -26,9 +26,7 @@ const shards = new Map();
 const index = new Map();
 const dupes = [];
 for (let i = 0; i < n; i++) {
-  // NFC, no control/format characters (bidi overrides, zero-width), at most 2 combining marks in a row (no
-  // "zalgo" towers), then truncate by code point (never split an emoji). Emoji ZWJ sequences keep U+200D.
-  const name = Array.from(lines[i].normalize('NFC').replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, (ch) => (ch === '\u200d' ? ch : '')).replace(/(\p{M}{2})\p{M}+/gu, '$1').trim()).slice(0, 40).join('');
+  const name = cleanName(lines[i]);   // town.js: NFC, no bidi/zero-width/control characters, grapheme-safe truncation
   if (!name) continue;
   const { bx, bz, slot } = plotOf(L, i);
   const key = regionKey(regionOf(bx), regionOf(bz));

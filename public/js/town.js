@@ -189,8 +189,11 @@ export function recipe(bx, bz, slot, zone, custom) {
     r.style = ti < 2 ? 2 : 0;                 // 2 = brick
     r.tree = ((h >>> 14) % 10) < 3;
   } else if (zone === 2) {
-    r.floors = 4 + (h % 9);
-    r.w = 8.6; r.d = 8.6; r.roofType = 2;
+    // shotengai massing: low shop buildings on the street rows, taller ones behind (height/width <= ~3.3,
+    // no "pencil palisade" on the horizon); outer columns step down too so blocks read as stepped masses
+    const row = slot >> 2, col = slot & 3, street = row === 0 || row === 3, edge = col === 0 || col === 3;
+    r.floors = street ? 3 + (h % 4) - (edge && (h & 16) ? 1 : 0) : 5 + (h % 5);
+    r.w = 8.6; r.d = 8.0 + ((h >>> 20) % 3) * 0.8; r.roofType = 2;
     r.wall = (h >>> 9) % 5 === 0 ? clampSV(blend(ACCENT[districtAccent(bx, bz)], CITY[(h >>> 11) % CITY.length], 0.75), 0.295, 0.845) : CITY[(h >>> 11) % CITY.length];
     r.crown = (h >>> 15) % 3;
   } else {
@@ -421,3 +424,22 @@ export const chunkLod = (d, r0, prevLod) => (d < r0 * (prevLod === 0 ? 1.1 : 0.9
 export const chunkLite = (low, lod, d, r0, prevLite) => low || (lod === 0 && d >= r0 * (prevLite ? 0.45 : 0.55));
 export const skyLite = (low, d, prevLite) => low || d > (prevLite ? 1350 : 1650);
 export const lowNext = (prev, s) => (prev === null || (prev && s > 0.74) || (!prev && s < 0.66) ? s < 0.7 : prev);
+
+// ---- follower names (build time) ----
+// NFC; no control or format characters (bidi overrides, zero-width spaces, line separators) except a ZWJ
+// between two pictographs (emoji sequences) and tag characters after a black flag (England, Scotland, Wales);
+// runs of combining marks capped at 4 (no "zalgo" towers; Hebrew and Tibetan names keep theirs); truncated to
+// 40 grapheme clusters so no emoji is split. A name with nothing visible left becomes ''.
+const SEG = typeof Intl !== 'undefined' && Intl.Segmenter ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null;
+export function cleanName(s) {
+  let t = String(s).normalize('NFC')
+    .replace(/(?<=\p{Extended_Pictographic}\p{M}*)‍(?=\p{Extended_Pictographic})/gu, '\u0000')   // protect emoji ZWJ
+    .replace(/(?<=\u{1F3F4}[\u{E0020}-\u{E007F}]*)([\u{E0020}-\u{E007F}])/gu, '\u0001$1')            // protect flag tags
+    .replace(/\u0001([\u{E0020}-\u{E007F}])|[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, (m, tag) => (tag || (m === '\u0000' ? m : '')))
+    .replace(/\u0000/g, '‍')
+    .replace(/(\p{M}{4})\p{M}+/gu, '$1')
+    .trim();
+  if (!/[\p{L}\p{N}\p{S}\p{P}]/u.test(t)) return '';
+  const g = SEG ? Array.from(SEG.segment(t), (x) => x.segment) : Array.from(t);
+  return g.slice(0, 40).join('');
+}

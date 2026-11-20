@@ -16,7 +16,7 @@ const V = {
   port: ['q=high&t=10&notags&cam=1250,140,350,0.5,-0.25'],
   custom: ['q=high&u=maxramen95643&instant&t=10'],
   phone: ['q=low&t=10&notags&cam=2184,7,1260,0,-0.05', 844, 390],
-  phoneauto: ['t=10&notags', 0, 0, 'Pixel 7'],      // the owner's real path: auto preset, phone UA, no MSAA, DPR 2.6
+  phoneauto: ['t=10', 0, 0, 'Pixel 7'],      // the owner's real path: auto preset, phone UA, DPR 2.6, name tags on
   house: ['q=high&t=10&notags&cam=2200,5,1272,-0.25,-0.1'],
   portrait: ['q=low&t=10&notags&cam=6,24,660,0,-0.07', 390, 844],
   downtownlow: ['q=low&t=10&notags&cam=6,24,660,0,-0.03', 844, 390],
@@ -64,6 +64,7 @@ const V = {
       continue;
     }
     await p.waitForTimeout(800);
+    if (!q.includes('notags')) await p.waitForFunction(() => [...document.querySelectorAll('#tags .tag')].filter((e) => e.style.display !== 'none' && e.textContent).length >= 4, null, { timeout: 8000 }).catch(() => console.log(n, 'fewer than 4 name tags'));
     await p.screenshot({ path: `shots/${tag}/${n}.png` });
     out[n] = await p.evaluate(() => { const s = window.__town.stats; return { tris: s.tris, draws: s.draws, sky: s.sky, mb: s.mb }; });
     if (probeAll || q.includes('q=low')) {

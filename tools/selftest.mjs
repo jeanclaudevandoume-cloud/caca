@@ -30,6 +30,15 @@ const ord = new Int16Array(L.blocks.length); for (let i = 0; i < ord.length; i++
 const LO = T.layoutFromOrder(100000, ord);
 check('layoutFromOrder == buildLayout', LO.count === L.count && LO.maxD2 === L.maxD2 && h(LO.start) === h(L.start));
 
+// follower names: no bidi/zero-width/control characters, emoji and flags intact, grapheme-safe truncation
+{
+  const C = String.fromCodePoint, fam = C(0x1F468, 0x200D, 0x1F469, 0x200D, 0x1F467), eng = C(0x1F3F4, 0xE0067, 0xE0062, 0xE0065, 0xE006E, 0xE0067, 0xE007F);
+  const cases = [['a' + C(0x202E) + 'b', 'ab'], ['x' + C(0x200B) + 'y', 'xy'], ['a' + C(0x2028) + 'b', 'ab'], [C(0x200D), ''], [' ', ''],
+    [fam.repeat(41), fam.repeat(40)], [eng, eng], ['</script>', '</script>'], ['z' + C(0x300, 0x301, 0x302, 0x303, 0x304, 0x305), 'z' + C(0x300, 0x301, 0x302, 0x303)]];
+  const bad = cases.filter(([i, o]) => T.cleanName(i) !== o).map(([i]) => JSON.stringify(i));
+  check('cleanName strips control/format characters, keeps emoji and flags, truncates by grapheme', !bad.length, bad.join(' '));
+}
+
 // 2. rules over a grid
 let rules = '';
 for (let bz = -100; bz < 100; bz += 1) for (let bx = -100; bx < 100; bx += 1) {
@@ -96,6 +105,20 @@ else for (const [name, src] of [...Object.entries(S), ['GEO_FS (LOWQ)', S.GEO_FS
   fs.unlinkSync(f);
 }
 
+// the phone build: a 5k town bundled into one file (parse check + worker smoke run happen inside single.mjs)
+{
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ft-single-'));
+  let ok = true, why = '';
+  try {
+    execFileSync(process.execPath, ['tools/demo-data.mjs', path.join(tmp, 'd'), '5000'], { stdio: 'pipe' });
+    execFileSync(process.execPath, ['tools/build.mjs', path.join(tmp, 'd'), path.join(tmp, 't')], { stdio: 'pipe' });
+    execFileSync(process.execPath, ['tools/single.mjs', path.join(tmp, 't'), path.join(tmp, 'x.html')], { stdio: 'pipe' });
+    const html = fs.readFileSync(path.join(tmp, 'x.html'), 'utf8');
+    if (/import\.meta|new Worker\(new URL/.test(html)) { ok = false; why = 'module-only worker code left in the bundle'; }
+  } catch (e) { ok = false; why = String(e.stderr || e.message).slice(0, 300); }
+  fs.rmSync(tmp, { recursive: true, force: true });
+  check('single-file phone build (5k town) bundles, parses and runs its worker', ok, why);
+}
 if (update) { fs.writeFileSync(GOLD, JSON.stringify(got, null, 1) + '\n'); console.log('golden file updated'); }
 console.log(fails ? `\n${fails} check(s) failed` : '\nall checks passed');
 process.exit(fails ? 1 : 0);

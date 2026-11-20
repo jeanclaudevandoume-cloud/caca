@@ -512,7 +512,7 @@ export function home(mb, bx, bz, f, r, lod) {
       } else { mb.boxEave(x0, FLOOR_H, cz0, x1, top, cz1, r.wall, r.roofType === 2 ? 0x8c8f93 : -1, M.WIN, wa, 0.4); var rz0 = cz0, rz1 = cz1; }
       if (r.twoTone && !LITE) { mb.cast = false; mb.box(x0 - 0.03, FLOOR_H - 0.05, z0 - 0.03, x1 + 0.03, FLOOR_H + 0.02, z1 + 0.03, 0x3a3836, -1, M.PLAIN, a); mb.cast = true; }
       // roof: mono-pitch / low gable with thin eaves and a dark fascia / flat with a parapet ring
-      const o = 0.45;
+      const o = 0.65;
       if (r.roofType === 3) mb.mono(x0, rz0, x1, rz1, o, top, 2.2, fs, rc, r.wall, a, shade(rc, 0.55), true);
       else if (r.roofType === 0) mb.gable(x0 - o, rz0 - o, x1 + o, rz1 + o, top, 1.6, rc, r.wall, a, true, true, shade(rc, 0.55));
       else mb.parapet(x0, rz0, x1, rz1, top, 0.6, shade(r.wall, 0.82), 0xd9d3c7, a, 0x8c8f93);
@@ -542,6 +542,19 @@ export function home(mb, bx, bz, f, r, lod) {
         }
         if ((r.hash >>> 24) & 1)                      // laundry / futon hung over the balcony: a splash of colour
           mb.wq(bx0 + 0.4, bx0 + 0.4 + bw * 0.5, FLOOR_H + 0.5, FLOOR_H + 1.1, zf + fs * 0.03, fs, ACCENT[(r.hash >>> 3) % ACCENT.length], M.PLAIN, a);
+      }
+      // houses on a north street turn their back to the sun: a south balcony with laundry and the AC unit,
+      // as in Tokyo, where the drying balcony faces south whatever the street does (all presets: ~10 tris)
+      if (f.face < 0 && r.floors >= 2) {
+        const bw = (x1 - x0) * (0.6 + 0.2 * ((r.hash >>> 19) & 1)), bx0 = r.side > 0 ? x1 - 0.3 - bw : x0 + 0.3, bx1 = bx0 + bw;
+        const zb = z1, zf = z1 + 0.95, y = FLOOR_H;
+        const pc = (r.hash >>> 22) & 1 ? 0xeeebe4 : shade(r.wall, 0.85);
+        mb.wq(bx0, bx1, y, y + 1.1, zf, 1, pc, M.PLAIN, a);
+        mb.q(bx0, y + 1.1, zb, bx1, y + 1.1, zb, bx1, y + 1.1, zf, bx0, y + 1.1, zf, 0, 1, 0, 0, 0, 0, 0, M.PLAIN, shade(pc, 1.05), a);
+        mb.q(bx0, y, zf, bx1, y, zf, bx1, y, zb, bx0, y, zb, 0, -1, 0, 0, 0, 0, 0, M.PLAIN, shade(pc, 0.45), a);   // dark slab underside
+        mb.wq(bx0 + 0.3, bx0 + 0.3 + bw * 0.45, y + 0.35, y + 1.1, zf + 0.03, 1, ACCENT[(r.hash >>> 13) % ACCENT.length], M.PLAIN, a);   // futon / laundry
+        if (LITE) mb.wq(bx1 - 1.2, bx1 - 0.4, 0.2, 0.8, zb + 0.35, 1, 0xd8d8d4, M.METAL, a);
+        else mb.cbox(bx1 - 0.8, 0, zb + 0.3, 0.85, 0.6, 0.4, 0xd8d8d4, M.METAL, a);           // AC unit under the balcony
       }
       // the open side wall faces the lane: outdoor AC unit, downpipe and meter box make it read as a real wall
       {

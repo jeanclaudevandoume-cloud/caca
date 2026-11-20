@@ -27,6 +27,40 @@ const path = require('path');
     for (const e of errs) console.log('  ' + e.slice(0, 300));
     await ctx.close();
   }
+  // Recovery: kill workers repeatedly mid-stream, move 2 km, and lose the GL context. The town must load
+  // fully again (no holes: every wanted chunk near the camera has a mesh), and the camera must survive the
+  // context-loss reload.
+  {
+    const ctx = await b.newContext({ ...devices['Pixel 7'] });
+    const p = await ctx.newPage();
+    const errs = [];
+    p.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
+    await p.goto(file + '#u=');
+    let pass = true, why = '';
+    try {
+      await p.waitForFunction(() => window.__town && window.__town.ready && window.__town.idle(), null, { timeout: 100000, polling: 500 });
+      for (let k = 0; k < 10; k++) {
+        await p.evaluate((k) => { const t = window.__town; t.cam.x += 200; t.cam.z -= 120 * (k & 1 ? -1 : 1); t.killWorker(0); }, k);
+        await p.waitForTimeout(400);
+      }
+      await p.waitForFunction(() => window.__town.idle(), null, { timeout: 90000, polling: 500 });
+      const holes = await p.evaluate(() => { let n = 0; for (const c of window.__town.chunks.values()) if (c.loaded && !c.g && c.d < 400 && c.want === 0) n++; return n; });
+      if (holes) { pass = false; why += ` ${holes} empty chunks near the camera;`; }
+      const before = await p.evaluate(() => { const c = window.__town.cam; c.x = 100; c.y = 50; c.z = 500; return [c.x, c.y, c.z]; });
+      await p.waitForTimeout(300);
+      await p.evaluate(() => { const e = document.querySelector('canvas').getContext('webgl2').getExtension('WEBGL_lose_context'); e.loseContext(); });
+      await p.waitForTimeout(1500);
+      await p.waitForFunction(() => window.__town && window.__town.ready, null, { timeout: 100000, polling: 500 });
+      const after = await p.evaluate(() => { const c = window.__town.cam; return [c.x, c.y, c.z]; });
+      if (Math.hypot(after[0] - before[0], after[1] - before[1], after[2] - before[2]) > 1) { pass = false; why += ` camera not restored (${after.map((v) => v.toFixed(0))});`; }
+      const diag = await p.evaluate(() => { const el = document.getElementById('loading'); return el && !el.classList.contains('gone') ? el.textContent : ''; });
+      if (diag) { pass = false; why += ' diagnostics shown: ' + diag.slice(0, 200); }
+    } catch (e) { pass = false; why += ' ' + String(e.message || e).slice(0, 200); }
+    if (errs.length) { pass = false; why += ' ' + errs.join('; ').slice(0, 300); }
+    ok = ok && pass;
+    console.log(`recovery: ${pass ? 'PASS' : 'FAIL'}${why}`);
+    await ctx.close();
+  }
   await b.close();
   process.exit(ok ? 0 : 1);
 })();
