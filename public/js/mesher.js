@@ -8,7 +8,7 @@
 // Index buffer: caster triangles first (count `ns`), then non-casters.
 import {
   PITCH, FLOOR_H, K, hash3, mod, fdiv, kindAt, cellKind, zoneLevel, plotsIn, plotFrame, recipe, occupied,
-  ROOF, CITY, avenueX, avenueZ, isRiver, portLane, bayHalf, homeRect, regionOf, regionKey, lineIndex, CHUNK, REGION,
+  ROOF, CITY, ACCENT, avenueX, avenueZ, isRiver, portLane, bayHalf, homeRect, regionOf, regionKey, lineIndex, CHUNK, REGION,
 } from './town.js';
 
 // Trig rounded to 1e-7 so every JS engine builds byte-identical geometry (positions are then
@@ -456,7 +456,7 @@ function gardenItem(mb, item, x, z, h) {
 
 // ---------- homes ----------
 const VEND = [0xe8433a, 0x2a6fb5, 0xf2f2ee, 0x2a9d6f];
-const DOORS = [0x2f4d7a, 0x7e2d2d, 0x2e5a45, 0x2b2b2b, 0xd9a441];
+const DOORS = [0x2f4d7a, 0x7e2d2d, 0x2e5a45, 0xc8402f, 0xd9a441];
 // Front door: frame, inset door, step, optional canopy and a porch light.
 function door(mb, x, zw, fs, r, rc, a) {
   const cast = mb.cast; mb.cast = false;
@@ -498,18 +498,24 @@ export function home(mb, bx, bz, f, r, lod) {
       // ground storey (two-tone on half the houses: darker, with a string course), upper storeys with baked eave shade
       const g = r.twoTone ? shade(r.wall, 0.62) : r.wall;
       mb.box(x0, 0, z0, x1, FLOOR_H, z1, g, -1, M.WIN, wa);
-      mb.boxEave(x0, FLOOR_H, z0, x1, top, z1, r.wall, r.roofType === 2 ? 0x8c8f93 : -1, M.WIN, wa, 0.4);
+      if (r.floors >= 3) {
+        // stepped massing: the top storey sits 1.5 m back from the street, its roof terrace in front
+        const zs0 = f.face < 0 ? z0 + 1.5 : z0, zs1 = f.face < 0 ? z1 : z1 - 1.5;
+        mb.box(x0, FLOOR_H, z0, x1, 2 * FLOOR_H, z1, r.wall, 0x8c8f93, M.WIN, wa, 1);
+        mb.boxEave(x0, 2 * FLOOR_H, zs0, x1, top, zs1, r.wall, r.roofType === 2 ? 0x8c8f93 : -1, M.WIN, wa, 0.4);
+      } else mb.boxEave(x0, FLOOR_H, z0, x1, top, z1, r.wall, r.roofType === 2 ? 0x8c8f93 : -1, M.WIN, wa, 0.4);
+      const rz0 = r.floors >= 3 && f.face < 0 ? z0 + 1.5 : z0, rz1 = r.floors >= 3 && f.face > 0 ? z1 - 1.5 : z1;
       if (r.twoTone && !LITE) { mb.cast = false; mb.box(x0 - 0.03, FLOOR_H - 0.05, z0 - 0.03, x1 + 0.03, FLOOR_H + 0.02, z1 + 0.03, 0x3a3836, -1, M.PLAIN, a); mb.cast = true; }
       // roof: mono-pitch / low gable with thin eaves and a dark fascia / flat with a parapet ring
       const o = 0.45;
-      if (r.roofType === 3) mb.mono(x0, z0, x1, z1, o, top, 2.2, fs, rc, r.wall, a, shade(rc, 0.55), !LITE);
-      else if (r.roofType === 0) mb.gable(x0 - o, z0 - o, x1 + o, z1 + o, top, 1.6, rc, r.wall, a, true, !LITE, shade(rc, 0.55));
-      else mb.parapet(x0, z0, x1, z1, top, 0.6, shade(r.wall, 0.82), 0xd9d3c7, a, 0x8c8f93);
+      if (r.roofType === 3) mb.mono(x0, rz0, x1, rz1, o, top, 2.2, fs, rc, r.wall, a, shade(rc, 0.55), true);
+      else if (r.roofType === 0) mb.gable(x0 - o, rz0 - o, x1 + o, rz1 + o, top, 1.6, rc, r.wall, a, true, true, shade(rc, 0.55));
+      else mb.parapet(x0, rz0, x1, rz1, top, 0.6, shade(r.wall, 0.82), 0xd9d3c7, a, 0x8c8f93);
       mb.cast = false;
       // built-in garage: dark opening with a light lintel
       if (r.garage) {
         const gx0 = r.side > 0 ? x1 - 3.2 : x0 + 0.4, gx1 = gx0 + 2.8;
-        mb.wq(gx0, gx1, 0, 2.5, wallZ + fs * 0.03, fs, 0x2a2c30, M.PLAIN, a);
+        mb.wq(gx0, gx1, 0, 2.5, wallZ + fs * 0.03, fs, 0x6f7a80, M.METAL, a);   // roller shutter
         if (!LITE) mb.wq(gx0 - 0.15, gx1 + 0.15, 2.5, 2.7, wallZ + fs * 0.04, fs, 0xd9d3c7, M.PLAIN, a);
       }
       // floor-2 balcony: slab + solid parapet across 60% of the front
@@ -523,6 +529,8 @@ export function home(mb, bx, bz, f, r, lod) {
           mb.xq(bx0, Math.min(wallZ, zf), Math.max(wallZ, zf), FLOOR_H, FLOOR_H + 1.1, -1, shade(pc, 0.9), M.PLAIN, a);
           mb.xq(bx1, Math.min(wallZ, zf), Math.max(wallZ, zf), FLOOR_H, FLOOR_H + 1.1, 1, shade(pc, 0.9), M.PLAIN, a);
         }
+        if ((r.hash >>> 24) & 1)                      // laundry / futon hung over the balcony: a splash of colour
+          mb.wq(bx0 + 0.4, bx0 + 0.4 + bw * 0.5, FLOOR_H + 0.5, FLOOR_H + 1.1, zf + fs * 0.03, fs, ACCENT[(r.hash >>> 3) % ACCENT.length], M.PLAIN, a);
       }
       mb.cast = true;
       door(mb, doorX, wallZ, fs, r, rc, a);
@@ -588,7 +596,7 @@ export function home(mb, bx, bz, f, r, lod) {
     const w = r.w, d = tower ? r.d : r.d;
     const x0 = f.x - w / 2, x1 = f.x + w / 2, z0 = f.z - d / 2, z1 = f.z + d / 2;
     const top = r.floors * FLOOR_H;
-    const roofC = [0x8d9199, 0x6f747d, 0xa9a39a, 0x7f8a86][(r.hash >>> 21) & 3];
+    const roofC = [0x7d7870, 0x6a6660, 0x8a847a, 0x5e615f][(r.hash >>> 21) & 3];   // warm concrete (no lavender rooftops)
     let base = 0;
     const fz = f.face < 0 ? z0 : z1, fs = f.face < 0 ? -1 : 1;     // street-facing wall
     const sign = ACCENT_SIGN[(r.hash >>> 13) % ACCENT_SIGN.length];
@@ -665,11 +673,19 @@ export function home(mb, bx, bz, f, r, lod) {
     }
     if (r.top) shape(mb, r.shape, f.x, roofTop, f.z, tower ? 0.85 : 0.75, r.color, a & 0xfc, lod);
     if (!tower && !lod) {
-      // Tokyo-style street face: a vertical lit sign, balconies and air-conditioner boxes
+      // Tokyo-style street face (kanban also on lite): a vertical lit sign, balconies and air-conditioner boxes
       mb.cast = false;
-      if (r.hash & 2) {                          // stacked projecting signs over floors 2-5
-        const n = 1 + ((r.hash >>> 5) % 3);
-        for (let i = 0; i < n; i++) mb.cbox(i & 1 ? x0 + 0.4 : x1 - 0.4, 4.2 + i * 4.0, fz + fs * 0.45, 0.25, 3.5, 0.6, ACCENT_SIGN[((r.hash >>> 9) + i * 3) % ACCENT_SIGN.length], M.LIGHT, a);
+      {                                          // vertical kanban on every street face, plus stacked signs on some
+        const kx = r.hash & 1 ? x0 + 0.5 : x1 - 0.5, kh = 6 + ((r.hash >>> 6) % 4);
+        mb.cbox(kx, 4.0, fz + fs * 0.75, 0.3, kh, 1.2, ACCENT[(r.hash >>> 9) % ACCENT.length], M.LIGHT, a);
+        if (r.hash & 2 && !LITE) {
+          const n = 1 + ((r.hash >>> 5) % 2);
+          for (let i = 0; i < n; i++) mb.cbox(r.hash & 1 ? x1 - 0.4 : x0 + 0.4, 4.2 + i * 4.0, fz + fs * 0.45, 0.25, 3.5, 0.6, ACCENT_SIGN[((r.hash >>> 9) + i * 3) % ACCENT_SIGN.length], M.LIGHT, a);
+        }
+        if ((r.hash >>> 26) % 4 === 0 && !LITE) {   // rooftop billboard
+          mb.cbox(f.x - 2, roofTop, f.z, 0.2, 2.5, 0.2, 0x3a3e45, M.METAL, a); mb.cbox(f.x + 2, roofTop, f.z, 0.2, 2.5, 0.2, 0x3a3e45, M.METAL, a);
+          mb.cbox(f.x, roofTop + 2.5, f.z, 6, 3, 0.3, ACCENT[(r.hash >>> 4) % ACCENT.length], M.LIGHT, a);
+        }
       }
       if (r.hash & 4 && !LITE) {
         const bz0 = f.face < 0 ? z0 - 1.0 : z1, bz1 = bz0 + 1.0;

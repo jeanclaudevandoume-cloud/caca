@@ -55,8 +55,8 @@ below target while the image got less vibrant; the goal says "vibrant".
 
 ## Composition (AD)
 
-- The opening view looks down an avenue into the core from ~120 m: mid-rises with signs in front,
-  towers silhouetted behind. It must show work at house scale, not only a far pincushion.
+- The opening view stands on the central avenue at ~24 m among mid-rises with signs and rooftop billboards,
+  looking north over the river and bridge to the towers and the spire (round B, both looks reviewers).
 
 ## Measurable targets (checked with tools/sheet.py on the fixed vantage set)
 

@@ -72,8 +72,8 @@ void main() {
   uint sa = uint(vCol.a * 255.0 + 0.5);
   bool city = vMat == 5 || (vMat == 1 && (sa & 3u) == 3u);
   // canyon shade: city walls darken strongly toward the street (no building-on-building shadows otherwise)
-  float ao = mix(1.0, city ? mix(0.45, 1.0, smoothstep(0.0, 30.0, vW.y)) : mix(0.62, 1.0, smoothstep(0.0, 4.0, vW.y)), wall);
-  float avert = mix(1.0, 0.8, wall * step(dot(n, uSunDir), 0.0));             // faces turned from the sun
+  float ao = mix(1.0, city ? mix(0.45, 1.0, smoothstep(0.0, 30.0, vW.y)) : mix(0.8, 1.0, smoothstep(0.0, 4.0, vW.y)), wall);
+  float avert = mix(1.0, city ? 0.8 : 0.88, wall * step(dot(n, uSunDir), 0.0));             // faces turned from the sun
   float jitter = city ? 0.85 + 0.15 * float((sa * 2654435761u) >> 24u) / 255.0 : 1.0;   // neighbours separate
   vec3 col = base * jitter * (amb * ao * avert + key * sun);
   vec3 emis = vec3(0.0);
@@ -350,7 +350,7 @@ vec3 blockCol(uvec4 c, int bx, int bz, vec2 l, vec2 p, float t, float w, vec3 gr
   if (k == 0u) {
     int zone = int(c.g & 3u);
     // Tokyo/Seoul lots are paved: concrete + gravel, green only in planting strips
-    vec3 lot = zone == 0 ? vec3(0.50, 0.48, 0.44) : (zone == 1 ? vec3(0.56, 0.54, 0.51) : vec3(0.72, 0.71, 0.69));
+    vec3 lot = zone == 0 ? vec3(0.40, 0.40, 0.39) : (zone == 1 ? vec3(0.46, 0.46, 0.45) : vec3(0.72, 0.71, 0.69));
     lot *= mix(vec3(1.0), vec3(float((c.b * 37u) & 15u) / 15.0 * 0.1 + 0.95), float(zone >= 2));
     if (zone <= 1) edge = al.x > 19.4 || al.y > 19.4;                         // narrow kerb, no wide sidewalk
     if ((c.g & 4u) != 0u && t > uFar.x * 0.95) {
@@ -359,9 +359,9 @@ vec3 blockCol(uvec4 c, int bx, int bz, vec2 l, vec2 p, float t, float w, vec3 gr
       int row = zone == 2 ? int(clamp(floor((l.y + 20.0) / 10.0), 0.0, 3.0)) : (l.y < 0.0 ? 0 : 1);
       int slot = row * 4 + col;
       vec2 c0 = vec2(-15.0 + float(col) * 10.0, zone == 2 ? -15.0 + float(row) * 10.0 : -10.0 + float(row) * 20.0);
-      vec2 hs = zone == 0 ? vec2(3.4, 4.4) : (zone == 1 ? vec2(4.7, 6.7) : (zone == 2 ? vec2(4.3) : vec2(4.3, 7.0)));
+      vec2 hs = zone == 0 ? vec2(4.2, 6.0) : (zone == 1 ? vec2(4.7, 6.7) : (zone == 2 ? vec2(4.3) : vec2(4.3, 7.0)));
       float face = (zone == 2 ? (row < 2 ? -1.0 : 1.0) : (row == 0 ? -1.0 : 1.0));
-      if (zone == 0) c0.y -= face * (10.0 - 1.2 - hs.y);
+      if (zone == 0) c0.y -= face * (10.0 - 0.8 - hs.y);
       if (zone == 1) c0.y -= face * (10.0 - 1.5 - hs.y);
       vec2 cv = cover(l - c0, hs, max(w, 0.8));
       float inside = cv.x * cv.y;
@@ -384,35 +384,35 @@ vec3 blockCol(uvec4 c, int bx, int bz, vec2 l, vec2 p, float t, float w, vec3 gr
       int slot = row * 4 + col;
       uint h = hash3(bx * 16 + slot, bz, 21);
       float fx = -15.0 + float(col) * 10.0, face = row == 0 ? -1.0 : 1.0;
-      float front = face * 20.0, set = zone == 0 ? 1.2 : 1.5;
-      float hw = zone == 0 ? (6.0 + float((h >> 1u) % 5u) * 0.4) * 0.5 : 4.7;
-      float hd = zone == 0 ? 8.0 + float((h >> 4u) % 4u) * 0.5 : 12.0 + float((h >> 4u) % 7u) * 0.5;
+      float front = face * 20.0, set = zone == 0 ? 0.8 : 1.5;
+      float hw = zone == 0 ? (8.0 + float((h >> 1u) % 4u) * 0.3) * 0.5 : 4.7;
+      float hd = zone == 0 ? 11.0 + float((h >> 4u) % 4u) * 0.75 : 12.0 + float((h >> 4u) % 7u) * 0.5;
       float side = (h & 8u) != 0u ? 1.0 : -1.0;
-      float cx = zone == 0 ? fx + side * (5.0 - 0.9 - hw) : fx;
+      float cx = zone == 0 ? fx + side * (5.0 - 0.4 - hw) : fx;
       float zf = front - face * set, zb = zf - face * hd;            // house front and back wall z
       vec2 c0 = vec2(cx, (zf + zb) * 0.5);
       vec2 q = abs(l - c0) - vec2(hw, hd * 0.5);
       float outside = step(0.0, max(q.x, q.y));
       if (zone == 0) {
         float along = (l.y - zf) * face;                                  // > 0 between the house and the street
-        lot = along > 0.0 ? vec3(0.55, 0.53, 0.49) : vec3(0.47, 0.45, 0.41) * (0.96 + 0.08 * vnoise(p * 3.0));
+        lot = along > 0.0 ? vec3(0.42, 0.42, 0.41) : mix(vec3(0.34, 0.34, 0.33), vec3(0.24, 0.36, 0.2), 0.45 * vnoise(p * 0.7)) * (0.96 + 0.08 * vnoise(p * 3.0));
         // planting strip along the open side line, and joints in the concrete forecourt
         float gx = abs(l.x - (fx - side * 5.0));
-        lot = mix(lot, vec3(0.20, 0.36, 0.17) * (0.9 + 0.2 * vnoise(p * 1.7)), step(gx, 0.8) * step(along, 0.0) * (1.0 - smoothstep(0.6, 1.5, w)));
+        lot = mix(lot, vec3(0.20, 0.38, 0.17) * (0.9 + 0.2 * vnoise(p * 1.7)), step(gx, 1.2) * step(along, 0.0) * (1.0 - smoothstep(0.6, 1.5, w)));
         if (along > 0.0) lot *= 1.0 - 0.06 * step(0.95, fract(l.x / 0.6)) * (1.0 - smoothstep(0.3, 0.9, w));
       }
       float dd = length(max(q, 0.0));
       lot *= 1.0 - 0.35 * exp(-dd * 1.4) * outside;                         // contact shade around the walls
       if (uFar.z < 0.5) {
         // low preset (no shadow pass): the house shadow projected along the sun, scaled by its height
-        float fl = zone == 0 ? 2.0 + float((h & 1u) != 0u && (h >> 2u) % 3u == 0u) : 4.5;
+        float fl = zone == 0 ? 2.0 + float(h & 1u) : 4.5;
         vec2 off = -uSunDir.xz / max(uSunDir.y, 0.3) * (fl * 3.2 + 1.2);
         float sh = 0.0;
         for (int i = 1; i <= 4; i++) {
           vec2 qs = abs(l - c0 - off * (float(i) * 0.25)) - vec2(hw, hd * 0.5);
           sh = max(sh, 1.0 - smoothstep(-0.2, 0.4, max(qs.x, qs.y)));
         }
-        lot *= 1.0 - 0.42 * sh * outside * (1.0 - uNight);
+        lot *= 1.0 - 0.55 * sh * outside * (1.0 - uNight);
       }
     }
     return edge ? mix(int(c.g & 3u) <= 1 ? vec3(0.56, 0.54, 0.51) : WALK, lot, smoothstep(0.5, 3.0, w)) : lot;

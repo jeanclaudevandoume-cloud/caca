@@ -143,9 +143,9 @@ function inFrustum(pl, x, y, z, r) {
 }
 
 // ---------------- state ----------------
-const HOME = { x: -260, y: 55, z: 600, yaw: 0.5, pitch: -0.1 };   // ART.md: off-axis over the mid-rise city into the tower core
+const HOME = { x: 6, y: 24, z: 660, yaw: 0, pitch: -0.03 };   // ART.md: on the central avenue among mid-rises with signs; river, bridge, towers and spire ahead
 // portrait phones: start closer so the bridge and water don't fill the lower half
-if (innerWidth / innerHeight < 0.75) Object.assign(HOME, { yaw: 0.42 });   // portrait: same spot, aimed at the core
+if (innerWidth / innerHeight < 0.75) Object.assign(HOME, { pitch: -0.07 });   // portrait: the street fills the lower third
 const cam = { ...HOME };
 const PRESETS = { low: { s: 0.55, pr: 1 }, mid: { s: 0.8, pr: 1.5 }, high: { s: 1, pr: 2 } };
 const isPhone = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) || Math.min(screen.width, screen.height) < 600;
@@ -404,7 +404,7 @@ function stream(now) {
 // ---------------- time of day ----------------
 // keys: 0 noon, 1 sunset, 2 night, 3 dawn (cycle of 4)
 const KEYS = [
-  { top: [0.14, 0.4, 0.86], hor: [0.64, 0.79, 0.95], sun: [1.42, 1.24, 1.0], sky: [0.24, 0.31, 0.48], gnd: [0.24, 0.22, 0.19], fog: [0.68, 0.79, 0.93], el: 0.62, night: 0 },
+  { top: [0.14, 0.4, 0.86], hor: [0.64, 0.79, 0.95], sun: [1.42, 1.24, 1.0], sky: [0.28, 0.34, 0.5], gnd: [0.32, 0.29, 0.24], fog: [0.68, 0.79, 0.93], el: 0.62, night: 0 },
   { top: [0.22, 0.3, 0.62], hor: [1.0, 0.64, 0.42], sun: [1.05, 0.7, 0.42], sky: [0.42, 0.46, 0.62], gnd: [0.36, 0.3, 0.28], fog: [0.84, 0.66, 0.6], el: 0.12, night: 0.25 },
   { top: [0.015, 0.025, 0.08], hor: [0.06, 0.08, 0.18], sun: [0.22, 0.28, 0.42], sky: [0.26, 0.31, 0.5], gnd: [0.12, 0.12, 0.16], fog: [0.06, 0.08, 0.16], el: 0.9, night: 1 },
   { top: [0.3, 0.42, 0.75], hor: [1.0, 0.78, 0.62], sun: [1.0, 0.78, 0.56], sky: [0.45, 0.48, 0.65], gnd: [0.4, 0.34, 0.3], fog: [0.92, 0.8, 0.72], el: 0.14, night: 0.2 },
