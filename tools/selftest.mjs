@@ -62,9 +62,9 @@ check('shader river formula == town.js riverZ', river);
 let glslang = true;
 try { execFileSync('glslangValidator', ['--version'], { stdio: 'pipe' }); } catch { glslang = false; }
 if (!glslang) console.log('skip GLSL validation (install glslang-tools)');
-else for (const [name, src] of Object.entries(S)) {
+else for (const [name, src] of [...Object.entries(S), ['GEO_FS (LOWQ)', S.GEO_FS.replace('#version 300 es', '#version 300 es\n#define LOWQ')]]) {
   if (typeof src !== 'string' || !src.includes('#version')) continue;
-  const f = path.join(os.tmpdir(), `ft-${name}.${name.endsWith('VS') ? 'vert' : 'frag'}`);
+  const f = path.join(os.tmpdir(), `ft-${name.replace(/\W+/g, '_')}.${name.endsWith('VS') ? 'vert' : 'frag'}`);
   fs.writeFileSync(f, src);
   let ok = true, msg = '';
   try { execFileSync('glslangValidator', [f], { stdio: 'pipe' }); } catch (e) { ok = false; msg = String(e.stdout).slice(0, 300); }

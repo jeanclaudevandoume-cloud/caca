@@ -143,10 +143,10 @@ export function roofIdx(bx, bz, slot) {
 export const districtAccent = (bx, bz) => hash3(fdiv(bx, 4), fdiv(bz, 4), 31) % 6;
 
 // Palettes (0xRRGGBB). The ground shader holds ROOF too.
-export const WALL = [0xe8c9a0, 0xd99a6c, 0xb8c9a3, 0x9fb7c9, 0xe6b8a2, 0xf1e4c8, 0xc98f5e, 0x8fa89a];   // ART.md: frozen
+export const WALL = [0xece8df, 0xd8cfc0, 0xbfb4a3, 0x8a8178, 0x5b5650, 0xc9b49a, 0xa9744f, 0x7f8c8d];   // ART.md: Tokyo/Seoul palette (round A)
 // townhouses: three brick tones, then stucco
-export const TOWN = [0xa4553f, 0x8e4a3a, 0xc07a55, 0xe6dccb, 0x6b4a3e, 0xd9cfbd];
-export const ROOF = [0x8c3f2c, 0x4b5663, 0x3a3e45, 0x5e7a48, 0x2f6862, 0x7a2f26, 0x7a5638, 0x2f4d7a].map((c) => clampSV(c, 0.6, 0.42));   // ART.md OVERRIDE (meta-review 3): S <= .60 for vibrancy   // ART.md: roofs S <= .45, V <= .50 (kept at .42 for contrast)
+export const TOWN = [0x9a5a43, 0xb07a5a, 0xc8b08e, 0x8e8a84, 0xe3dccf];
+export const ROOF = [0x3a3e45, 0x4b5663, 0x2f3b4f, 0x5a4a3e, 0x6b3a2e, 0x3f5a5a, 0x2b2d31, 0x7a6a58];   // ART.md: thin metal / kawara roofs (round A)
 // ART.md city facades: S <= .30, V <= .85 (the palette is clamped to the table)
 export const CITY = [0xc9a27e, 0x8e9aa6, 0xd8c3a0, 0x5f6b78, 0xb5876a, 0xe0d6c4, 0x4a5560].map((c) => clampSV(c, 0.295, 0.845));
 export const ACCENT = [0xff6b6b, 0x1fb5ad, 0xffb627, 0x6c63ff, 0x2ec27e, 0xff8fb1];
@@ -159,24 +159,34 @@ export const GARDEN = ['fountain', 'pool', 'flowers', 'tree', 'car', 'trampoline
 export function recipe(bx, bz, slot, zone, custom) {
   const h = hash3(bx * 16 + slot, bz, 21), h2 = hash3(bx, bz * 16 + slot, 22);
   const r = { zone, slot, hash: h, roof: roofIdx(bx, bz, slot), wall: 0, floors: 1, w: 7, d: 9,
-    roofType: 0, mat: 1, style: 0, sig: false, garden: [], tree: false, shape: null, color: -1, top: false, crown: 0 };
+    roofType: 0, mat: 1, style: 0, sig: false, ox: 0, garden: [], tree: false, shape: null, color: -1, top: false, crown: 0 };
   if (zone === 0) {
-    r.floors = 1 + (h & 1);
-    r.w = 6.5 + ((h >>> 1) % 5) * 0.5;
-    r.d = 8 + ((h >>> 4) % 7) * 0.5;
-    const rt = (h >>> 8) % 10;
-    r.roofType = rt === 0 ? 2 : rt < 6 ? 0 : 1;   // 0 gable, 1 hip, 2 flat (rare)
+    // Tokyo jutaku: narrow 2-3 storey house close to the street, hugging one side line
+    r.floors = 2 + ((h & 1) && (h >>> 2) % 3 === 0 ? 1 : 0);
+    r.w = 6.0 + ((h >>> 1) % 5) * 0.4;
+    r.d = 8.0 + ((h >>> 4) % 4) * 0.5;
+    const rt = (h >>> 8) % 20;
+    r.roofType = rt < 9 ? 3 : rt < 15 ? 0 : 2;  // 3 mono-pitch, 0 low gable, 2 flat with parapet
     r.wall = WALL[(h >>> 11) % 8];
-    r.style = (h >>> 26) & 1;                 // 1 = lap siding
-    r.tree = ((h >>> 14) % 10) < 7;
+    r.style = (h >>> 26) & 1;                 // 1 = ceramic siding (vertical joints)
+    r.twoTone = ((h >>> 27) & 1) === 1;       // darker ground storey + string course
+    r.side = h & 8 ? 1 : -1;                  // the house sits 0.9 m from this side line
+    r.balcony = (h >>> 14) % 10 < 6;
+    r.garage = (h >>> 18) % 10 < 7;           // built-in garage on the side away from the door
+    r.tree = (h >>> 22) % 10 < 5;             // a small tree in the side planting strip
+    r.vending = (h >>> 29) % 6 === 0;         // a vending machine at the front corner
     if ((h >>> 18) % 3 === 0) r.garden.push(GARDEN[(h2 >>> 3) % GARDEN.length]);
   } else if (zone === 1) {
-    r.floors = 2 + (h % 3);
+    // Seoul villa: 4-5 storeys of brick over an open parking storey (pilotis), flat roof
+    r.floors = 4 + (h & 1);
     r.w = 9.4; r.d = 12 + ((h >>> 4) % 7) * 0.5;
-    r.roofType = (h >>> 8) % 20 < 13 ? 0 : 2;     // 65% gables, 35% flat with a parapet
-    const ti = (h >>> 11) % 6;
+    r.roofType = 2;
+    r.mansard = (h >>> 8) % 10 < 3;
+    const mr = (h >>> 20) % 20;
+    r.roofMem = mr < 12 ? 0x4f8a6e : mr < 15 ? 0x5f86a8 : 0x8c8f93;   // Seoul green / blue / grey roofs
+    const ti = (h >>> 11) % 5;
     r.wall = TOWN[ti];
-    r.style = ti < 3 || ti === 4 ? 2 : 0;     // 2 = brick
+    r.style = ti < 2 ? 2 : 0;                 // 2 = brick
     r.tree = ((h >>> 14) % 10) < 3;
   } else if (zone === 2) {
     r.floors = 4 + (h % 9);
@@ -193,7 +203,13 @@ export function recipe(bx, bz, slot, zone, custom) {
     r.floors = Math.max(8, Math.floor(maxF * ((d <= 3 ? 60 : 35) + (h >>> 7) % (d <= 3 ? 41 : 66)) / 100));
     if (roll < 6) r.floors = Math.min(58, Math.floor(maxF * 1.25));   // 58 + a 4-floor crown stays under the packed v limit (63.75 floors)
     r.sig = d <= 1 && roll < 6;                  // the few signature towers (lantern crown + spire)
-    r.w = 7.5 + ((h >>> 3) % 5) * 0.5; r.d = 11 + ((h >>> 5) % 7);
+    // plots pair up: even slots build one wide tower over both plots, odd slots a 2-storey podium
+    r.pod = (slot & 1) === 1;
+    if (r.pod) { r.floors = 2; r.w = 9.6; r.d = 19; r.ox = 0; }
+    else {
+      r.w = 17.5; r.d = 15 + ((h >>> 5) % 5); r.ox = 5;
+      if (!r.sig) r.floors = Math.min(r.floors, Math.floor(9 * r.w / FLOOR_H));   // height/width <= 9: no needles
+    }
     r.roofType = 2; r.mat = 5;
     r.wall = GLASS[(h >>> 9) % GLASS.length];
     r.crown = (h >>> 15) % 5;
@@ -331,9 +347,13 @@ export function buildGround(L) {
 
 // Footprint of a regular home on its plot (matches mesher.home), world metres.
 export function homeRect(f, r) {
-  if (r.zone >= 2) return [f.x - r.w / 2, f.z - r.d / 2, f.x + r.w / 2, f.z + r.d / 2];
-  const front = f.face < 0 ? f.z - f.d / 2 : f.z + f.d / 2, setback = r.zone === 0 ? 3 : 1.5;
+  if (r.zone >= 2) return [f.x + r.ox - r.w / 2, f.z - r.d / 2, f.x + r.ox + r.w / 2, f.z + r.d / 2];
+  const front = f.face < 0 ? f.z - f.d / 2 : f.z + f.d / 2, setback = r.zone === 0 ? 1.2 : 1.5;
   const z0 = f.face < 0 ? front + setback : front - setback - r.d;
+  if (r.zone === 0) {                         // hugs one side line (mirrored in the ground shader)
+    const x0 = r.side > 0 ? f.x + 5 - 0.9 - r.w : f.x - 5 + 0.9;
+    return [x0, z0, x0 + r.w, z0 + r.d];
+  }
   return [f.x - r.w / 2, z0, f.x + r.w / 2, z0 + r.d];
 }
 

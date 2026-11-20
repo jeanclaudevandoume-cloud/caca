@@ -64,7 +64,7 @@ void main() {
   vec3 V = vW - uCam; float dist = length(V); vec3 dir = V / dist;
   float sun = max(dot(n, uSunDir), 0.0);
   float hemi = 0.5 + 0.5 * n.y;
-  vec3 amb = mix(uGndCol, uSkyCol, hemi) * vec3(0.88, 0.93, 1.08);          // shade is cool
+  vec3 amb = mix(uGndCol, uSkyCol, hemi) * vec3(0.84, 0.92, 1.12);          // shade is cool
   float sunset = clamp(1.0 - uSunDir.y * 2.2, 0.0, 1.0) * (1.0 - uNight);
   vec3 key = uSunCol * mix(vec3(1.0), vec3(1.25, 0.95, 0.7), sunset);        // low sun is warm
   // contact + canyon occlusion: walls darken toward the street, tall city walls more so
@@ -85,16 +85,17 @@ void main() {
     vec2 g = vec2(u / sp, v);
     vec2 f = fract(g);
     vec2 w = fwidth(g);
-    float k = clamp(1.4 - max(w.x, w.y) * mix(1.7, 2.8, uLowQ), 0.0, 1.0);   // fade detail at distance: no moire (earlier on low: no MSAA)
+    float k = clamp(mix(1.4, 1.1, uLowQ) - max(w.x, w.y) * mix(1.7, 4.0, uLowQ), 0.0, 1.0);   // fade detail at distance: no moire (earlier on low: no MSAA)
     uint style = glass > 0.5 ? 0u : (seedAll & 3u);
     uint seed = seedAll >> 2;
     float my0Panel = 0.3;
     // tower facade type: 0 ribbon glass, 1 vertical fins, 2 stone grid, 3 warm bronze
     uint facade = glass > 0.5 ? (seed & 3u) : 9u;
-    // wall surface detail (residential): lap siding, brick courses, plinth, floor bands
+    // wall surface detail (residential): siding joints, brick courses, plinth, floor bands
+#ifndef LOWQ
     if (glass < 0.5) {
       float kd = clamp(1.2 - fwidth(vW.y) * 6.0, 0.0, 1.0);
-      if (style == 1u) col *= 1.0 - 0.08 * smoothstep(0.86, 0.96, fract(vW.y / 0.24)) * kd;
+      if (style == 1u) col *= 1.0 - 0.10 * step(fract(u / 0.91), 0.035) * clamp(1.2 - fwidth(u) * 6.0, 0.0, 1.0);   // ceramic siding joints
       if (style == 2u) {
         float row = floor(vW.y / 0.3);
         float mort = max(1.0 - smoothstep(0.0, 0.1, fract(vW.y / 0.3)), 1.0 - smoothstep(0.0, 0.06, fract(u / 0.6 + row * 0.5)));
@@ -105,21 +106,35 @@ void main() {
       col *= mix(0.7, 1.0, smoothstep(0.42, 0.48, vW.y));                // darker plinth
       col *= 1.0 - 0.1 * smoothstep(0.93, 0.99, f.y) * k;                 // floor line / eave shadow
     }
+#else
+    if (glass < 0.5) col *= mix(0.7, 1.0, smoothstep(0.42, 0.48, vW.y));   // low preset: plinth only
+#endif
     // window opening in the cell (cell units): glass rect, frame band, mullions, sill
     vec2 fw = vec2(0.07 / sp, 0.07 / 3.2);
+    uint face = uint(dot(step(0.5, abs(n)), vec3(1.0, 2.0, 3.0)) + 3.0 * step(0.0, n.x + n.z));
+    uint cell = ih(uint(int(floor(g.x)) + 4096) * 7919u + uint(int(floor(g.y)) + 64) * 104729u + seed * 2654435761u + face * 40503u);
     float mx = mix(0.25, 0.06, glass), my0 = mix(0.3, 0.1, glass), my1 = mix(0.8, 0.94, glass);
+    // residential (Tokyo/Seoul): not every cell has a window; three window types per cell
+    float has = 1.0;
+    uint wt = (cell >> 20u) & 3u;
+    if (glass < 0.5 && style != 3u) {
+      has = float(((cell >> 16u) & 7u) < 5u);
+      if (wt <= 1u) { mx = 0.16; my0 = 0.36; my1 = 0.78; }           // horizontal sliding sash
+      else if (wt == 2u) { mx = 0.36; my0 = 0.56; my1 = 0.82; }      // small frosted window
+      else { mx = 0.14; my0 = 0.06; my1 = 0.80; }                    // tall window-door
+    }
     if (facade == 1u) { mx = 0.16; my0 = 0.02; my1 = 0.98; }            // fins: tall slots between dark mullions
     if (facade == 2u) { mx = 0.22; my0 = 0.25; my1 = 0.8; }             // stone grid: punched windows
     #define RECT(lo, hi) (smoothstep(lo.x - w.x, lo.x + w.x, f.x) * (1.0 - smoothstep(hi.x - w.x, hi.x + w.x, f.x)) * smoothstep(lo.y - w.y, lo.y + w.y, f.y) * (1.0 - smoothstep(hi.y - w.y, hi.y + w.y, f.y)))
     vec2 glo = vec2(mx, my0), ghi = vec2(1.0 - mx, my1);
-    float frame = RECT((glo - fw), (ghi + fw));
-    float pane = RECT(glo, ghi);
-    float fy = clamp((f.y - my0) / (my1 - my0), 0.0, 1.0);
-    // cross mullion (residential only): 5 cm bars at the centre and at 62% height
-    float mull = glass > 0.5 ? 0.0 : max(1.0 - smoothstep(0.025 / sp, 0.025 / sp + w.x, abs(f.x - 0.5)),
-                                          1.0 - smoothstep(0.025 / 3.2, 0.025 / 3.2 + w.y, abs(f.y - mix(my0, my1, 0.62))));
-    float sill = glass > 0.5 ? 0.0 : RECT(vec2(mx - 0.05 / sp, my0 - 0.08 / 3.2 - fw.y), vec2(1.0 - mx + 0.05 / sp, my0 - fw.y));
-    float avgWin = mix(0.33, 0.75, glass);
+    float frame = RECT((glo - fw), (ghi + fw)) * has;
+    float pane = RECT(glo, ghi) * has;
+    float shutter = glass < 0.5 && style != 3u ? RECT(vec2(mx - fw.x, my1 + fw.y), vec2(1.0 - mx + fw.x, my1 + fw.y + 0.22 / 3.2)) * has * float(wt <= 1u) : 0.0;
+    float fy = mix(0.5, clamp((f.y - my0) / (my1 - my0), 0.0, 1.0), k);   // per-floor gradient fades out with the pattern (no stripes far away)
+    // a single vertical mullion (sliding sash) — no cross bars; sills only on brick
+    float mull = glass > 0.5 || wt == 2u ? 0.0 : 1.0 - smoothstep(0.025 / sp, 0.025 / sp + w.x, abs(f.x - 0.5));
+    float sill = glass > 0.5 || style != 2u ? 0.0 : RECT(vec2(mx - 0.05 / sp, my0 - 0.08 / 3.2 - fw.y), vec2(1.0 - mx + 0.05 / sp, my0 - fw.y)) * has;
+    float avgWin = mix(0.22, 0.75, glass);
     pane = mix(avgWin, pane, k) * step(0.3, v);
     frame = frame * k * step(0.3, v);
     // glass: dark at the bottom, sky at the top, sun glint; some curtains; lintel shadow
@@ -128,12 +143,13 @@ void main() {
     if (facade == 1u) refl *= 0.7;
     refl = mix(refl, uSkyHor * 0.8, glass * 0.3 * (1.0 - abs(dir.y)));
     refl += uSunCol * pow(max(dot(reflect(dir, n), uSunDir), 0.0), 40.0) * mix(0.4, 0.8, glass);
-    uint face = uint(dot(step(0.5, abs(n)), vec3(1.0, 2.0, 3.0)) + 3.0 * step(0.0, n.x + n.z));
-    uint cell = ih(uint(int(floor(g.x)) + 4096) * 7919u + uint(int(floor(g.y)) + 64) * 104729u + seed * 2654435761u + face * 40503u);
+#ifndef LOWQ
+    if (glass < 0.5 && wt == 2u) refl = mix(refl, vec3(0.75, 0.77, 0.78) * (amb + uSunCol * 0.4), 0.8);   // frosted
     // fake reveal: the top and one side of each pane sit in shadow
     refl *= 1.0 - 0.35 * k * max(smoothstep(0.86, 0.92, fy), (1.0 - smoothstep(0.0, 0.12, (f.x - mx) / (1.0 - 2.0 * mx))) * step(0.0, dot(n, uSunDir)));
     if (glass < 0.5 && (cell >> 12u) % 8u == 0u) refl = mix(refl, vec3(0.91, 0.86, 0.78) * 0.8 * (amb + uSunCol * 0.3), step(fy, 0.55) * k);
     refl *= mix(1.0, 0.6, smoothstep(0.86, 0.9, fy) * k);
+#endif
     float share = 18.0 + float(ih(seed * 31u + 7u) % 82u);            // 7%..39% of windows lit
     float towerGlow = glass > 0.5 ? (0.25 + 0.75 * float(ih(seed * 77u + 3u) & 255u) / 255.0) * 0.6 : 1.0;
     // floor bands stay visible further than single windows, so far towers read striped, not flat
@@ -144,11 +160,15 @@ void main() {
     vec3 body = mix(col, col * 0.85 + refl * 0.1, glass) * mix(1.0, 0.45, glass * uNight);   // glass towers are dark at night
     if (facade == 1u) body = mix(body, vec3(0.17, 0.2, 0.25) * (amb + key * 0.4), 0.8);   // dark fins
     if (facade == 2u) body = vec3(0.85, 0.8, 0.7) * (amb * ao + key * max(dot(n, uSunDir), 0.0) * 0.85);   // stone
-    vec3 frameC = mix(vec3(0.95, 0.93, 0.9), vec3(0.75, 0.78, 0.8), glass) * (amb * 0.9 + uSunCol * max(dot(n, uSunDir), 0.0) * 0.8);
+    // aluminium sashes: dark on most houses, light on the rest
+    vec3 sash = glass > 0.5 ? vec3(0.75, 0.78, 0.8) : ((seed & 7u) < 5u ? vec3(0.42, 0.43, 0.44) : vec3(0.86, 0.85, 0.82));
+    vec3 frameC = sash * (amb * 0.9 + uSunCol * max(dot(n, uSunDir), 0.0) * 0.8);
     col = mix(body, frameC, max(frame - pane, sill * k));
+    col = mix(col, frameC * 0.8, shutter * k);
     vec3 paneC = mix(refl * (0.55 + 0.45 * (1.0 - uNight)), frameC, mull * k);
     col = mix(col, paneC, pane * (0.9 + 0.1 * glass));
     if (glass > 0.5) col = mix(col, col * 0.75 + refl * 0.25, 1.0 - pane);
+    if (glass > 0.5) col *= 1.0 - 0.35 * step(fract((v + float((seed >> 3) % 8u) + 3.0) / 8.0), 0.125) * clamp(1.4 - fwidth(v) * 0.6, 0.0, 1.0);   // mechanical floor every 8 storeys, offset per tower (no city-wide line)
     // far away the windows merge, so the glow stays a little brighter and whiter to stay readable
     emis = mix(vec3(1.0, 0.78, 0.45), warm, k) * lit * pane * (1.0 - mull * k) * smoothstep(0.05, 0.6, uNight) * mix(0.7 * towerGlow, 1.05, k) * mix(1.0, 1.25 - 0.45 * fy, k);
   } else if (vMat == 7) {
@@ -175,7 +195,11 @@ void main() {
     col = mix(base, uSkyHor, 0.35) + uSunCol * pow(max(dot(reflect(dir, n), uSunDir), 0.0), 60.0);
   }
   // warm rim on edges turned toward a low sun keeps shapes readable at sunset
+#ifdef LOWQ
+  float rim = 0.0;
+#else
   float rim = pow(1.0 - abs(dot(n, dir)), 3.0) * max(dot(n, uSunDir) + 0.2, 0.0) * (1.0 - uSunDir.y) * (1.0 - uNight) * float(vMat != 5);
+#endif
   col += uSunCol * rim * 0.22;
   col = col * (1.0 - 0.5 * uNight) + emis;
   o = vec4(tone(fogMix(col, dir, dist)), 1.0);
@@ -325,67 +349,79 @@ vec3 blockCol(uvec4 c, int bx, int bz, vec2 l, vec2 p, float t, float w, vec3 gr
   bool edge = al.x > 18.0 || al.y > 18.0;   // sidewalk ring
   if (k == 0u) {
     int zone = int(c.g & 3u);
-    vec3 lot = zone == 0 ? grass : (zone == 1 ? mix(grass, vec3(0.75, 0.72, 0.66), 0.55) : vec3(0.72, 0.71, 0.69));
+    // Tokyo/Seoul lots are paved: concrete + gravel, green only in planting strips
+    vec3 lot = zone == 0 ? vec3(0.50, 0.48, 0.44) : (zone == 1 ? vec3(0.56, 0.54, 0.51) : vec3(0.72, 0.71, 0.69));
     lot *= mix(vec3(1.0), vec3(float((c.b * 37u) & 15u) / 15.0 * 0.1 + 0.95), float(zone >= 2));
+    if (zone <= 1) edge = al.x > 19.4 || al.y > 19.4;                         // narrow kerb, no wide sidewalk
     if ((c.g & 4u) != 0u && t > uFar.x * 0.95) {
       // painted roofs far away (the meshes have sunk into the ground by now)
       int col = int(clamp(floor((l.x + 20.0) / 10.0), 0.0, 3.0));
       int row = zone == 2 ? int(clamp(floor((l.y + 20.0) / 10.0), 0.0, 3.0)) : (l.y < 0.0 ? 0 : 1);
       int slot = row * 4 + col;
       vec2 c0 = vec2(-15.0 + float(col) * 10.0, zone == 2 ? -15.0 + float(row) * 10.0 : -10.0 + float(row) * 20.0);
-      vec2 hs = zone == 0 ? vec2(3.7, 4.7) : (zone == 1 ? vec2(4.7, 6.7) : (zone == 2 ? vec2(4.3) : vec2(4.3, 7.0)));
+      vec2 hs = zone == 0 ? vec2(3.4, 4.4) : (zone == 1 ? vec2(4.7, 6.7) : (zone == 2 ? vec2(4.3) : vec2(4.3, 7.0)));
       float face = (zone == 2 ? (row < 2 ? -1.0 : 1.0) : (row == 0 ? -1.0 : 1.0));
-      if (zone == 0) c0.y -= face * (10.0 - 3.0 - hs.y);
+      if (zone == 0) c0.y -= face * (10.0 - 1.2 - hs.y);
       if (zone == 1) c0.y -= face * (10.0 - 1.5 - hs.y);
       vec2 cv = cover(l - c0, hs, max(w, 0.8));
       float inside = cv.x * cv.y;
       uint rh = hash3(bx, bz, slot * 7 + 100), rv = rh % 100u;
       uint ri = rv < 45u ? (c.b & 7u) : rv < 80u ? ((c.b >> 3u) & 7u) : ((rh >> 8u) % 8u);
-      vec3 roof = zone <= 1 ? uRoof[ri] : vec3(0.6, 0.62, 0.65) * (0.92 + 0.03 * float(ri));
+      vec3 roof = zone == 0 ? uRoof[ri] : zone == 1 ? (rv < 60u ? vec3(0.31, 0.54, 0.43) : rv < 75u ? vec3(0.37, 0.53, 0.66) : vec3(0.55, 0.56, 0.58))
+                : vec3(0.6, 0.62, 0.65) * (0.92 + 0.03 * float(ri));
       float fadeIn = smoothstep(uFar.x, uFar.y, t);
-      // soft shadow beside each home sells the height from above
       vec2 sv = cover(l - c0 + uFar.w * vec2(0.6, 0.4), hs + 0.8, max(w, 0.8));
       lot = mix(lot, lot * 0.68, max(sv.x * sv.y - inside, 0.0) * fadeIn);
       lot = mix(lot, roof, inside * fadeIn);
       if (uNight > 0.3) {
-        // lit windows seen from far above: a warm speck on some homes
         float on = float(rv < 40u);
         vec2 wc = cover(l - c0, vec2(1.6), max(w, 0.8));
         lot += vec3(1.0, 0.7, 0.38) * 3.0 * on * uNight * wc.x * wc.y * fadeIn;
       }
     } else if (zone <= 1 && w < 1.5 && (c.g & 4u) != 0u) {
-      // near the camera: a garden path to each front door and contact shadow around each home
+      // near the camera: the lot plan of each home (mirrors town.js homeRect / recipe)
       int col = int(clamp(floor((l.x + 20.0) / 10.0), 0.0, 3.0)), row = l.y < 0.0 ? 0 : 1;
       int slot = row * 4 + col;
       uint h = hash3(bx * 16 + slot, bz, 21);
       float fx = -15.0 + float(col) * 10.0, face = row == 0 ? -1.0 : 1.0;
-      float front = face * 20.0, set = zone == 0 ? 3.0 : 1.5;
-      float hw = zone == 0 ? (6.5 + float((h >> 1u) % 5u) * 0.5) * 0.5 : 4.7;
-      float hd = zone == 0 ? 8.0 + float((h >> 4u) % 7u) * 0.5 : 12.0 + float((h >> 4u) % 7u) * 0.5;
+      float front = face * 20.0, set = zone == 0 ? 1.2 : 1.5;
+      float hw = zone == 0 ? (6.0 + float((h >> 1u) % 5u) * 0.4) * 0.5 : 4.7;
+      float hd = zone == 0 ? 8.0 + float((h >> 4u) % 4u) * 0.5 : 12.0 + float((h >> 4u) % 7u) * 0.5;
+      float side = (h & 8u) != 0u ? 1.0 : -1.0;
+      float cx = zone == 0 ? fx + side * (5.0 - 0.9 - hw) : fx;
       float zf = front - face * set, zb = zf - face * hd;            // house front and back wall z
-      vec2 c0 = vec2(fx, (zf + zb) * 0.5);
+      vec2 c0 = vec2(cx, (zf + zb) * 0.5);
       vec2 q = abs(l - c0) - vec2(hw, hd * 0.5);
-      float dd = length(max(q, 0.0));
-      lot *= 1.0 - 0.32 * exp(-dd * 1.2) * step(0.0, max(q.x, q.y));
-      if (zone == 0) lot *= 0.97 + 0.04 * step(0.5, fract(l.x / 1.2)) * (1.0 - smoothstep(0.3, 1.0, w));   // mowing stripes
-      if (uFar.z < 0.5) {                                          // low quality has no shadow pass: paint one
-        vec2 qs = abs(l - c0 + uFar.w * vec2(0.6, 0.4)) - vec2(hw, hd * 0.5);
-        lot *= 1.0 - 0.3 * (1.0 - smoothstep(-0.3, 0.6, max(qs.x, qs.y))) * step(0.0, max(q.x, q.y));
-      }
+      float outside = step(0.0, max(q.x, q.y));
       if (zone == 0) {
-        float dx = fx + ((h & 8u) != 0u ? 1.5 : -1.5);
-        float along = (l.y - zf) * face;                             // 0 at the wall, 3 at the sidewalk
-        float path = step(abs(l.x - dx), 0.55) * step(0.0, along) * step(along, set);
-        lot = mix(lot, vec3(0.79, 0.76, 0.71), path * (1.0 - smoothstep(0.6, 1.5, w)));
+        float along = (l.y - zf) * face;                                  // > 0 between the house and the street
+        lot = along > 0.0 ? vec3(0.55, 0.53, 0.49) : vec3(0.47, 0.45, 0.41) * (0.96 + 0.08 * vnoise(p * 3.0));
+        // planting strip along the open side line, and joints in the concrete forecourt
+        float gx = abs(l.x - (fx - side * 5.0));
+        lot = mix(lot, vec3(0.20, 0.36, 0.17) * (0.9 + 0.2 * vnoise(p * 1.7)), step(gx, 0.8) * step(along, 0.0) * (1.0 - smoothstep(0.6, 1.5, w)));
+        if (along > 0.0) lot *= 1.0 - 0.06 * step(0.95, fract(l.x / 0.6)) * (1.0 - smoothstep(0.3, 0.9, w));
+      }
+      float dd = length(max(q, 0.0));
+      lot *= 1.0 - 0.35 * exp(-dd * 1.4) * outside;                         // contact shade around the walls
+      if (uFar.z < 0.5) {
+        // low preset (no shadow pass): the house shadow projected along the sun, scaled by its height
+        float fl = zone == 0 ? 2.0 + float((h & 1u) != 0u && (h >> 2u) % 3u == 0u) : 4.5;
+        vec2 off = -uSunDir.xz / max(uSunDir.y, 0.3) * (fl * 3.2 + 1.2);
+        float sh = 0.0;
+        for (int i = 1; i <= 4; i++) {
+          vec2 qs = abs(l - c0 - off * (float(i) * 0.25)) - vec2(hw, hd * 0.5);
+          sh = max(sh, 1.0 - smoothstep(-0.2, 0.4, max(qs.x, qs.y)));
+        }
+        lot *= 1.0 - 0.42 * sh * outside * (1.0 - uNight);
       }
     }
-    return edge ? mix(WALK, lot, smoothstep(0.5, 3.0, w)) : lot;
+    return edge ? mix(int(c.g & 3u) <= 1 ? vec3(0.56, 0.54, 0.51) : WALK, lot, smoothstep(0.5, 3.0, w)) : lot;
   }
   if (k == 2u) {
     float path = 1.0 - step(1.6, min(al.x, al.y));
     float ring = step(abs(length(l) - 11.0), 1.2);
     // canopy texture so parks read from far away too
-    vec3 g = grass * (1.05 - 0.25 * smoothstep(0.45, 0.75, vnoise(p * 0.12)));
+    vec3 g = vec3(0.28, 0.47, 0.20) * (1.05 - 0.25 * smoothstep(0.45, 0.75, vnoise(p * 0.12)));
     vec3 c = mix(g, vec3(0.86, 0.79, 0.62), max(path, ring) * (1.0 - smoothstep(1.0, 4.0, w)));
     return edge ? WALK : c;
   }
@@ -489,10 +525,19 @@ vec4 groundBase(vec2 p, vec3 dir, float t, float w) {
     float across = sx != 0 ? l.x - 24.0 * float(sx) : l.y - 24.0 * float(sz);
     float along = sx != 0 ? l.y : l.x;
     float fade = 1.0 - smoothstep(0.4, 1.2, w);
-    float dash = step(abs(across), 0.12) * step(0.5, fract(along / 6.0)) * step(abs(along), 14.0);
-    float zebra = step(14.5, abs(along)) * step(abs(along), 19.5) * step(0.5, fract(across / 1.2));
-    cc = mix(cc, vec3(0.95, 0.88, 0.55), dash * fade);
-    cc = mix(cc, vec3(0.92), zebra * fade);
+    uvec4 cn = cellAt(bx + sx, bz + sz);
+    bool resid = k == 0u && k2 == 0u && (c.g & 3u) <= 1u && (cn.g & 3u) <= 1u;
+    if (resid) {
+      // Tokyo residential lane: white edge lines 0.5 m from the kerb, a stop bar before the junction, no centre line
+      float edgeL = step(abs(abs(across) - 3.45), 0.075);
+      float stopBar = step(abs(abs(along) - 15.2), 0.22) * step(abs(across), 3.5);
+      cc = mix(cc * 0.92, vec3(0.9), max(edgeL, stopBar) * fade);
+    } else {
+      float dash = step(abs(across), 0.12) * step(0.5, fract(along / 6.0)) * step(abs(along), 14.0);
+      float zebra = step(14.5, abs(along)) * step(abs(along), 19.5) * step(0.5, fract(across / 1.2));
+      cc = mix(cc, vec3(0.95, 0.88, 0.55), dash * fade);
+      cc = mix(cc, vec3(0.92), zebra * fade);
+    }
   }
   return vec4(cc, 0.0);
 }

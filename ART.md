@@ -1,5 +1,17 @@
 # Follower Town — art direction and review rubric
 
+## LOCKED DECISION (four-reviewer round A)
+Follower Town is **a Tokyo/Seoul city rendered as a sunlit miniature**. Homes use Japanese and Korean residential
+types only: narrow 2–3 storey *jūtaku* (built-in garage, balcony, mono-pitch or low gable roof with thin eaves, or a
+flat roof with a parapet) close to the street on paved lots with planting strips; Seoul brick villas over an open
+parking storey with green/blue rooftops and water tanks; utility poles with sagging wires; vending machines.
+Colour comes from sky, greenery, doors, signs, vending machines and rooftops — not from pastel walls.
+American-suburb vocabulary is banned on every preset: lawns, deep-eave hip roofs, white cross-mullion windows on
+every cell, porches, garden walls, yellow centre lines on residential lanes. Towers pair up on two plots (no needles)
+with mechanical bands every 8 floors. This replaces the earlier WALL/ROOF/TOWN palettes and the "Setagaya lawn" look
+(OVERRIDE recorded here; suburb saturation target lowered to ≥ 0.22).
+
+
 This file holds decisions that stay fixed between review rounds. A reviewer may change one only
 under an explicit **OVERRIDE** heading with a reason and before/after evidence. The developer
 keeps the code in line with it. (Written after a meta-review found that each fresh reviewer had

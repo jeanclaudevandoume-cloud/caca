@@ -8,7 +8,7 @@
 // Index buffer: caster triangles first (count `ns`), then non-casters.
 import {
   PITCH, FLOOR_H, K, hash3, mod, fdiv, kindAt, cellKind, zoneLevel, plotsIn, plotFrame, recipe, occupied,
-  ROOF, CITY, avenueX, avenueZ, isRiver, portLane, bayHalf, regionOf, regionKey, lineIndex, CHUNK, REGION,
+  ROOF, CITY, avenueX, avenueZ, isRiver, portLane, bayHalf, homeRect, regionOf, regionKey, lineIndex, CHUNK, REGION,
 } from './town.js';
 
 // Trig rounded to 1e-7 so every JS engine builds byte-identical geometry (positions are then
@@ -91,10 +91,10 @@ export class MB {
   // Axis-aligned box without a bottom. Walls get window uv (u metres, v floors from vb).
   // Residential walls with baked shade: the 0.7 m under the eaves darkens to 60% (vertex colours),
   // so the shade under the roof works on every preset with zero shader cost.
-  boxEave(x0, y0, z0, x1, y1, z1, c, top, m, a) {
-    const ys = y1 - 0.7, cd = shade(c, 0.6);
-    this.box(x0, y0, z0, x1, ys, z1, c, -1, m, a);
-    const v0 = (ys - y0) / FLOOR_H, v1 = (y1 - y0) / FLOOR_H, sp = 2.6;
+  boxEave(x0, y0, z0, x1, y1, z1, c, top, m, a, band = 0.7) {
+    const ys = y1 - band, cd = shade(c, 0.6);
+    this.box(x0, y0, z0, x1, ys, z1, c, -1, m, a, y0 / FLOOR_H);   // window rows count from the ground
+    const v0 = ys / FLOOR_H, v1 = y1 / FLOOR_H, sp = 2.6;
     const uw = Math.max(1, Math.round((x1 - x0) / sp)) * sp, ud = Math.max(1, Math.round((z1 - z0) / sp)) * sp;
     const g = (px0, pz0, px1, pz1, nx, nz, u1) => {
       const i = this.v(px0, ys, pz0, 0, v0, nx, 0, nz, m, c, a);
@@ -105,6 +105,49 @@ export class MB {
     };
     g(x0, z1, x1, z1, 0, 1, uw); g(x1, z0, x0, z0, 0, -1, uw); g(x1, z1, x1, z0, 1, 0, ud); g(x0, z0, x0, z1, -1, 0, ud);
     if (top >= 0) this.q(x0, y1, z1, x1, y1, z1, x1, y1, z0, x0, y1, z0, 0, 1, 0, 0, 0, 0, 0, M.PLAIN, top, a);
+  }
+  // Flat-shaded quad whose winding is fixed so it faces up (normal y > 0) or down (dir < 0).
+  fqY(x0, y0, z0, x1, y1, z1, x2, y2, z2, x3, y3, z3, m, c, a, dir = 1) {
+    const ax = x1 - x0, ay = y1 - y0, az = z1 - z0, bx = x3 - x0, by = y3 - y0, bz = z3 - z0;
+    if ((az * bx - ax * bz) * dir >= 0) this.fq(x0, y0, z0, x1, y1, z1, x2, y2, z2, x3, y3, z3, m, c, a);
+    else this.fq(x0, y0, z0, x3, y3, z3, x2, y2, z2, x1, y1, z1, m, c, a);
+  }
+  // Mono-pitch roof over the house rect: high edge at the street (fs), sloping to the back; o = overhang.
+  mono(x0, z0, x1, z1, o, y, rise, fs, c, wallC, a, fc, trim) {
+    const zf = fs < 0 ? z0 : z1, zb = fs < 0 ? z1 : z0, s = fs < 0 ? -1 : 1;
+    const zfo = zf + s * o, zbo = zb - s * o, yt = y + rise, slope = rise / Math.abs(zf - zb);
+    const yfo = yt + o * slope, ybo = y - o * slope;
+    this.fqY(x0 - o, yfo, zfo, x1 + o, yfo, zfo, x1 + o, ybo, zbo, x0 - o, ybo, zbo, M.ROOF, c, a, 1);
+    this.wq(x0, x1, y, yt, zf, s, wallC, M.PLAIN, a);                                  // front fill wall
+    this.ft(x0, y, zb, x0, y, zf, x0, yt, zf, M.PLAIN, wallC, a);                       // side triangles
+    this.ft(x1, y, zf, x1, y, zb, x1, yt, zf, M.PLAIN, wallC, a);
+    if (trim) {
+      this.wq(x0 - o, x1 + o, yfo - 0.15, yfo, zfo, s, fc, M.PLAIN, a);                 // thin dark fascia
+      this.fqY(x0 - o, yfo - 0.01, zfo, x1 + o, yfo - 0.01, zfo, x1 + o, yt - 0.01, zf, x0 - o, yt - 0.01, zf, M.PLAIN, shade(wallC, 0.7), a, -1);   // underside
+    }
+  }
+  // Flat-roof parapet ring: outer faces, coping on top, inner faces (not on lite); optional roof membrane.
+  parapet(x0, z0, x1, z1, y, h, sideC, capC, a, membrane = -1) {
+    const t = 0.22, yt = y + h;
+    if (membrane !== -1 && membrane !== false && membrane !== true) this.q(x0, y + 0.02, z1, x1, y + 0.02, z1, x1, y + 0.02, z0, x0, y + 0.02, z0, 0, 1, 0, 0, 0, 0, 0, M.PLAIN, membrane, a);
+    this.wq(x0, x1, y, yt, z1, 1, sideC, M.PLAIN, a); this.wq(x0, x1, y, yt, z0, -1, sideC, M.PLAIN, a);
+    this.xq(x1, z0, z1, y, yt, 1, sideC, M.PLAIN, a); this.xq(x0, z0, z1, y, yt, -1, sideC, M.PLAIN, a);
+    const top = (ax0, az0, ax1, az1) => this.q(ax0, yt, az1, ax1, yt, az1, ax1, yt, az0, ax0, yt, az0, 0, 1, 0, 0, 0, 0, 0, M.PLAIN, capC, a);
+    top(x0, z0, x1, z0 + t); top(x0, z1 - t, x1, z1); top(x0, z0 + t, x0 + t, z1 - t); top(x1 - t, z0 + t, x1, z1 - t);
+    if (!LITE) {
+      const ic = shade(sideC, 0.8);
+      this.wq(x0 + t, x1 - t, y, yt, z1 - t, -1, ic, M.PLAIN, a); this.wq(x0 + t, x1 - t, y, yt, z0 + t, 1, ic, M.PLAIN, a);
+      this.xq(x1 - t, z0 + t, z1 - t, y, yt, -1, ic, M.PLAIN, a); this.xq(x0 + t, z0 + t, z1 - t, y, yt, 1, ic, M.PLAIN, a);
+    }
+  }
+  // Faux mansard: four sloped faces rising h with a 0.8 m inset, flat membrane on top.
+  mansard(x0, z0, x1, z1, y, h, c, memC, a) {
+    const i = 0.8, yt = y + h;
+    this.fq(x0, y, z1, x1, y, z1, x1 - i, yt, z1 - i, x0 + i, yt, z1 - i, M.ROOF, c, a);
+    this.fq(x1, y, z0, x0, y, z0, x0 + i, yt, z0 + i, x1 - i, yt, z0 + i, M.ROOF, c, a);
+    this.fq(x1, y, z1, x1, y, z0, x1 - i, yt, z0 + i, x1 - i, yt, z1 - i, M.ROOF, c, a);
+    this.fq(x0, y, z0, x0, y, z1, x0 + i, yt, z1 - i, x0 + i, yt, z0 + i, M.ROOF, c, a);
+    this.q(x0 + i, yt, z1 - i, x1 - i, yt, z1 - i, x1 - i, yt, z0 + i, x0 + i, yt, z0 + i, 0, 1, 0, 0, 0, 0, 0, M.PLAIN, memC, a);
   }
   box(x0, y0, z0, x1, y1, z1, c, top, m, a, vb = 0) {
     const v0 = vb, v1 = vb + (y1 - y0) / FLOOR_H, w = x1 - x0, d = z1 - z0;
@@ -285,6 +328,27 @@ function treeBody(mb, x, z, s, h, lod) {
   }
 }
 
+// Overhead wires between two poles at x0 -> x1 (z fixed): thin dark ribbons that sag 0.4 m mid-span,
+// seen from both sides (two faces), the cheapest strong Tokyo street signal.
+function wires(mb, x0, x1, z, n, alongZ = false) {
+  const cast = mb.cast; mb.cast = false;
+  const c = 0x222428, xm = (x0 + x1) / 2;
+  // P(a, y, off): a = position along the wire, off = sideways offset (axis swapped when alongZ)
+  const P = (a, off) => (alongZ ? [z + off, a] : [a, z + off]);
+  for (let i = 0; i < n; i++) {
+    const y = 8.15 - i * 0.12, dz = (i - 1) * 0.5;
+    for (const [ax, bx, ay, by] of [[x0, xm, y, y - 0.4], [xm, x1, y - 0.4, y]]) {
+      for (const fs of [1, -1]) {
+        const [p0x, p0z] = P(ax, dz + fs * 0.005), [p1x, p1z] = P(bx, dz + fs * 0.005);
+        // flat-shaded ribbon; fq computes the normal, the two windings make it visible from both sides
+        if (fs > 0) mb.fq(p0x, ay - 0.04, p0z, p1x, by - 0.04, p1z, p1x, by, p1z, p0x, ay, p0z, M.PLAIN, c, 0);
+        else mb.fq(p1x, by - 0.04, p1z, p0x, ay - 0.04, p0z, p0x, ay, p0z, p1x, by, p1z, M.PLAIN, c, 0);
+      }
+    }
+  }
+  mb.cast = cast;
+}
+
 function lamp(mb, x, z, a) {
   const cast = mb.cast; mb.cast = false;
   mb.cbox(x, 0, z, 0.25, 5.2, 0.25, 0x3a3f4a, M.METAL, a);
@@ -314,7 +378,7 @@ export function shape(mb, name, x, y, z, s, c, a, lod) {
       for (let i = 0; i < 4; i++) {
         const tx = x + (i & 1 ? 3.5 : -3.5) * s, tz = z + (i & 2 ? 3.5 : -3.5) * s;
         mb.cyl(tx, y, tz, 1.4 * s, y + 7.5 * s, 1.4 * s, lod ? 5 : 8, shade(c, 0.9), M.WIN, a);
-        mb.cyl(tx, y + 7.5 * s, tz, 1.8 * s, y + 10 * s, 0, lod ? 5 : 8, 0xc2304f, M.PLAIN, a);
+        mb.cyl(tx, y + 7.5 * s, tz, 1.8 * s, y + 10 * s, 0, lod ? 5 : 8, 0x7a3a32, M.PLAIN, a);   // muted cones (ART: no candy)
       }
       if (!lod) mb.cbox(x, y + 5 * s, z, 2 * s, 3 * s, 2 * s, shade(c, 1.1), M.WIN, a);
       break;
@@ -391,6 +455,7 @@ function gardenItem(mb, item, x, z, h) {
 }
 
 // ---------- homes ----------
+const VEND = [0xe8433a, 0x2a6fb5, 0xf2f2ee, 0x2a9d6f];
 const DOORS = [0x2f4d7a, 0x7e2d2d, 0x2e5a45, 0x2b2b2b, 0xd9a441];
 // Front door: frame, inset door, step, optional canopy and a porch light.
 function door(mb, x, zw, fs, r, rc, a) {
@@ -417,123 +482,108 @@ export function home(mb, bx, bz, f, r, lod) {
   if (lod && r.zone <= 1) mb.cast = false;         // far low homes don't cast: the ground shader's contact AO grounds them
   const wa = (a & 0xfc) | r.style;                  // wall alpha: seed in the high bits, wall style in the low 2
   if (r.zone === 0) {
-    const setback = 3, fs = f.face < 0 ? -1 : 1;
-    const z0 = f.face < 0 ? front + setback : front - setback - r.d, z1 = z0 + r.d;
-    const doorX = f.x + (r.hash & 8 ? 1.5 : -1.5), wallZ = f.face < 0 ? z0 : z1;
-    // massing: ~55% of homes get a one-storey side wing (garage) opposite the door
-    const hw = hash3(r.hash, 5, 9);
-    const wing = !r.shape && r.roofType !== 2 && hw % 20 < 11;
-    const ww = 3.5 + ((hw >>> 5) % 3) * 0.5, side = r.hash & 8 ? -1 : 1;     // wing on the side away from the door
-    const mainW = wing ? Math.max(5.5, Math.min(r.w, 9.4 - ww)) : r.w;
-    const x0 = wing ? (side < 0 ? f.x - 4.7 + ww : f.x + 4.7 - ww - mainW) : f.x - r.w / 2;
-    const x1 = x0 + mainW;
-    const backZ = f.face < 0 ? f.z + f.d / 2 - 3 : f.z - f.d / 2 + 3;
+    // ---- Tokyo jutaku (LOD0 <= ~150 tris, LITE <= ~55, LOD1 ~16) ----
+    const fs = f.face < 0 ? -1 : 1;
+    const [x0, z0, x1, z1] = homeRect(f, r);
+    const wallZ = f.face < 0 ? z0 : z1;
+    const doorX = r.side > 0 ? x0 + 1.3 : x1 - 1.3;              // door on the open side, garage on the side line
+    const top = r.floors * FLOOR_H, rc = ROOF[r.roof];
     if (r.shape) {
-      shape(mb, r.shape, f.x, 0, (z0 + z1) / 2, 0.95, r.color, a & 0xfc, lod);
+      shape(mb, r.shape, (x0 + x1) / 2, 0, (z0 + z1) / 2, 0.95, r.color, a & 0xfc, lod);
+    } else if (lod) {
+      mb.box(x0, 0, z0, x1, top, z1, r.wall, r.roofType === 2 ? 0x8c8f93 : -1, M.WIN, wa);
+      if (r.roofType === 3) mb.mono(x0, z0, x1, z1, 0.2, top, 2.2, fs, rc, r.wall, a, 0, false);
+      else if (r.roofType === 0) mb.gable(x0 - 0.3, z0 - 0.3, x1 + 0.3, z1 + 0.3, top, 1.6, rc, r.wall, a, true, false);
     } else {
-      const top = r.floors * FLOOR_H;
-      const rc = ROOF[r.roof];
-      if (lod) mb.box(x0, 0, z0, x1, top, z1, r.wall, r.roofType === 2 ? 0x8c8f93 : -1, M.WIN, wa);
-      else {
-        mb.boxEave(x0, 0, z0, x1, top, z1, r.wall, r.roofType === 2 ? 0x8c8f93 : -1, M.WIN, wa);
-        mb.cast = false;                            // light corner boards
-        const cb = 0xeeeae2;
-        // corner boards: only the two outward faces of each corner (4 tris per corner); not on lite (phone budget)
-        if (!LITE) for (const [cx, cz, sx, sz] of [[x0, z0, -1, -1], [x1, z0, 1, -1], [x0, z1, -1, 1], [x1, z1, 1, 1]]) {
-          mb.wq(Math.min(cx, cx - sx * 0.22), Math.max(cx, cx - sx * 0.22), 0.45, top, cz + sz * 0.03, sz, cb, M.PLAIN, a);
-          mb.xq(cx + sx * 0.03, Math.min(cz, cz - sz * 0.22), Math.max(cz, cz - sz * 0.22), 0.45, top, sx, cb, M.PLAIN, a);
-        }
-        mb.cast = true;
+      // ground storey (two-tone on half the houses: darker, with a string course), upper storeys with baked eave shade
+      const g = r.twoTone ? shade(r.wall, 0.62) : r.wall;
+      mb.box(x0, 0, z0, x1, FLOOR_H, z1, g, -1, M.WIN, wa);
+      mb.boxEave(x0, FLOOR_H, z0, x1, top, z1, r.wall, r.roofType === 2 ? 0x8c8f93 : -1, M.WIN, wa, 0.4);
+      if (r.twoTone && !LITE) { mb.cast = false; mb.box(x0 - 0.03, FLOOR_H - 0.05, z0 - 0.03, x1 + 0.03, FLOOR_H + 0.02, z1 + 0.03, 0x3a3836, -1, M.PLAIN, a); mb.cast = true; }
+      // roof: mono-pitch / low gable with thin eaves and a dark fascia / flat with a parapet ring
+      const o = 0.45;
+      if (r.roofType === 3) mb.mono(x0, z0, x1, z1, o, top, 2.2, fs, rc, r.wall, a, shade(rc, 0.55), !LITE);
+      else if (r.roofType === 0) mb.gable(x0 - o, z0 - o, x1 + o, z1 + o, top, 1.6, rc, r.wall, a, true, !LITE, shade(rc, 0.55));
+      else mb.parapet(x0, z0, x1, z1, top, 0.6, shade(r.wall, 0.82), 0xd9d3c7, a, 0x8c8f93);
+      mb.cast = false;
+      // built-in garage: dark opening with a light lintel
+      if (r.garage) {
+        const gx0 = r.side > 0 ? x1 - 3.2 : x0 + 0.4, gx1 = gx0 + 2.8;
+        mb.wq(gx0, gx1, 0, 2.5, wallZ + fs * 0.03, fs, 0x2a2c30, M.PLAIN, a);
+        if (!LITE) mb.wq(gx0 - 0.15, gx1 + 0.15, 2.5, 2.7, wallZ + fs * 0.04, fs, 0xd9d3c7, M.PLAIN, a);
       }
-      if (!lod && !LITE) {                          // plinth: a darker base 8 cm proud of the wall (lite: the shader's plinth band)
-        const pc = shade(r.wall, 0.7);
-        mb.box(x0 - 0.08, 0, z0 - 0.08, x1 + 0.08, 0.5, z1 + 0.08, pc, -1, M.PLAIN, a);
-      }
-      const o = lod ? 0.4 : 0.9;
-      if (r.roofType <= 1 && !lod && !LITE) {       // dark soffit under the deep eaves: a shadow line under the roof
-        mb.cast = false;
-        mb.q(x0 - o, top - 0.01, z0 - o, x1 + o, top - 0.01, z0 - o, x1 + o, top - 0.01, z1 + o, x0 - o, top - 0.01, z1 + o, 0, -1, 0, 0, 0, 0, 0, M.PLAIN, shade(r.wall, 0.75), a);
-        mb.cast = true;
-      }
-      if (r.roofType === 0) mb.gable(x0 - o, z0 - o, x1 + o, z1 + o, top, 2.6, rc, r.wall, a, mainW > r.d, !lod, shade(rc, 0.6));
-      else if (r.roofType === 1) mb.hip(x0 - o, z0 - o, x1 + o, z1 + o, top, 2.4, rc, a);
-      else if (!lod) {                               // flat roof: parapet around a grey membrane
-        const pc = shade(r.wall, 0.8), cap = 0xd9d3c7;      // parapet sides darker than the wall, light coping on top
-        mb.box(x0, top, z0, x1, top + 0.4, z0 + 0.25, pc, cap, M.PLAIN, a);
-        mb.box(x0, top, z1 - 0.25, x1, top + 0.4, z1, pc, cap, M.PLAIN, a);
-        mb.box(x0, top, z0 + 0.25, x0 + 0.25, top + 0.4, z1 - 0.25, pc, cap, M.PLAIN, a);
-        mb.box(x1 - 0.25, top, z0 + 0.25, x1, top + 0.4, z1 - 0.25, pc, cap, M.PLAIN, a);
-      }
-      if (wing) {                                    // side wing at every LOD (same massing, no pop)
-        const wx0 = side < 0 ? f.x - 4.7 : x1, wx1 = side < 0 ? x0 : f.x + 4.7;
-        const wz0 = f.face < 0 ? z0 + 1 : z1 - 6, wz1 = wz0 + 5, wf = f.face < 0 ? wz0 : wz1;
-        if (lod) mb.box(wx0, 0, wz0, wx1, 3.0, wz1, r.wall, shade(rc, 0.9), M.PLAIN, wa);
-        else {
-          mb.box(wx0, 0, wz0, wx1, 3.0, wz1, r.wall, -1, M.PLAIN, wa);
-          mb.gable(wx0 - 0.3, wz0 - 0.4, wx1 + 0.3, wz1 + 0.4, 3.0, 1.4, shade(rc, 0.9), r.wall, a, false, false);
-          mb.wq(wx0 + 0.5, wx1 - 0.5, 0, 2.3, wf + fs * 0.02, fs, 0xd8d4cc, M.PLAIN, a);   // garage door
+      // floor-2 balcony: slab + solid parapet across 60% of the front
+      if (r.balcony) {
+        const bw = (x1 - x0) * 0.6, bx0 = r.side > 0 ? x0 + 0.3 : x1 - 0.3 - bw, bx1 = bx0 + bw;
+        const zf = wallZ + fs * 0.9;
+        const pc = (r.hash >>> 23) & 1 ? 0xeeebe4 : shade(r.wall, 0.85);
+        mb.wq(bx0, bx1, FLOOR_H, FLOOR_H + 1.1, zf, fs, pc, M.PLAIN, a);                       // parapet front
+        mb.q(bx0, FLOOR_H + 1.1, Math.min(wallZ, zf), bx1, FLOOR_H + 1.1, Math.min(wallZ, zf), bx1, FLOOR_H + 1.1, Math.max(wallZ, zf), bx0, FLOOR_H + 1.1, Math.max(wallZ, zf), 0, 1, 0, 0, 0, 0, 0, M.PLAIN, shade(pc, 1.05), a); // parapet top (as a slab)
+        if (!LITE) {
+          mb.xq(bx0, Math.min(wallZ, zf), Math.max(wallZ, zf), FLOOR_H, FLOOR_H + 1.1, -1, shade(pc, 0.9), M.PLAIN, a);
+          mb.xq(bx1, Math.min(wallZ, zf), Math.max(wallZ, zf), FLOOR_H, FLOOR_H + 1.1, 1, shade(pc, 0.9), M.PLAIN, a);
         }
       }
-      if (!lod) {
-        door(mb, doorX, wallZ, fs, r, rc, a);
-        if (r.roofType === 0 && (r.hash & 64)) mb.cbox(x0 + 1.2, top + 0.5, (z0 + z1) / 2 + 1, 0.8, 2.6, 0.8, 0x8e5a48, M.PLAIN, a);
-      }
+      mb.cast = true;
+      door(mb, doorX, wallZ, fs, r, rc, a);
     }
     if (!lod) {
-      const sg = r.hash & 1 ? 1 : -1;
-      const spots = r.tree ? [-3 * sg, 0] : [-3 * sg, 0, 3 * sg];
-      if (r.tree && !LITE) tree(mb, f.x + 3 * sg, backZ, 0.8 + ((r.hash >>> 23) % 4) * 0.12, r.hash >>> 9, 0);
-      for (let i = 0; i < r.garden.length && i < spots.length; i++) gardenItem(mb, r.garden[i], f.x + spots[i], backZ, r.hash >>> (i * 3));
-      if (!LITE) {
-        // low block garden wall with gate posts at the path (hedge on some lots)
+      // side planting strip with a small tree; vending machine at the front corner
+      const gapX = r.side > 0 ? x0 - 1.2 : x1 + 1.2;
+      if (r.tree) tree(mb, gapX, (z0 + z1) / 2, 0.55, r.hash >>> 9, LITE ? 1 : 0);
+      if (r.vending) {
         mb.cast = false;
-        const hz0 = front - fs * 0.35 - 0.15, hz1 = hz0 + 0.3, hedge = (r.hash >>> 24) % 3 === 0;
-        const wc = hedge ? 0x3f6a3a : 0xbdb6a8, wt = hedge ? 0x4a7a43 : 0xd2ccc0, wm = hedge ? M.LEAF : M.PLAIN, wh = hedge ? 1.0 : 1.2;
-        mb.box(f.x - 4.7, 0, hz0, doorX - 0.75, wh, hz1, wc, wt, wm, a);
-        mb.box(doorX + 0.75, 0, hz0, f.x + 4.7, wh, hz1, wc, wt, wm, a);
-        if (!hedge) { mb.cbox(doorX - 0.75, 0, (hz0 + hz1) / 2, 0.4, 1.45, 0.4, 0xa79f90, M.PLAIN, a); mb.cbox(doorX + 0.75, 0, (hz0 + hz1) / 2, 0.4, 1.45, 0.4, 0xa79f90, M.PLAIN, a); }
+        const vx = r.side > 0 ? f.x - 4.3 : f.x + 4.3, vz = front - fs * 0.6;
+        mb.cbox(vx, 0, vz, 0.9, 1.8, 0.7, VEND[(r.hash >>> 11) % VEND.length], M.LIGHT, a);
         mb.cast = true;
+      }
+      if (!LITE) {
+        const spots = [r.side > 0 ? -2.5 : 2.5];
+        const backZ = f.face < 0 ? f.z + f.d / 2 - 2 : f.z - f.d / 2 + 2;
+        for (let i = 0; i < r.garden.length && i < spots.length; i++) gardenItem(mb, r.garden[i], f.x + spots[i], backZ, r.hash >>> (i * 3));
       }
     }
   } else if (r.zone === 1) {
-    const setback = 1.5, fs = f.face < 0 ? -1 : 1;
+    // ---- Seoul villa: open parking storey on columns, brick above, flat roof (LOD0 <= ~160, LITE <= ~60) ----
+    const fs = f.face < 0 ? -1 : 1, setback = 1.5;
     const z0 = f.face < 0 ? front + setback : front - setback - r.d, z1 = z0 + r.d;
     const x0 = f.x - r.w / 2, x1 = f.x + r.w / 2, wallZ = f.face < 0 ? z0 : z1;
+    const top = r.floors * FLOOR_H;
     if (r.shape) {
       shape(mb, r.shape, f.x, 0, (z0 + z1) / 2, 0.95, r.color, a & 0xfc, lod);
+    } else if (lod) {
+      mb.box(x0, 0, z0, x1, top, z1, r.wall, r.roofMem, M.WIN, wa);
     } else {
-      const top = r.floors * FLOOR_H;
-      const rc = ROOF[r.roof];
-      if (lod) mb.box(x0, 0, z0, x1, top, z1, r.wall, r.roofType === 2 ? 0x9a9c9e : -1, M.WIN, wa);
-      else mb.boxEave(x0, 0, z0, x1, top, z1, r.wall, r.roofType === 2 ? 0x9a9c9e : -1, M.WIN, wa);
-      if (r.roofType === 0) mb.gable(x0 - 0.2, z0 - 0.4, x1 + 0.2, z1 + 0.4, top, 2.2, rc, r.wall, a, false, !lod);
-      else {
-        // cornice: a light band that overhangs the street wall
-        const cc = r.style === 2 ? 0xe6dccb : shade(r.wall, 0.86);
-        mb.box(x0, top, z0 - (f.face < 0 ? 0.3 : 0), x1, top + 0.4, z1 + (f.face < 0 ? 0 : 0.3), cc, 0x6f6a64, M.PLAIN, a);
-        if (!lod) {
-          mb.box(x0, top + 0.4, z0, x0 + 0.25, top + 0.9, z1, shade(cc, 0.85), 0xd9d3c7, M.PLAIN, a);
-          mb.box(x1 - 0.25, top + 0.4, z0, x1, top + 0.9, z1, shade(cc, 0.85), 0xd9d3c7, M.PLAIN, a);
-          if (!LITE) {
-            const hz = f.face < 0 ? z1 - 3 : z0 + 3;
-            if (r.hash & 128) mb.cbox(f.x + (r.hash & 64 ? 2 : -2), top + 0.4, hz, 2.4, 2.6, 2.4, shade(r.wall, 0.92), M.PLAIN, a, 0x6f6a64);
-            else mb.cyl(f.x + (r.hash & 64 ? 2 : -2), top + 0.4, hz, 1.1, top + 2.8, 1.1, 6, 0x8a6a4a, M.PLAIN, a);
-          }
-        }
-      }
-      if (!lod) {
-        door(mb, f.x + (r.hash & 8 ? 2.2 : -2.2), wallZ, fs, r, rc, a);
-        if (r.hash & 16) {                          // balcony
-          mb.cast = false;
-          mb.box(f.x - 2, FLOOR_H + 0.9, f.face < 0 ? z0 - 1.0 : z1, f.x + 2, FLOOR_H + 1.05, f.face < 0 ? z0 : z1 + 1.0, 0xe8e6e0, 0xe8e6e0, M.PLAIN, a);
-          mb.box(f.x - 2, FLOOR_H + 1.05, f.face < 0 ? z0 - 1.0 : z1 + 0.94, f.x + 2, FLOOR_H + 1.95, f.face < 0 ? z0 - 0.94 : z1 + 1.0, 0x3a3e45, 0x3a3e45, M.METAL, a);
-          mb.cast = true;
-        }
-      }
+      // pilotis: dark parking void at the front half, columns, upper mass from floor 2
+      const pz0 = f.face < 0 ? z0 : z0 + r.d * 0.5, pz1 = f.face < 0 ? z0 + r.d * 0.5 : z1;
+      const bz0 = f.face < 0 ? pz1 : z0, bz1 = f.face < 0 ? z1 : pz0;
+      mb.box(x0 + 0.3, 0, bz0, x1 - 0.3, FLOOR_H, bz1, 0x4a4744, -1, M.PLAIN, a);          // back of the parking storey
+      mb.q(x0, FLOOR_H - 0.01, pz0, x1, FLOOR_H - 0.01, pz0, x1, FLOOR_H - 0.01, pz1, x0, FLOOR_H - 0.01, pz1, 0, -1, 0, 0, 0, 0, 0, M.PLAIN, 0x2a2c30, a);
+      const cz = f.face < 0 ? z0 + 0.25 : z1 - 0.25;
+      for (const cx of LITE ? [x0 + 0.25, x1 - 0.25] : [x0 + 0.25, x1 - 0.25, (x0 + x1) / 2]) mb.cbox(cx, 0, cz, 0.45, FLOOR_H, 0.45, 0xbdb6aa, M.PLAIN, a);
+      mb.boxEave(x0, FLOOR_H, z0, x1, top, z1, r.wall, -1, M.WIN, wa, 0.4);
+      // glass stair strip on the street face
+      mb.cast = false;
+      const sx = f.x + (r.hash & 16 ? 2.2 : -2.2);
+      mb.wq(sx - 0.6, sx + 0.6, FLOOR_H, top - 0.3, wallZ + fs * 0.04, fs, 0x6f8fa6, M.GLASS, a);
+      mb.cast = true;
+      // flat roof: coloured membrane, parapet, water tank; some get a faux mansard
+      if (r.mansard) mb.mansard(x0, z0, x1, z1, top, 1.4, 0x7a2f26, r.roofMem, a);
+      else { mb.parapet(x0, z0, x1, z1, top, 0.6, shade(r.wall, 0.85), 0xd9d3c7, a, r.roofMem); }
+      if (!LITE) mb.cyl(x0 + 1.6, top, (z0 + z1) / 2, 0.9, top + 1.6, 0.9, 6, (r.hash >>> 7) & 1 ? 0x2f6fb0 : 0xd9a441, M.METAL, a);
+      door(mb, f.x, wallZ, fs, r, ROOF[r.roof], a);
     }
-    if (!lod && r.tree) tree(mb, f.x, f.face < 0 ? z0 + r.d + 2.5 : z0 - 2.5, 0.75, r.hash >>> 9, 0);
   } else {
     const tower = r.zone === 3;
+    if (tower) f = { ...f, x: f.x + r.ox };            // towers stand over two plots
+    if (tower && r.pod) {                              // odd slot: a two-storey podium with a roof garden
+      const pc = CITY[(r.hash >>> 5) % CITY.length];
+      mb.box(f.x - 4.8, 0, f.z - 9.5, f.x + 4.8, 2 * FLOOR_H, f.z + 9.5, pc, 0x5f7f4a, M.WIN, a & 0xfc);
+      if (!lod && !LITE) for (let i = 0; i < 3; i++) tree(mb, f.x - 3 + i * 3, f.z + (i - 1) * 5, 0.5, r.hash >>> i, 1);
+      if (r.top) shape(mb, r.shape, f.x, 2 * FLOOR_H, f.z, 0.75, r.color, a & 0xfc, lod);
+      mb.flag = 0; mb.cast = true;
+      return;
+    }
     const aw = (a & 0xfc) | (tower ? 0 : 3);          // wall style 3 = concrete panels (never siding/brick)
     const w = r.w, d = tower ? r.d : r.d;
     const x0 = f.x - w / 2, x1 = f.x + w / 2, z0 = f.z - d / 2, z1 = f.z + d / 2;
@@ -544,7 +594,7 @@ export function home(mb, bx, bz, f, r, lod) {
     const sign = ACCENT_SIGN[(r.hash >>> 13) % ACCENT_SIGN.length];
     if (tower) {
       const pod = CITY[(r.hash >>> 5) % CITY.length];
-      mb.box(f.x - 4.8, 0, f.z - 9.4, f.x + 4.8, 2 * FLOOR_H, f.z + 9.4, pod, shade(pod, 0.85), M.WIN, a & 0xfc);
+      mb.box(f.x - w / 2 - 0.4, 0, f.z - 9.4, f.x + w / 2 + 0.4, 2 * FLOOR_H, f.z + 9.4, pod, shade(pod, 0.85), M.WIN, a & 0xfc);
       base = 2 * FLOOR_H;
       if (!lod && !LITE) {                      // lobby glass and a lit sign over the entrance
         mb.cast = false;
@@ -682,15 +732,21 @@ export function buildChunk(L, cx, cz, lod, customs, lite = false) {
         }
         if (!lod) {
           if (zone <= 1) {
-            // street trees along the outer sidewalks
-            for (let t = -16; t <= 16; t += 8) {
-              const hh = hash3(bx * 8 + t, bz, 61);
-              if (hh % 3 && (!LITE || t === 0)) { tree(mb, X + t, Z - 19, 0.6, hh, 0); }
-              // (one side of the block only: the triangle budget goes to the houses)
-            }
+            // concrete utility poles on the north kerb (every 24 m) with three sagging wires to the next pole
+            const pz = Z - 19.6;
+            const pole = (px, pzz) => {
+              mb.cyl(px, 0, pzz, 0.17, 9.0, 0.12, LITE ? 4 : 6, 0xa7a49c, M.PLAIN, hb & 255, false);
+              if (!LITE) { mb.cbox(px, 8.2, pzz, 1.4, 0.12, 0.12, 0x8a877f, M.PLAIN, 0); mb.cbox(px + 0.3, 6.6, pzz, 0.35, 0.5, 0.35, 0x7f8a8a, M.METAL, 0); }
+            };
+            for (const px of [X - 18, X + 6]) { pole(px, pz); wires(mb, px, X + (px === X - 18 ? 6 : 30), pz, LITE ? 2 : 3, false); }
+            // and along the west kerb, so north-south lanes have them too
+            const wx = X - 19.6;
+            for (const pzz of [Z - 6, Z + 18]) { pole(wx, pzz); wires(mb, pzz, Z + (pzz === Z - 6 ? 18 : 42), wx, LITE ? 2 : 3, true); }
+            if (!LITE) lamp(mb, X - 19.3, Z + 19.3, hb & 255);
+          } else {
+            lamp(mb, X - 19.3, Z - 19.3, hb & 255);
+            lamp(mb, X + 19.3, Z + 19.3, hb & 255);
           }
-          lamp(mb, X - 19.3, Z - 19.3, hb & 255);
-          lamp(mb, X + 19.3, Z + 19.3, hb & 255);
         }
         break;
       }
@@ -904,6 +960,7 @@ export function buildSkyline(L, sx, sz, lite = false) {
       const r = recipe(bx, bz, s, zone, null);
       if (r.height < (lite ? 12 : 6) * FLOOR_H) continue;      // lite (low quality): only the real skyline
       plotFrame(bx, bz, s, zone, f);
+      f.x += r.ox;                                                  // paired-plot towers
       const top = r.floors * FLOOR_H;
       mb.box(f.x - r.w / 2, 0, f.z - r.d / 2, f.x + r.w / 2, top, f.z + r.d / 2, r.wall, 0x8d9199, r.mat, (r.hash & 0xfc) | (zone === 3 ? 0 : 3));
       if (lite) continue;                                          // lite: plain boxes, no crowns

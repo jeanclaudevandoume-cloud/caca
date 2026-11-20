@@ -52,7 +52,7 @@ function prog(vs, fs) {
   for (let i = 0; i < n; i++) { const a = gl.getActiveUniform(p, i); u[a.name.replace(/\[0\]$/, '')] = gl.getUniformLocation(p, a.name); }
   return { p, u };
 }
-const P = { geo: prog(GEO_VS, GEO_FS), shadow: prog(SHADOW_VS, SHADOW_FS), full: prog(FULL_VS, FULL_FS), copy: prog(FULL_VS, COPY_FS) };
+const P = { geo: prog(GEO_VS, GEO_FS), geoLow: prog(GEO_VS, GEO_FS.replace('#version 300 es', '#version 300 es\n#define LOWQ')), shadow: prog(SHADOW_VS, SHADOW_FS), full: prog(FULL_VS, FULL_FS), copy: prog(FULL_VS, COPY_FS) };
 const fullVao = gl.createVertexArray();
 const hasStencil = !!(gl.getContextAttributes() || {}).stencil;      // without it shadows would darken twice
 gl.useProgram(P.full.p);
@@ -143,9 +143,9 @@ function inFrustum(pl, x, y, z, r) {
 }
 
 // ---------------- state ----------------
-const HOME = { x: -30, y: 70, z: 560, yaw: 0.06, pitch: -0.15 };   // ART.md: down the central avenue, over the bridge, into the core
+const HOME = { x: -260, y: 55, z: 600, yaw: 0.5, pitch: -0.1 };   // ART.md: off-axis over the mid-rise city into the tower core
 // portrait phones: start closer so the bridge and water don't fill the lower half
-if (innerWidth / innerHeight < 0.75) Object.assign(HOME, { z: 525, pitch: -0.1 });   // portrait: closer, less water
+if (innerWidth / innerHeight < 0.75) Object.assign(HOME, { yaw: 0.42 });   // portrait: same spot, aimed at the core
 const cam = { ...HOME };
 const PRESETS = { low: { s: 0.55, pr: 1 }, mid: { s: 0.8, pr: 1.5 }, high: { s: 1, pr: 2 } };
 const isPhone = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) || Math.min(screen.width, screen.height) < 600;
@@ -197,11 +197,24 @@ function onWorker(e) {
   if (!r) return;
   const t = r.target;
   if (t.req !== m.id) return;      // superseded
-  t.req = 0;
-  if (r.dead) return;
-  const g = m.ib.length ? upload(m) : null;
-  release(t.g);
-  t.g = g; t.lod = r.lod; t.loaded = true;
+  if (r.dead) { t.req = 0; return; }
+  UPQ.push({ t, m, lod: r.lod, id: m.id });     // uploaded from the frame loop; t.req stays set until then (no re-requests)
+}
+// Mesh uploads are spread over frames (<= 512 KB per frame, nearest first) so streaming never hitches.
+const UPQ = [];
+function drainUploads() {
+  if (!UPQ.length) return;
+  UPQ.sort((a, b) => (a.t.d || 0) - (b.t.d || 0));
+  let bytes = 0;
+  while (UPQ.length && (bytes < 512 * 1024 || !bytes)) {
+    const { t, m, lod, id } = UPQ.shift();
+    if (t.gone || t.req !== id) continue;
+    t.req = 0;
+    bytes += m.vb.byteLength + m.ib.byteLength;
+    const g = m.ib.length ? upload(m) : null;
+    release(t.g);
+    t.g = g; t.lod = lod; t.loaded = true;
+  }
 }
 for (let i = 0; i < NW; i++) {
   const w = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
@@ -334,7 +347,9 @@ function stream(now) {
     const ox = (cx * CHUNK + 1.5) * PITCH, oz = (cz * CHUNK + 1.5) * PITCH;
     const d = Math.hypot(Math.max(0, hyp2(ox - cam.x, oz - cam.z) - C * 0.7), cam.y);
     if (d > r1) continue;
-    want.push({ cx, cz, d, lod: d < r0 ? 0 : 1 });
+    const prev = chunks.get(cx + ',' + cz);
+    const lodR = prev && prev.lod === 0 ? r0 * 1.1 : r0 * 0.9;          // hysteresis: no rebuild ping-pong at the boundary
+    want.push({ cx, cz, d, lod: d < lodR ? 0 : 1 });
   }
   want.sort((a, b) => a.d - b.d);
   const seen = new Set();
@@ -345,7 +360,8 @@ function stream(now) {
     let c = chunks.get(key);
     if (!c) { c = { cx: w.cx, cz: w.cz, g: null, lod: -1, req: 0, loaded: false }; chunks.set(key, c); }
     c.seen = now; c.want = w.lod; c.d = w.d;
-    const lite = isLow();
+    // the outer half of the detail ring uses the lighter meshes (details there are sub-pixel anyway)
+    const lite = isLow() || (w.lod === 0 && w.d >= r0 * (c.lite ? 0.45 : 0.55));
     if ((c.lod !== w.lod || c.stale || (c.g && c.lite !== lite)) && !c.req && budget > 0) {
       const custom = customFor(w.cx, w.cz);
       if (custom === undefined) continue;          // still downloading
@@ -358,7 +374,7 @@ function stream(now) {
   for (const [key, c] of chunks) {
     if (!seen.has(key) && now - c.seen > 3000) {
       if (c.req) { const r = reqs.get(c.req); if (r) r.dead = true; }
-      release(c.g); chunks.delete(key);
+      release(c.g); c.gone = true; chunks.delete(key);
     }
   }
   // skyline tiles (2x2 data regions each)
@@ -379,16 +395,16 @@ function stream(now) {
     let s = skies.get(key);
     if (!s) { s = { rx, rz, g: null, req: 0, loaded: false }; skies.set(key, s); }
     s.seen = now; s.d = d;
-    const slite = isLow();
+    const slite = isLow() || d > (s.lite ? 1350 : 1650);                 // far tiles: plain boxes, no crowns
     if ((!s.loaded || s.stale || s.lite !== slite) && !s.req && budget > 0) { s.stale = false; s.lite = slite; send({ type: 'sky', rx, rz, lite: slite }, s, 0); budget--; }
   }
-  for (const [key, s] of skies) if (!sseen.has(key) && now - s.seen > 5000) { if (s.req) { const r = reqs.get(s.req); if (r) r.dead = true; } release(s.g); skies.delete(key); }
+  for (const [key, s] of skies) if (!sseen.has(key) && now - s.seen > 5000) { if (s.req) { const r = reqs.get(s.req); if (r) r.dead = true; } release(s.g); s.gone = true; skies.delete(key); }
 }
 
 // ---------------- time of day ----------------
 // keys: 0 noon, 1 sunset, 2 night, 3 dawn (cycle of 4)
 const KEYS = [
-  { top: [0.16, 0.42, 0.88], hor: [0.66, 0.8, 0.96], sun: [1.3, 1.15, 0.95], sky: [0.3, 0.38, 0.55], gnd: [0.3, 0.27, 0.22], fog: [0.7, 0.8, 0.93], el: 0.72, night: 0 },
+  { top: [0.14, 0.4, 0.86], hor: [0.64, 0.79, 0.95], sun: [1.42, 1.24, 1.0], sky: [0.24, 0.31, 0.48], gnd: [0.24, 0.22, 0.19], fog: [0.68, 0.79, 0.93], el: 0.62, night: 0 },
   { top: [0.22, 0.3, 0.62], hor: [1.0, 0.64, 0.42], sun: [1.05, 0.7, 0.42], sky: [0.42, 0.46, 0.62], gnd: [0.36, 0.3, 0.28], fog: [0.84, 0.66, 0.6], el: 0.12, night: 0.25 },
   { top: [0.015, 0.025, 0.08], hor: [0.06, 0.08, 0.18], sun: [0.22, 0.28, 0.42], sky: [0.26, 0.31, 0.5], gnd: [0.12, 0.12, 0.16], fog: [0.06, 0.08, 0.16], el: 0.9, night: 1 },
   { top: [0.3, 0.42, 0.75], hor: [1.0, 0.78, 0.62], sun: [1.0, 0.78, 0.56], sky: [0.45, 0.48, 0.65], gnd: [0.4, 0.34, 0.3], fog: [0.92, 0.8, 0.72], el: 0.14, night: 0.2 },
@@ -442,6 +458,8 @@ function step(now) {
   updateFly(now);
   resize();
   stream(now);
+  drainUploads();
+  if (!ready) return;                                            // nothing to draw until the layout exists
   // when nothing moves and nothing is loading, draw at ~12 fps (water and clouds still drift)
   if (changed() || fly) lastActive = now;
   // with frozen time (?t=) an idle frame is identical: don't redraw at all
@@ -505,7 +523,7 @@ function render(now) {
   gl.enable(gl.CULL_FACE); gl.disable(gl.BLEND); gl.disable(gl.STENCIL_TEST);
 
   let tris = 0, draws = 0, sky = 0, bytes = 0;
-  const geo = P.geo;
+  const geo = isLow() ? P.geoLow : P.geo;                          // low preset: cheaper material shader
   gl.useProgram(geo.p);
   setCommonU(geo.u, T, time, fogD);
   gl.uniformMatrix4fv(geo.u.uVP, false, VP);
@@ -766,7 +784,7 @@ function tags(now) {
   if (now - lastTagScan > 300 && !fly) {
     lastTagScan = now;
     const list = [];
-    const R = cam.y < 60 ? 130 : 0;
+    const R = cam.y < 35 ? 130 : 0;
     if (R) {
       const b0x = Math.floor((cam.x - R + 24) / PITCH), b1x = Math.floor((cam.x + R + 24) / PITCH);
       const b0z = Math.floor((cam.z - R + 24) / PITCH), b1z = Math.floor((cam.z + R + 24) / PITCH);
@@ -1033,9 +1051,9 @@ $('#help').onclick = () => { $('#help').hidden = true; };
 // ---------------- debug / automation hooks ----------------
 window.__town = {
   cam, stats, quality, chunks, skies, flyToName, setTod,
-  probe, spin, get layout() { return L; }, get ready() { return ready; }, get VP() { return VP; },
+  probe, spin, get dbg() { return { reqs: reqs.size, upq: UPQ.length, budget: workers.length * 3 - reqs.size, loads: workers.map((w) => w.load) }; }, get layout() { return L; }, get ready() { return ready; }, get VP() { return VP; },
   idle() {
-    if (!ready || reqs.size) return false;
+    if (!ready || reqs.size || UPQ.length) return false;
     for (const c of chunks.values()) if (c.lod !== c.want || c.stale) return false;
     for (const s of skies.values()) if (!s.loaded) return false;
     return true;
