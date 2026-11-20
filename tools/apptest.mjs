@@ -1,0 +1,267 @@
+// Headless tests of the app modules (no browser, no GL): streaming, data, tags, view (arrival camera and
+// flights) and search sequencing, with fake workers, a fake fetch and fake GL handles.
+//   node tools/apptest.mjs
+// Each check guards a past bug class; tools/selftest.mjs runs this file too.
+import * as T from '../public/js/town.js';
+import { SKY } from '../public/js/mesher.js';
+import { Supervisor } from '../public/js/supervisor.js';
+import { createStreamer } from '../public/js/streaming.js';
+import { createTownData, createLatest, searchHome } from '../public/js/data.js';
+import { createView, plotKey } from '../public/js/view.js';
+import { createTagState, scanTags, placeTags, MAX_TAGS } from '../public/js/tags.js';
+import { persp, lookDir, mul } from '../public/js/gfx.js';
+
+const t0 = Date.now();
+let fails = 0;
+const check = (name, ok, detail = '') => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}${detail ? '  ' + detail : ''}`); if (!ok) fails++; };
+const tick = () => new Promise((r) => setImmediate(r));
+async function settle(n = 6) { for (let i = 0; i < n; i++) await tick(); }
+
+let L = T.buildLayout(100000);
+if (L.rB === undefined) L = T.finishLayout(L);
+const tall = new Set(['0_0']);
+for (let i = 0; i < L.count; i++) { const bx = L.blocks[2 * i], bz = L.blocks[2 * i + 1]; if (T.zoneLevel(bx, bz) >= 2) tall.add(T.regionKey(T.fdiv(bx, SKY), T.fdiv(bz, SKY))); }
+const HOME = { x: -176, y: 36, z: 1190, yaw: 0.12, pitch: -0.27 };
+
+// ---------------- streaming ----------------
+function harness({ meshBytes = 40000 } = {}) {
+  let now = 0;
+  const timers = [];
+  const workers = [];
+  const sup = new Supervisor({
+    size: 3, now: () => now, later: (fn, ms) => { timers.push({ fn, at: now + ms }); return timers.length; },
+    spawn: () => { const w = { inbox: [], dead: false, postMessage(m) { this.inbox.push(m); }, terminate() { this.dead = true; } }; workers.push(w); return w; },
+  });
+  sup.start(); sup.commit({});
+  const uploads = [], released = new Map();
+  let handles = 0;
+  const upload = (m) => { const g = { id: ++handles, bytes: m.vb.byteLength + m.ib.byteLength }; uploads.push(g); return g; };
+  const release = (g) => { if (!g) return; released.set(g.id, (released.get(g.id) || 0) + 1); };
+  const st = createStreamer({ sup, customFor: () => null, upload, release, isLow: () => true, radii: () => ({ r0: 192, r1: 363, rs: 2117 }) });
+  const cam = { ...HOME };
+  // the fake workers answer every request in their inbox with a mesh (or an error)
+  function answer(errorFor = () => false) {
+    for (const w of sup.workers) {
+      const msgs = w.inbox.splice(0);
+      for (const m of msgs) {
+        if (m.type === 'init') continue;
+        const r = sup.reply(m.id);
+        if (errorFor(m)) st.onError({ type: 'error', id: m.id, message: 'boom' }, r);
+        else st.onMesh({ type: 'mesh', id: m.id, vb: new ArrayBuffer(meshBytes - 600), ib: new Uint16Array(300) }, r);
+      }
+    }
+  }
+  function cycle(n = 1, opts = {}) {
+    for (let i = 0; i < n; i++) {
+      now += 200;
+      for (const x of timers.splice(0)) if (x.at <= now) x.fn(); else timers.push(x);
+      st.stream(now, cam, L, tall);
+      if (!opts.noAnswer) answer(opts.errorFor);
+      if (!opts.noDrain) st.drain();
+    }
+  }
+  return { st, sup, cam, cycle, answer, uploads, released, workers, get now() { return now; }, set now(v) { now = v; } };
+}
+{
+  const h = harness();
+  h.cycle(1, { noAnswer: true, noDrain: true });
+  check('streaming: never more requests in flight than 3 per worker', h.sup.reqs.size <= h.sup.workers.length * 3, `${h.sup.reqs.size}`);
+  h.cycle(200);
+  const holes = [...h.st.chunks.values()].filter((c) => c.d < 192 && !c.g);
+  check('streaming: reaches idle from HOME with no holes inside r0', h.st.idle() && !holes.length, `idle=${h.st.idle()} holes=${holes.length}`);
+  // a 150 m move: chunks cross r0 and are re-meshed at another detail level; the replaced meshes are released
+  h.cam.x += 150; h.cam.z -= 150;
+  h.cycle(40);
+  const live = new Set([...h.st.chunks.values(), ...h.st.skies.values(), ...h.st.mids.values()].map((c) => c.g && c.g.id).filter(Boolean));
+  const leaked = h.uploads.filter((g) => !live.has(g.id) && h.released.get(g.id) !== 1).length;
+  const remeshed = h.uploads.length - live.size;
+  check('streaming: re-meshed chunks release their old mesh exactly once (no GL leaks)', remeshed > 0 && leaked === 0, `replaced=${remeshed} leaked=${leaked}`);
+  // a 2 km move: old chunks unload after 3 s, each GL handle released exactly once
+  const before = [...h.st.chunks.values()].map((c) => c.g && c.g.id).filter(Boolean);
+  h.cam.x += 2000;
+  h.cycle(10);                                        // 2 s: nothing unloaded yet
+  const early = before.filter((id) => h.released.get(id)).length;
+  h.cycle(40);
+  const twice = [...h.released.values()].filter((n) => n > 1).length;
+  const freed = before.filter((id) => h.released.get(id) === 1).length;
+  check('streaming: a 2 km move unloads after 3 s, releasing each handle exactly once', early === 0 && freed === before.length && twice === 0, `early=${early} freed=${freed}/${before.length} twice=${twice}`);
+}
+{
+  // a reply that arrives for a target that is then unloaded (gone) is never uploaded
+  const h = harness();
+  h.cycle(1, { noAnswer: true, noDrain: true });
+  h.answer();                                         // replies queued, not uploaded yet
+  const queued = h.st.UPQ.length;
+  h.cam.x += 5000; h.now += 3500;
+  h.st.stream(h.now, h.cam, L, tall);                  // the old targets are gone
+  const n0 = h.uploads.length;
+  h.st.drain(1e12);
+  check('streaming: a queued reply for a gone chunk is never uploaded', queued > 0 && h.uploads.length === n0, `queued=${queued} uploaded=${h.uploads.length - n0}`);
+  // superseded: a target re-requested after its first reply was queued
+  const h2 = harness();
+  h2.cycle(1, { noAnswer: true, noDrain: true });
+  h2.answer();
+  const t = h2.st.UPQ[0].t;
+  t.req = 999999;                                     // a newer request owns the target now
+  const n1 = h2.uploads.length;
+  h2.st.drain(1e12);
+  check('streaming: a superseded reply is never uploaded', !h2.uploads.slice(n1).some((g) => g === t.g && t.req === 999999) && t.req === 999999, '');
+}
+{
+  // a worker dies mid-flight: its targets are asked for again; 3 errors make a target give up
+  const h = harness();
+  h.cycle(1, { noAnswer: true, noDrain: true });
+  const w = h.sup.workers[0];
+  const lost = [...h.sup.reqs.values()].filter((r) => r.w === w).map((r) => r.target);
+  h.sup.died(w, 'test');
+  const freed = lost.every((t) => t.req === 0);
+  h.cycle(1, { noAnswer: true, noDrain: true });
+  const again = lost.filter((t) => t.req !== 0).length;
+  check('streaming: a mid-flight worker death leads to a re-request', lost.length > 0 && freed && again > 0, `lost=${lost.length} re-requested=${again}`);
+  const h2 = harness();
+  let target = null;
+  h2.cycle(4, { errorFor: (m) => { if (m.type !== 'chunk') return false; if (!target) target = `${m.cx},${m.cz}`; return target === `${m.cx},${m.cz}`; } });
+  const c = [...h2.st.chunks.values()].find((x) => `${x.cx},${x.cz}` === target);
+  const tries = c && c.fails;
+  h2.cycle(5, { errorFor: () => false });
+  check('streaming: 3 errors make a chunk give up (no endless retries)', c && tries === 3 && c.loaded && !c.req, `fails=${tries}`);
+}
+{
+  // uploads: nearest first, <= 512 KB per drain
+  const h = harness({ meshBytes: 200000 });
+  h.cycle(1, { noAnswer: true, noDrain: true });
+  h.answer();
+  const ds = h.st.UPQ.map((q) => q.t.d).sort((a, b) => a - b);
+  const n0 = h.uploads.length;
+  h.st.drain();
+  const up = h.uploads.length - n0;
+  const nearest = [...h.st.chunks.values(), ...h.st.skies.values(), ...h.st.mids.values()].filter((c) => c.g).map((c) => c.d).sort((a, b) => a - b);
+  check('streaming: one drain uploads <= 512 KB, nearest first', up === 3 && nearest.every((d, i) => d === ds[i]), `uploaded=${up}`);
+}
+
+// ---------------- data ----------------
+function fakeFetch() {
+  const calls = [];
+  let mode = 'ok';
+  const files = { n: 'alice\nbob\n', s: JSON.stringify([['ab', 2], ['abc', 1], ['abd', 3]]) };
+  const f = (url) => {
+    calls.push(url);
+    const m = mode;
+    if (m === 'net') return Promise.reject(new TypeError('network'));
+    if (m === '404') return Promise.resolve({ ok: false, status: 404, text: async () => '', json: async () => null });
+    if (m === 'slow') return new Promise((res) => setTimeout(() => res({ ok: true, status: 200, text: async () => files.n, json: async () => JSON.parse(files.s) }), 30));
+    return Promise.resolve({ ok: true, status: 200, text: async () => files.n, json: async () => JSON.parse(files.s) });
+  };
+  return { f, calls, set mode(v) { mode = v; } };
+}
+{
+  const ff = fakeFetch();
+  const data = createTownData({ fetch: ff.f, later: (fn) => fn() });
+  data.commit({ built: 1, split: [], c: {} });
+  ff.mode = 'net';
+  const a = await data.nameOf(0, 0, 0);
+  ff.mode = 'ok';
+  const b = await data.nameOf(0, 0, 0);
+  check('data: a failed fetch is not cached; the retry succeeds', a === null && typeof b === 'string' && ff.calls.length === 2, `first=${a} second=${JSON.stringify(b)} fetches=${ff.calls.length}`);
+  const ff2 = fakeFetch();
+  const d2 = createTownData({ fetch: ff2.f });
+  d2.commit({ built: 1, split: [], c: {} });
+  ff2.mode = '404';
+  const x = await d2.nameOf(3, 3, 0), y = await d2.nameOf(3, 3, 1);
+  check('data: a 404 is "empty" (not an error) and is cached', x === '' && y === '' && ff2.calls.length === 1, `fetches=${ff2.calls.length}`);
+  const ff3 = fakeFetch();
+  const d3 = createTownData({ fetch: ff3.f });
+  d3.commit({ built: 1, split: [], c: {} });
+  ff3.mode = 'slow';
+  await Promise.all([d3.nameOf(0, 0, 0), d3.nameOf(0, 0, 1), d3.findName('ab'), d3.findName('abc')]);
+  check('data: concurrent callers share one fetch per file', ff3.calls.length === 2, `fetches=${ff3.calls.length}`);
+  d3.commit({ built: 2, split: [], c: {} });
+  ff3.mode = 'ok';
+  await d3.nameOf(0, 0, 0);
+  check('data: commit invalidates (a new version is fetched)', ff3.calls.length === 3 && ff3.calls[2].includes('v=2'), ff3.calls[2] || '');
+  const ff4 = fakeFetch();
+  const d4 = createTownData({ fetch: ff4.f });
+  d4.commit({ built: 1, split: [], c: {} });
+  ff4.mode = 'net';
+  const s1 = await d4.findName('ab');
+  ff4.mode = 'ok';
+  const s2 = await d4.findName('ab');
+  check('data: a failed search shard is not cached', s1 === null && Array.isArray(s2) && s2.length === 3, `first=${s1}`);
+  check('search: the exact match ranks first', s2[0][0] === 'ab', JSON.stringify(s2));
+}
+{
+  // a later search beats an earlier one that resolves late
+  const slow = { findName: (n) => new Promise((r) => setTimeout(() => r([[n, 1]]), 40)) };
+  const fast = { findName: (n) => Promise.resolve([[n, 2]]) };
+  const seq = createLatest();
+  const first = searchHome(slow, seq, 'aaa');
+  const second = await searchHome(fast, seq, 'bbb');
+  const r1 = await first;
+  check('search: a later search beats an earlier one that resolves late', r1.stale && second.hit && second.hit[0] === 'bbb', JSON.stringify({ r1, second }));
+  const seq2 = createLatest();
+  const p = searchHome(slow, seq2, 'ccc');
+  seq2.bump();                                         // a manual move / close in the meantime
+  check('search: a manual move outranks a pending search', (await p).stale === true);
+}
+
+// ---------------- tags ----------------
+{
+  const app = { L };
+  const view = createView(app);
+  const st = createTagState();
+  const cam = { ...HOME };
+  const names = (bx, bz, s) => Promise.resolve(`f${bx}_${bz}_${s}_xx`);
+  scanTags(st, 1000, cam, L, false, view, names);
+  await settle();
+  const W = 412, H = 839;
+  const fwd = [Math.sin(cam.yaw) * Math.cos(cam.pitch), Math.sin(cam.pitch), -Math.cos(cam.yaw) * Math.cos(cam.pitch)];
+  const VP = mul(persp(Math.PI / 3, W / H, 0.72, 40000), lookDir([cam.x, cam.y, cam.z], fwd));
+  const ui = { top: 70, toolsX: 300, toolsY: 760 };
+  let ids = 0;
+  const measure = (n) => ({ cw: n.length * 7 + 18, ch: 26, id: ++ids });
+  placeTags(st, VP, W, H, ui, undefined, measure);
+  const boxes = [];
+  for (let i = 0; i < st.used; i++) boxes.push([st.xy[i * 3], st.xy[i * 3 + 1], st.draw[i].cw]);
+  let overlap = 0, underUI = 0;
+  for (let i = 0; i < boxes.length; i++) {
+    const [x, y, w] = boxes[i];
+    if (y - 26 < ui.top || (x + w / 2 > ui.toolsX && y > ui.toolsY)) underUI++;
+    for (let j = i + 1; j < boxes.length; j++) if (Math.abs(x - boxes[j][0]) < (w + boxes[j][2]) / 2 - 1 && Math.abs(y - boxes[j][1]) < 19) overlap++;
+  }
+  check('tags: placed, at most 24, no overlaps, none under the search bar or buttons', st.used > 0 && st.used <= MAX_TAGS && !overlap && !underUI, `used=${st.used} overlaps=${overlap} underUI=${underUI}`);
+  const keep = st.keys[1];                             // a home that had a tag: select it
+  placeTags(st, VP, W, H, ui, keep, measure);
+  check('tags: with a home selected only its name shows', st.used === 1 && st.keys[0] === keep, `used=${st.used}`);
+  const again = scanTags(st, 1100, cam, L, false, view, names);
+  check('tags: a still camera does not rescan', again === false);
+}
+
+// ---------------- view: arrival camera and flights ----------------
+{
+  const app = { L };
+  const view = createView(app);
+  let seed = 12345;
+  const rnd = () => ((seed = (seed * 1103515245 + 12345) >>> 0) / 4294967296);
+  let inside = 0, through = 0, offEnd = 0, zones = [0, 0, 0, 0];
+  for (let i = 0; i < 300; i++) {
+    const p = Math.floor(rnd() * L.n);
+    const v = view.lookAtYaw(view.homeView(p, 412 / 839));
+    zones[v.zone]++;
+    if (v.y <= view.heightAt(v.x, v.z)) inside++;
+    const cam = { ...HOME };
+    let fly = view.planFly(cam, v, 0, false);
+    const dur = fly.dur;
+    for (let t = 16; t <= dur + 16 && fly; t += 16) {
+      fly = view.stepFly(fly, cam, t);
+      if (fly && cam.y <= view.heightAt(cam.x, cam.z)) { through++; break; }   // inside a building
+    }
+    if (fly || Math.abs(cam.x - v.x) > 1e-6 || Math.abs(cam.y - v.y) > 1e-6 || Math.abs(cam.z - v.z) > 1e-6) offEnd++;
+  }
+  check('view: 300 arrivals across zones never start inside a building', inside === 0, `inside=${inside} zones=${zones}`);
+  check('view: every flight clears the buildings under it', through === 0, `through=${through}`);
+  check('view: every flight ends exactly on the arrival view', offEnd === 0, `off=${offEnd}`);
+  check('view: plotKey is unique per plot', plotKey(1, 2, 3) !== plotKey(1, 3, 2) && plotKey(-1, 0, 0) !== plotKey(0, -1, 0));
+}
+
+console.log(fails ? `${fails} check(s) FAILED` : `all app checks passed (${((Date.now() - t0) / 1000).toFixed(1)} s)`);
+process.exitCode = fails ? 1 : 0;
