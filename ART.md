@@ -47,6 +47,12 @@ below target while the image got less vibrant; the goal says "vibrant".
 
 ## Light (AD)
 
+### LOCKED (round J): sun direction for the opening view
+Round H (sun from the SSW, behind the camera) was graded "front-lit, flat, shadows hidden"; round I (sun from the WNW)
+was graded "every street front in shade, mud". Both at once are satisfied by the day sun from the **south-west**
+(~45° to the lanes): from the opening camera fronts take raking light, west walls are lit, east walls are in shade,
+and shadows fall east across the north-south lanes. Changing it needs an OVERRIDE with phoneauto before/after crops.
+
 - Noon key `sun ≈ [1.3, 1.15, 0.95]`, sky ambient `≈ [0.30, 0.38, 0.55]`: lit/shade ratio ≥ 3.5:1.
 - Sun azimuth about 25° off the street grid, so adjacent faces read lit / unlit.
 - Tone: ACES fit at exposure 1.0, saturation lift ≈ 1.08. Fog far and slightly blue.
@@ -73,7 +79,7 @@ perf.json is measured in this container (software GL): use it for **ratios betwe
 
 | Vantage | Tris | Draws | GPU MB | Notes |
 |---|---|---|---|---|
-| phoneauto = the opening view (auto preset, Pixel 7, incl. the near shadow pass) | ≤ 60k portrait, ≤ 80k landscape | ≤ 20 portrait, ≤ 26 landscape | ≤ 6 | Round H: cast shadows come from one 12-tri shadow-only proxy per home. Round I: the low-preset house ring grew from r1 × 0.62 to × 0.72 (≈ 435 m) so no flat 'painted lots' band separates the homes from the towers (both design and looks reviewers); landscape sees ~50% more chunks, hence its own row. |
+| phoneauto = the opening view (auto preset, Pixel 7, incl. the near shadow pass) | ≤ 60k portrait, ≤ 75k landscape | ≤ 22 | ≤ 6 | Round H: cast shadows come from one 12-tri shadow-only proxy per home. Round J: low-preset house ring r1 × 0.66 (≈ 400 m, was 0.62) — the round I 0.72 and its special 80k landscape row were dropped (optimization review). |
 | phone (low, 844x390) | ≤ 60k | ≤ 20 | ≤ 6 | ground pass ≤ 0.45× of `phonefull`. (Round 13 tried 75k for cast shadows on low; reverted: done correctly they cost 25–45% more tris.) Any low-preset camera, incl. chunk corners, ≤ 75k. |
 | portrait (low, 390x844) | ≤ 75k | ≤ 20 | ≤ 6 | ground pass ≤ 0.45× of `portraitfull` |
 | downtownlow (low) | ≤ 110k | ≤ 30 | ≤ 8 | |

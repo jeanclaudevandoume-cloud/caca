@@ -143,9 +143,9 @@ export function roofIdx(bx, bz, slot) {
 export const districtAccent = (bx, bz) => hash3(fdiv(bx, 4), fdiv(bz, 4), 31) % 6;
 
 // Palettes (0xRRGGBB). The ground shader holds ROOF too.
-export const WALL = [0xf0ece2, 0xe2d8c4, 0xcdbfa5, 0x9a8f80, 0xf4f2ec, 0xc9b49a, 0x8a5a3c, 0x5c6870];   // ART.md: Tokyo/Seoul palette (round B: one house in ~4 is dark, for rhythm)
+export const WALL = [0xf0ece2, 0xe2d8c4, 0xcdbfa5, 0xd99a6c, 0xf4f2ec, 0xc9b49a, 0xb8c9a3, 0x5c6870];   // ART.md: Tokyo/Seoul palette (round B: one house in ~4 is dark, for rhythm)
 // townhouses: three brick tones, then stucco
-export const TOWN = [0x9a5a43, 0xb07a5a, 0xc8b08e, 0x8e8a84, 0xe3dccf];
+export const TOWN = [0xb46a4c, 0xb07a5a, 0xc8b08e, 0xc9a27e, 0xe3dccf];
 export const ROOF = [0x3a3e45, 0x4b5663, 0x2f5d8a, 0x2f4d7a, 0x8a4a34, 0x9a4a30, 0x3f6b6e, 0x7a3b2a];   // ART.md: charcoal/slate, Japanese blue, navy, terracotta, teal, oxblood (round H: 2 of 8 grey, not 4); green only on villas
 // ART.md city facades: S <= .30, V <= .85 (the palette is clamped to the table)
 export const CITY = [0xc9a27e, 0x8e9aa6, 0xd8c3a0, 0x5f6b78, 0xb5876a, 0xe0d6c4, 0x4a5560].map((c) => clampSV(c, 0.295, 0.845));
@@ -431,6 +431,7 @@ export const lowNext = (prev, s) => (prev === null || (prev && s > 0.74) || (!pr
 // runs of combining marks capped at 4 (no "zalgo" towers; Hebrew and Tibetan names keep theirs); truncated to
 // 40 grapheme clusters so no emoji is split. A name with nothing visible left becomes ''.
 const SEG = typeof Intl !== 'undefined' && Intl.Segmenter ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null;
+const ZWJ = String.fromCharCode(0x200d), ZWNJ = String.fromCharCode(0x200c), BLACK_FLAG = String.fromCodePoint(0x1f3f4);
 export function cleanName(s) {
   const cps = Array.from(String(s).normalize('NFC'));
   const pict = (c) => c !== undefined && /\p{Extended_Pictographic}/u.test(c);
@@ -439,16 +440,19 @@ export function cleanName(s) {
   let marks = 0;
   for (let k = 0; k < cps.length; k++) {
     const c = cps[k];
-    if (c === '‍') {                                   // ZWJ only inside an emoji sequence
+    if (c === ZWJ || c === ZWNJ) {
+      // ZWJ inside an emoji sequence (over skin tones and variation selectors), and ZWJ / ZWNJ between letters
+      // (Persian and Indic scripts need them to render words correctly)
       let p = out.length - 1;
-      while (p >= 0 && /\p{M}/u.test(out[p])) p--;
-      if (pict(out[p]) && pict(cps[k + 1])) out.push(c);
+      while (p >= 0 && /[\p{M}\p{Emoji_Modifier}\uFE0F]/u.test(out[p])) p--;
+      const next = cps[k + 1];
+      if ((c === ZWJ && pict(out[p]) && pict(next)) || (/[^\P{L}\p{Script=Latin}]/u.test(out[p] || '') && next !== undefined && /[\p{L}\p{M}]/u.test(next))) out.push(c);
       continue;
     }
     if (isTag(c)) {                                          // tag characters only in a run right after a black flag
       let p = out.length - 1;
       while (p >= 0 && isTag(out[p])) p--;
-      if (out[p] === '\u{1F3F4}') out.push(c);
+      if (out[p] === BLACK_FLAG) out.push(c);
       continue;
     }
     if (/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(c)) continue;

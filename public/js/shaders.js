@@ -89,7 +89,7 @@ void main() {
   bool city = vMat == 5 || (vMat == 1 && (sa & 3u) == 3u);
   // canyon shade: city walls darken strongly toward the street (no building-on-building shadows otherwise)
   float ao = mix(1.0, city ? mix(0.45, 1.0, smoothstep(0.0, 30.0, vW.y)) : mix(0.6, 1.0, smoothstep(0.0, 2.5, vW.y)), wall);
-  float avert = mix(1.0, city ? 0.8 : 0.62, wall * step(dot(n, uSunDir), 0.0));             // faces turned from the sun
+  float avert = mix(1.0, city ? 0.8 : 0.7, wall * step(dot(n, uSunDir), 0.0));             // faces turned from the sun
   float jitter = (vMat == 5 ? 0.62 : city ? 0.85 : 0.8) + (vMat == 5 ? 0.42 : city ? 0.15 : 0.2) * float((sa * 2654435761u) >> 24u) / 255.0;   // towers: dark to light glass   // neighbours separate
   vec3 col = base * jitter * (amb * ao * avert + key * sun);
   vec3 emis = vec3(0.0);

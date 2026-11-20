@@ -1,7 +1,7 @@
 // Follower Town — GL setup, camera, streaming, time of day, search, fly-to, tags, quality.
 import {
   PITCH, CHUNK, REGION, FLOOR_H, K, fdiv, finishLayout, plotOf, plotFrame, recipe, zoneLevel, cellKind, kindAt,
-  occupied, slotAt, ROOF, chunkLod, chunkLite, skyLite, lowNext, plotIndex, homeRect, regionKey, regionOf, lineIndex, normName, shardFor,
+  occupied, slotAt, ROOF, chunkLod, chunkLite, skyLite, lowNext, plotIndex, homeRect, regionKey, regionOf, lineIndex, normName, shardFor, hash3,
 } from './town.js';
 import { MB, M, SKY } from './mesher.js';
 import { GEO_VS, GEO_FS, SHADOW_VS, SHADOW_FS, FULL_VS, FULL_FS, COPY_FS } from './shaders.js';
@@ -162,7 +162,7 @@ function inFrustum(pl, x, y, z, r) {
 // ---------------- state ----------------
 // ART.md composition (round F): a low drone over dense jutaku and villa lanes south-west of the river, the
 // towers and spire as the backdrop. The product is "your follower's home", so homes fill the opening frame.
-const HOME = { x: -168, y: 38, z: 1190, yaw: 0.0, pitch: -0.27 };   // over a north-south lane: the street leads the eye to the towers
+const HOME = { x: -176, y: 36, z: 1190, yaw: 0.12, pitch: -0.27 };   // over a north-south lane: the street leads the eye to the towers
 if (innerWidth / innerHeight > 1.2) Object.assign(HOME, { y: 34, pitch: -0.30 });   // landscape: wider frame; a little steeper so the far field (tris, draws) stays in budget
 const cam = { ...HOME };
 const PRESETS = { low: { s: 0.55, pr: 1 }, mid: { s: 0.8, pr: 1.5 }, high: { s: 1, pr: 2 } };
@@ -177,7 +177,7 @@ const quality = { mode: qParam, ...(qParam === 'high' ? PRESETS.high : qParam ==
 quality.maxS = quality.s; quality.maxPr = quality.pr;
 const RAD = { r0: 0, r1: 0, rs: 0 };
 function radii() {          // fills one object (no per-frame allocation)
-  RAD.r0 = 320 * Math.max(0.6, quality.s); RAD.r1 = 1100 * quality.s * (isLow() ? 0.72 : 1); RAD.rs = Math.min(5000, 7000 * quality.s * quality.s);
+  RAD.r0 = 320 * Math.max(0.6, quality.s); RAD.r1 = 1100 * quality.s * (isLow() ? 0.66 : 1); RAD.rs = Math.min(5000, 7000 * quality.s * quality.s);
   return RAD;
 }
 const stats = { tris: 0, draws: 0, sky: 0, chunks: 0, mb: 0, fps: 0, ms: 0 };
@@ -240,13 +240,14 @@ function drainUploads() {
 // so their chunks are asked for again (worker deaths never count as mesh failures), and the new worker
 // gets the current layout. If it was building a new layout, that build is re-posted. Before the first
 // layout exists a dead worker is fatal. More than 6 deaths within a minute: stop replacing, say so once.
-let lastLayout = null, deaths = [], gaveUp = false;
+let lastLayout = null, deaths = [], backoff = 0, initPending = false;
 function spawnWorker(i) {
   const w = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
   w.load = 0; w.onmessage = onWorker;
   w.onerror = (e) => { if (e.preventDefault) e.preventDefault(); workerDied(w, e.message || 'failed to start'); };
   workers[i] = w;
   if (lastLayout) w.postMessage({ type: 'init', layout: lastLayout });
+  if (initPending && i === 0) { initPending = false; initLayout(); }   // a layout build waited for a worker
   return w;
 }
 function workerDied(w, why) {
@@ -258,16 +259,15 @@ function workerDied(w, why) {
   for (const [id, r] of reqs) if (r.w === w) { reqs.delete(id); if (r.target.req === id) r.target.req = 0; }
   const now = performance.now();
   deaths = deaths.filter((t) => now - t < 60000); deaths.push(now);
-  if (deaths.length > 6 && workers.length > 1) {      // keep going on the others
-    workers.splice(i, 1);
-    if (!gaveUp) { gaveUp = true; fail('A background worker kept failing; continuing with fewer.'); }
-  } else if (deaths.length > 6) {                     // the only worker: back off (30 s), then try again
-    workers.splice(i, 1);
-    if (!gaveUp) { gaveUp = true; fail('The background worker keeps failing; retrying in 30 s.'); }
-    setTimeout(() => { gaveUp = false; deaths = []; workers.splice(i, 0, null); spawnWorker(i); if (layoutStage) initLayout(); }, 30000);
-    return;
-  } else spawnWorker(i);
-  if (i === 0 && layoutStage) initLayout();           // it was building the new layout
+  workers.splice(i, 1);
+  if (deaths.length <= 6) spawnWorker(workers.length);        // replace it
+  else if (!workers.length) setTimeout(() => { if (!workers.length) spawnWorker(0); }, 2000);   // never none for long
+  else if (!backoff) {
+    // dying over and over (out of memory?): run on the survivors; with none left, pause 30 s; then refill to NW
+    backoff = setTimeout(() => { backoff = 0; deaths = []; while (workers.length < NW) spawnWorker(workers.length); }, 30000);
+    fail('A background worker keeps failing; running with fewer for 30 s.');
+  }
+  if (layoutStage) initLayout();                     // a layout build in flight may have died with it
 }
 // a request that never answers (a hung worker) counts as a dead worker; a hidden tab pauses the clock
 function sweepStale(now) {
@@ -319,7 +319,13 @@ function onLayout(lt, ground) {
     const bx = L.blocks[2 * i], bz = L.blocks[2 * i + 1];
     if (zoneLevel(bx, bz) >= 2) tallRegions.add(regionKey(fdiv(bx, SKY), fdiv(bz, SKY)));
   }
-  if (old && layoutStage) flushChanged(old, layoutStage.oldC);
+  if (layoutStage) {
+    // commit the update: new manifest, fresh name caches (names may have changed), tags rescanned
+    manifest = layoutStage.manifest;
+    nameCache.clear(); shardCache.clear(); nameMemo.clear(); nameEpoch++; PLOT.clear(); tagCam[0] = NaN;
+    for (const c of CAND) c.key = -1;
+    if (old) flushChanged(old, layoutStage.oldC);
+  }
   layoutStage = null;
   $('#count').textContent = L.n.toLocaleString() + ' homes';
   if (!ready) {
@@ -363,13 +369,17 @@ function customFor(cx, cz) {
   return v && v.then ? undefined : v;
 }
 // The block order is prebuilt by tools/build.mjs (order.bin), so phones don't sort the town at boot.
+// A layout update builds against the staged manifest; it becomes `manifest` only when its layout arrives
+// (onLayout), so a failed build leaves the old manifest and layout consistent and the next poll retries.
 async function initLayout() {
+  const mf = layoutStage ? layoutStage.manifest : manifest;
   let order = null;
-  if (manifest.order) {
-    try { const r = await fetch(`${TOWN_URL}order.bin?v=${manifest.order}`); if (r.ok) order = await r.arrayBuffer(); } catch { /* fall back */ }
+  if (mf.order) {
+    try { const r = await fetch(`${TOWN_URL}order.bin?v=${mf.order}`); if (r.ok) order = await r.arrayBuffer(); } catch { /* fall back */ }
   }
-  if (order) workers[0].postMessage({ type: 'init', n: manifest.n, order }, [order]);
-  else workers[0].postMessage({ type: 'init', n: manifest.n });
+  if (!workers.length) { initPending = true; return; }
+  if (order) workers[0].postMessage({ type: 'init', n: mf.n, order }, [order]);
+  else workers[0].postMessage({ type: 'init', n: mf.n });
 }
 let stage = 'starting';
 setTimeout(() => { if (!ready) fail('Still not ready after 25 s. Last step: ' + stage + '.'); }, 25000);
@@ -382,11 +392,8 @@ async function boot() {
     try {
       const m = await loadManifest();
       if (m.built !== manifest.built && !layoutStage) {   // skip while a previous update is still being applied
-        const oldC = manifest.c;
-        manifest = m;
-        layoutStage = { oldC, t0: performance.now() };
+        layoutStage = { oldC: manifest.c, manifest: m, t0: performance.now() };
         initLayout();
-        nameCache.clear(); shardCache.clear(); nameMemo.clear();
       }
     } catch { /* offline: keep the town we have */ }
   }, 5 * 60 * 1000);
@@ -482,8 +489,8 @@ function todState(t) {
   }
   TOD.night = a.night + (b.night - a.night) * s;
   const el = a.el + (b.el - a.el) * s;
-  const az = 3.51 + t * 0.9;     // day: the sun rakes from the west-north-west, ~30° off the grid: from the opening camera
-  // (looking north) street fronts read in soft light, east walls in shade, and shadows fall across the lanes toward the camera
+  const az = 2.20 + t * 0.9;     // ART.md LOCKED (round J): day sun from the south-west, ~45° to the lanes. From the opening
+  // camera (looking north) street fronts take raking light, west walls are lit, east walls in shade, shadows fall east across the lanes
   TOD.dir[0] = Math.cos(el) * Math.cos(az); TOD.dir[1] = Math.sin(el); TOD.dir[2] = Math.cos(el) * Math.sin(az);
   return TOD;
 }
@@ -642,7 +649,7 @@ function render(now) {
       pinMesh = upload(mb.finish());
     }
     const d = hyp3(pin.x - cam.x, pin.y - cam.y, pin.z - cam.z);
-    const sc = Math.max(1, d / 60);
+    const sc = Math.max(0.4, d / 110);              // a marker, not a balloon over the home (constant-ish on screen)
     gl.uniform4f(geo.u.uLod, 1e9, 2e9, 0, sc);
     gl.uniform3f(geo.u.uOrigin, pin.x, pin.y + sc * (1.5 + Math.sin(time * 3) * 0.6), pin.z);
     gl.bindVertexArray(pinMesh.vao);
@@ -866,11 +873,12 @@ const PLACED = [], TV = [0, 0, 0, 1], TC = [0, 0, 0, 0];
 let tagList = [], lastTagScan = 0;
 const CAND = [], SORT = [], TAGF = {};
 const byTagD = (a, b) => a.d - b.d;
-const tagCam = new Float64Array([NaN, 0, 0, 0, 0]);
+const tagCam = new Float64Array([NaN, 0, 0, 0, 0]);   // NaN: compared with !(<=) below, so the first scan always runs
+let nameEpoch = 0;
 function tags(now) {
   if (!L || !VP) return;
   // rescan only when the camera moved (a still camera keeps its tags: no per-scan allocations at rest)
-  const moved = Math.abs(cam.x - tagCam[0]) + Math.abs(cam.y - tagCam[1]) + Math.abs(cam.z - tagCam[2]) > 1 || Math.abs(cam.yaw - tagCam[3]) + Math.abs(cam.pitch - tagCam[4]) > 0.01;
+  const moved = !(Math.abs(cam.x - tagCam[0]) + Math.abs(cam.y - tagCam[1]) + Math.abs(cam.z - tagCam[2]) <= 1) || Math.abs(cam.yaw - tagCam[3]) + Math.abs(cam.pitch - tagCam[4]) > 0.01;
   if (now - lastTagScan > 300 && !fly && moved) {               // names arriving later fill in without a rescan
     tagCam[0] = cam.x; tagCam[1] = cam.y; tagCam[2] = cam.z; tagCam[3] = cam.yaw; tagCam[4] = cam.pitch;
     lastTagScan = now;
@@ -914,7 +922,8 @@ function tags(now) {
       if (t.name || t.pending === t.key) continue;
       const key = t.key;
       t.pending = key;
-      nameOf(t.bx, t.bz, t.s).then((nm) => { nameMemo.set(key, nm); if (t.key === key) t.name = nm; });
+      const ep = nameEpoch;
+      nameOf(t.bx, t.bz, t.s).then((nm) => { if (ep !== nameEpoch) return; nameMemo.set(key, nm); if (t.key === key) t.name = nm; });
     }
     if (nameMemo.size > 5000) nameMemo.clear();
   }
@@ -930,6 +939,7 @@ function tags(now) {
     const sx = (c[0] / c[3] * 0.5 + 0.5) * W, sy = (0.5 - c[1] / c[3] * 0.5) * H;
     if (sx < -50 || sx > W + 50 || sy < -20 || sy > H + 20) continue;
     if (t.hidden) continue;                     // behind a building (tested at the last scan)
+    if (pin && pin.key !== undefined && t.key !== pin.key) continue;   // a home is selected: only its name (closing the card brings the others back)
     const w = t.name.length * 7 + 16;
     // never under the search bar or the round buttons (rects refreshed on resize)
     if (sy - 26 < UI_TOP || (sx + w / 2 > UI_TOOLS_X && sy > UI_TOOLS_Y)) continue;
@@ -1036,12 +1046,17 @@ function homeView(p) {
   }
   // across the street and up: never inside the house opposite (its roof is checked around the camera too),
   // and high enough that the whole target home, roof included, is in view over anything in between
-  const dist = 32;
-  const x = f.x + 6, z = f.z + face * (f.d / 2 + dist);
-  let y = 16;
+  // three-quarter view: 24 m out from the front, 25° off the axis, a storey or two above the roof
+  // above the middle of the street in front of the home, a little to one side, looking down at ~45°: nothing
+  // stands between the camera and the front of the home, and its roof and neighbours frame it
+  const side = (hash3(bx, bz, slot) & 1) ? 1 : -1;
+  const q = plotInfo(bx, bz, slot, zone).q, hx = (q[0] + q[2]) / 2, hz = (q[1] + q[3]) / 2;   // the house, not the plot
+  const front = face < 0 ? q[1] : q[3];
+  const x = hx + side * 9, z = front + face * 4.5;   // the street is 8 m: stay over it, never above the house opposite
+  let y = Math.max(16, top + 10);
   for (let dz = -6; dz <= 6; dz += 3) for (let dx = -6; dx <= 6; dx += 3) y = Math.max(y, heightAt(x + dx, z + dz) + 6);
-  for (let k = 0.1; k < 0.9; k += 0.05) y = Math.max(y, heightAt(x + (f.x - x) * k, z + (f.z - z) * k) + 5 + 12 * k);
-  return { x, y, z, yaw: 0, pitch: -0.2, bx, bz, slot, zone, tx: f.x, tz: f.z, ty: top };
+  for (let k = 0.1; k < 0.6; k += 0.05) y = Math.max(y, heightAt(x + (f.x - x) * k, z + (f.z - z) * k) + 5 + 12 * k);   // not the target itself
+  return { x, y, z, yaw: 0, pitch: -0.2, bx, bz, slot, zone, tx: hx, tz: hz, ty: top };
 }
 function lookAtYaw(v) {
   const dx = v.tx - v.x, dz = v.tz - v.z;
@@ -1055,7 +1070,14 @@ function flyTo(p, instant) {
   const d = Math.hypot(v.x - cam.x, v.z - cam.z);
   if (instant) { Object.assign(cam, { x: v.x, y: v.y, z: v.z, yaw: v.yaw, pitch: v.pitch }); fly = null; return v; }
   let dyaw = v.yaw - from.yaw; dyaw = Math.atan2(Math.sin(dyaw), Math.cos(dyaw));
-  fly = { from, to: v, dyaw, t0: performance.now(), dur: Math.min(7000, 1800 + Math.sqrt(d) * 45), lift: Math.min(1800, d * 0.35) };
+  // the arc must clear every building under the path (a short hop through the towers would fly through them)
+  let clear = 0;
+  for (let k = 1; k < 32; k++) {
+    const t = k / 32, h = heightAt(from.x + (v.x - from.x) * t, from.z + (v.z - from.z) * t);
+    const base = from.y + (v.y - from.y) * t, arc = Math.sin(Math.PI * t);
+    if (h > 0) clear = Math.max(clear, (h + 15 - base) / Math.max(0.2, arc));
+  }
+  fly = { from, to: v, dyaw, t0: performance.now(), dur: Math.min(7000, 1800 + Math.sqrt(d) * 45), lift: Math.min(1800, Math.max(d * 0.35, clear)) };
   return v;
 }
 function updateFly(now) {
@@ -1093,11 +1115,13 @@ async function findName(q) {
 async function flyToName(name, instant) {
   if (!L) return false;
   const norm = normName(name);
+  const my = ++uiSeq;
   const list = await findName(norm);
+  if (my !== uiSeq) return false;                   // a later tap or search won
   const hit = list.find((e) => e[0] === norm) || list[0];
   if (!hit) { toast(`No home for “${name}” yet`); return false; }
   const v = flyTo(hit[1], instant);
-  pin = { x: v.tx, y: v.zone >= 2 ? v.ty * 0.6 + 9 : v.ty + 1, z: v.tz };
+  pin = { x: v.tx, y: v.zone >= 2 ? v.ty * 0.6 + 9 : v.ty + 0.8, z: v.tz, key: plotKey(v.bx, v.bz, v.slot) };
   showCard(hit[0], hit[1], v);
   history.replaceState(null, '', '#u=' + encodeURIComponent(hit[0]));
   return true;
@@ -1145,13 +1169,16 @@ function showCard(name, p, v) {
 }
 $('#card-close').onclick = () => { $('#card').hidden = true; pin = null; };
 $('#card-go').onclick = () => { const p = +$('#card').dataset.p; if (p >= 0) flyTo(p); };
+let uiSeq = 0;                                       // only the latest tap / search may set the card, pin and flight
 async function onTap(x, y) {
   if (!L || !invVP) return;
   const hit = pick(x, y);
   if (!hit) return;
+  const my = ++uiSeq;
   const name = await nameOf(hit.bx, hit.bz, hit.slot);
-  const f = plotFrame(hit.bx, hit.bz, hit.slot, hit.zone);
-  pin = { x: f.x, y: homeTop(hit.bx, hit.bz, hit.slot, hit.zone) + 1, z: f.z };
+  if (my !== uiSeq) return;                         // a later tap or search won
+  const q = plotInfo(hit.bx, hit.bz, hit.slot, hit.zone).q;
+  pin = { x: (q[0] + q[2]) / 2, y: homeTop(hit.bx, hit.bz, hit.slot, hit.zone) + 0.8, z: (q[1] + q[3]) / 2, key: plotKey(hit.bx, hit.bz, hit.slot) };
   showCard(name, hit.p, { zone: hit.zone });
 }
 let toastTimer = 0;
