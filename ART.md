@@ -80,7 +80,7 @@ perf.json is measured in this container (software GL): use it for **ratios betwe
 | suburb / drone (high) | ≤ 490k | ≤ 50 | ≤ 35 | a Looks change adding > 5% tris needs a trade-off note |
 | downtown / core / hub (high) | ≤ 520k | ≤ 85 | ≤ 35 | |
 
-All vantages: allocations ≤ 8 KB/frame after warm-up (sampling heap profiler); boot to first frame ≤ 2 s here;
+All vantages: allocations ≤ 8 KB/frame after warm-up (sampling heap profiler; `phoneauto`, the only vantage with name tags on, ≤ 10 KB while the probe turns the camera: the remainder is the browser's own style objects for ~15 moving DOM tags); boot to first frame ≤ 2 s here;
 download ≤ 1 MB for the opening view at 1M followers.
 
 Anchors: Optimization 9 = every vantage within budget, every sub-score measured, no regression vs the previous

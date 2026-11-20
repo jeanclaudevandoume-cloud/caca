@@ -792,12 +792,25 @@ function governor(now) {
 const nameCache = new Map();
 // Map used as a small LRU: newest last, oldest evicted beyond 64 entries.
 function capSet(map, k, v) { map.delete(k); map.set(k, v); if (map.size > 64) map.delete(map.keys().next().value); }
-const nameMemo = new Map();      // 'bx,bz,slot' -> name, so tags never blink between scans
-function homeTop(bx, bz, slot, zone) {
-  const r = recipe(bx, bz, slot, zone, null);
-  if (zone >= 2) return r.floors * FLOOR_H + (r.crown === 1 ? 3 * FLOOR_H : r.crown === 4 && zone === 3 ? 4 * FLOOR_H : 0);
-  return r.floors * FLOOR_H + (r.roofType === 2 ? 0.6 : 2.6);
+const nameMemo = new Map();      // plotKey(bx, bz, slot) -> name, so tags never blink between scans
+// Per-plot footprint and top height, cached: tag scans and fly-to call these hundreds of times, and the
+// recipe allocates (round I: 16 KB/frame on the opening view while the camera turned).
+const PLOT = new Map();
+const plotKey = (bx, bz, slot) => ((bx + 32768) * 65536 + (bz + 32768)) * 16 + slot;
+function plotInfo(bx, bz, slot, zone) {
+  const k = plotKey(bx, bz, slot);
+  let e = PLOT.get(k);
+  if (!e) {
+    if (PLOT.size > 8192) PLOT.clear();
+    const r = recipe(bx, bz, slot, zone, null);
+    const top = zone >= 2 ? r.floors * FLOOR_H + (r.crown === 1 ? 3 * FLOOR_H : r.crown === 4 && zone === 3 ? 4 * FLOOR_H : 0)
+      : r.floors * FLOOR_H + (r.roofType === 2 ? 0.6 : 2.6);
+    e = { top, q: homeRect(plotFrame(bx, bz, slot, zone), r) };
+    PLOT.set(k, e);
+  }
+  return e;
 }
+function homeTop(bx, bz, slot, zone) { return plotInfo(bx, bz, slot, zone).top; }
 function heightAt(x, z) {
   if (!L) return 0;
   const bx = Math.floor((x + 24) / PITCH), bz = Math.floor((z + 24) / PITCH);
@@ -806,10 +819,9 @@ function heightAt(x, z) {
   const zone = zoneLevel(bx, bz);
   const s = slotAt(zone, x - bx * PITCH, z - bz * PITCH);
   if (s < 0 || plotIndex(L, bx, bz, s) < 0) return 0;
-  const f = plotFrame(bx, bz, s, zone);
-  const q = homeRect(f, recipe(bx, bz, s, zone, null));
+  const e = plotInfo(bx, bz, s, zone), q = e.q;
   if (x < q[0] - 0.5 || x > q[2] + 0.5 || z < q[1] - 0.5 || z > q[3] + 0.5) return 0;
-  return homeTop(bx, bz, s, zone);
+  return e.top;
 }
 function pick(px, py) {
   const nx = (px / innerWidth) * 2 - 1, ny = 1 - (py / innerHeight) * 2;
@@ -852,32 +864,45 @@ async function nameOf(bx, bz, slot) {
 const tagPool = [];
 const PLACED = [], TV = [0, 0, 0, 1], TC = [0, 0, 0, 0];
 let tagList = [], lastTagScan = 0;
+const CAND = [], SORT = [], TAGF = {};
+const byTagD = (a, b) => a.d - b.d;
+const tagCam = new Float64Array([NaN, 0, 0, 0, 0]);
 function tags(now) {
   if (!L || !VP) return;
-  if (now - lastTagScan > 300 && !fly) {
+  // rescan only when the camera moved (a still camera keeps its tags: no per-scan allocations at rest)
+  const moved = Math.abs(cam.x - tagCam[0]) + Math.abs(cam.y - tagCam[1]) + Math.abs(cam.z - tagCam[2]) > 1 || Math.abs(cam.yaw - tagCam[3]) + Math.abs(cam.pitch - tagCam[4]) > 0.01;
+  if (now - lastTagScan > 300 && !fly && moved) {               // names arriving later fill in without a rescan
+    tagCam[0] = cam.x; tagCam[1] = cam.y; tagCam[2] = cam.z; tagCam[3] = cam.yaw; tagCam[4] = cam.pitch;
     lastTagScan = now;
-    const list = [];
     const R = cam.y < 60 ? 140 : 0;
-    // scan around a point ahead of the camera, where the homes on screen are
+    // scan around a point ahead of the camera, where the homes on screen are. Candidates live in a pool
+    // (no per-scan objects); a pooled entry keeps its name only while it holds the same plot.
     const ax = cam.x + Math.sin(cam.yaw) * R * 0.7, az = cam.z - Math.cos(cam.yaw) * R * 0.7;
+    let n = 0;
+    SORT.length = 0;
     if (R) {
       const b0x = Math.floor((ax - R + 24) / PITCH), b1x = Math.floor((ax + R + 24) / PITCH);
       const b0z = Math.floor((az - R + 24) / PITCH), b1z = Math.floor((az + R + 24) / PITCH);
-      const f = {};
+      const f = TAGF;
       for (let bz = b0z; bz <= b1z; bz++) for (let bx = b0x; bx <= b1x; bx++) {
         if (kindAt(L, bx, bz) !== K.HOMES) continue;
         const zone = zoneLevel(bx, bz), occ = occupied(L, bx, bz);
         for (let s = 0; s < occ; s++) {
           plotFrame(bx, bz, s, zone, f);
           if (Math.hypot(f.x - ax, f.z - az) > R) continue;
-          const d = Math.hypot(f.x - cam.x, f.z - cam.z, cam.y);
-          list.push({ bx, bz, s, x: f.x, z: f.z, y: homeTop(bx, bz, s, zone) + 2.5, d });
+          const c = CAND[n] || (CAND[n] = { key: -1, name: null });
+          const key = plotKey(bx, bz, s);
+          if (c.key !== key) { c.key = key; c.name = nameMemo.get(key) || null; }
+          c.bx = bx; c.bz = bz; c.s = s; c.x = f.x; c.z = f.z; c.y = homeTop(bx, bz, s, zone) + 2.5;
+          c.d = Math.hypot(f.x - cam.x, f.z - cam.z, cam.y);
+          SORT.push(c); n++;
         }
       }
-      list.sort((a, b) => a.d - b.d);
+      SORT.sort(byTagD);
     }
-    tagList = list.slice(0, 40);
-    // occlusion is tested here (every 300 ms), not per frame: heightAt runs the house recipe and allocates
+    tagList.length = 0;
+    for (let k = 0; k < SORT.length && k < 40; k++) tagList.push(SORT[k]);
+    // occlusion is tested here (every 300 ms), not per frame: heightAt runs the house recipe
     for (const t of tagList) {
       t.hidden = false;
       for (let k = 1; k < 6 && !t.hidden; k++) {
@@ -886,9 +911,10 @@ function tags(now) {
       }
     }
     for (const t of tagList) {
-      const key = t.bx + ',' + t.bz + ',' + t.s;
-      if (nameMemo.has(key)) t.name = nameMemo.get(key);
-      else nameOf(t.bx, t.bz, t.s).then((n) => { nameMemo.set(key, n); t.name = n; });
+      if (t.name || t.pending === t.key) continue;
+      const key = t.key;
+      t.pending = key;
+      nameOf(t.bx, t.bz, t.s).then((nm) => { nameMemo.set(key, nm); if (t.key === key) t.name = nm; });
     }
     if (nameMemo.size > 5000) nameMemo.clear();
   }
@@ -915,9 +941,10 @@ function tags(now) {
     if (!el) { el = document.createElement('div'); el.className = 'tag'; $('#tags').appendChild(el); tagPool.push(el); }
     if (el.textContent !== t.name) el.textContent = t.name;
     // touch the DOM only when the tag actually moved (each write builds a string)
-    if (!(Math.abs(el.sx - sx) <= 0.5 && Math.abs(el.sy - sy) <= 0.5) || el.style.display === 'none') {   // !(<=): a new tag (sx undefined) is placed
-      el.sx = sx; el.sy = sy;
-      el.style.transform = `translate(${sx.toFixed(1)}px,${sy.toFixed(1)}px) translate(-50%,-100%)`;
+    const ix = Math.round(sx), iy = Math.round(sy);   // whole pixels: small-integer strings are cached by the engine
+    if (ix !== el.sx || iy !== el.sy || el.style.display === 'none') {
+      el.sx = ix; el.sy = iy;
+      el.style.transform = 'translate(' + ix + 'px,' + iy + 'px) translate(-50%,-100%)';
     }
     const op = Math.round(Math.max(0.45, 1 - t.d / 400) * 20);
     if (el.op !== op) { el.op = op; el.style.opacity = String(op / 20); }
