@@ -1007,10 +1007,13 @@ function homeView(p) {
     const y = Math.max(top + 30, maxH + 14);
     return { x: f.x + 10, y, z: f.z + face * (24 + (y - top) * 0.75), yaw: 0, pitch: 0, bx, bz, slot, zone, tx: f.x, tz: f.z, ty: top / 0.6 };
   }
-  const dist = 26;
-  const x = f.x + 5, z = f.z + face * (f.d / 2 + dist);
-  let y = 11;
-  for (let k = 0.15; k < 0.9; k += 0.05) y = Math.max(y, heightAt(x + (f.x - x) * k, z + (f.z - z) * k) + 5 + 12 * k);
+  // across the street and up: never inside the house opposite (its roof is checked around the camera too),
+  // and high enough that the whole target home, roof included, is in view over anything in between
+  const dist = 32;
+  const x = f.x + 6, z = f.z + face * (f.d / 2 + dist);
+  let y = 16;
+  for (let dz = -6; dz <= 6; dz += 3) for (let dx = -6; dx <= 6; dx += 3) y = Math.max(y, heightAt(x + dx, z + dz) + 6);
+  for (let k = 0.1; k < 0.9; k += 0.05) y = Math.max(y, heightAt(x + (f.x - x) * k, z + (f.z - z) * k) + 5 + 12 * k);
   return { x, y, z, yaw: 0, pitch: -0.2, bx, bz, slot, zone, tx: f.x, tz: f.z, ty: top };
 }
 function lookAtYaw(v) {
