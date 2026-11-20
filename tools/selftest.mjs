@@ -53,6 +53,30 @@ for (const [cx, cz] of [[0, 0], [-1, -1], [1, 0]]) Mz.buildChunk(Lbig, cx, cz, 0
 Mz.buildSkyline(Lbig, 0, 0);
 check('vertex positions and uv fit their packed formats (1M core)', Mz.MB.overflow.length === 0, Mz.MB.overflow.slice(0, 3).join(' | '));
 
+// 3b. no zero-area triangles after quantisation (they cost vertex work and inflate budgets)
+{
+  let degen = 0, total = 0;
+  for (const [cx, cz, lod, lite] of [[0, 0, 0, false], [11, 6, 0, false], [11, 6, 0, true], [5, -4, 1, false]]) {
+    const m = Mz.buildChunk(Lbig, cx, cz, lod, null, lite), p = new Int16Array(m.vb), ib = m.ib;
+    for (let i = 0; i < ib.length; i += 3) {
+      const a = ib[i] * 8, b = ib[i + 1] * 8, c = ib[i + 2] * 8;
+      const ux = p[b] - p[a], uy = p[b + 1] - p[a + 1], uz = p[b + 2] - p[a + 2], vx = p[c] - p[a], vy = p[c + 1] - p[a + 1], vz = p[c + 2] - p[a + 2];
+      if (uy * vz - uz * vy === 0 && uz * vx - ux * vz === 0 && ux * vy - uy * vx === 0) degen++;
+      total++;
+    }
+  }
+  check('no zero-area triangles', degen === 0, `${degen} of ${total}`);
+}
+
+// 3c. streaming hysteresis: sweeping across each threshold switches at most once per direction
+{
+  const sweep = (f) => { let prev = null, flips = 0; for (const x of [...Array(200).keys()].map((i) => i / 200).concat([...Array(200).keys()].map((i) => 1 - i / 200))) { for (let k = 0; k < 3; k++) { const v = f(x, prev); if (prev !== null && v !== prev) flips++; prev = v; } } return flips; };
+  check('LOD hysteresis (chunkLod)', sweep((x, p) => T.chunkLod(x * 640, 320, p === null ? -1 : p)) <= 2);
+  check('mid-ring lite hysteresis (chunkLite)', sweep((x, p) => T.chunkLite(false, 0, x * 320, 320, !!p)) <= 2);
+  check('far skyline hysteresis (skyLite)', sweep((x, p) => T.skyLite(false, x * 3000, !!p)) <= 2);
+  check('low-preset hysteresis (lowNext)', sweep((x, p) => T.lowNext(p, 0.5 + x * 0.4)) <= 2);
+}
+
 // 4. shader mirror of the river (shader computes round(6 sin), town.js uses a table)
 let river = true;
 for (let bx = -96; bx < 96; bx++) { const t = ((bx % 48) + 48) % 48; if (9 + Math.floor(6 * Math.sin(6.2831853 * t / 48) + 0.5) !== T.riverZ(bx)) river = false; }

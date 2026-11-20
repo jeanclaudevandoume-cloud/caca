@@ -1,7 +1,7 @@
 // Follower Town — GL setup, camera, streaming, time of day, search, fly-to, tags, quality.
 import {
   PITCH, CHUNK, REGION, FLOOR_H, K, fdiv, finishLayout, plotOf, plotFrame, recipe, zoneLevel, cellKind, kindAt,
-  occupied, slotAt, ROOF, plotIndex, homeRect, regionKey, regionOf, lineIndex, normName, shardFor,
+  occupied, slotAt, ROOF, chunkLod, chunkLite, skyLite, lowNext, plotIndex, homeRect, regionKey, regionOf, lineIndex, normName, shardFor,
 } from './town.js';
 import { MB, M, SKY } from './mesher.js';
 import { GEO_VS, GEO_FS, SHADOW_VS, SHADOW_FS, FULL_VS, FULL_FS, COPY_FS } from './shaders.js';
@@ -152,14 +152,14 @@ const isPhone = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) || Math.
 let lowState = null;
 // Low preset with hysteresis: the governor drifting around 0.7 must not rebuild every chunk back and forth.
 function isLow() {
-  if (lowState === null || (lowState && quality.s > 0.74) || (!lowState && quality.s < 0.66)) lowState = quality.s < 0.7;
+  lowState = lowNext(lowState, quality.s);
   return lowState;
 }
 const quality = { mode: qParam, ...(qParam === 'high' ? PRESETS.high : qParam === 'low' ? PRESETS.low : isPhone ? PRESETS.low : PRESETS.mid) };
 quality.maxS = quality.s; quality.maxPr = quality.pr;
 const RAD = { r0: 0, r1: 0, rs: 0 };
 function radii() {          // fills one object (no per-frame allocation)
-  RAD.r0 = 320 * Math.max(0.6, quality.s); RAD.r1 = 1100 * quality.s * (isLow() ? 0.75 : 1); RAD.rs = Math.min(5000, 7000 * quality.s * quality.s);
+  RAD.r0 = 320 * Math.max(0.6, quality.s); RAD.r1 = 1100 * quality.s * (isLow() ? 0.62 : 1); RAD.rs = Math.min(5000, 7000 * quality.s * quality.s);
   return RAD;
 }
 const stats = { tris: 0, draws: 0, sky: 0, chunks: 0, mb: 0, fps: 0, ms: 0 };
@@ -348,8 +348,7 @@ function stream(now) {
     const d = Math.hypot(Math.max(0, hyp2(ox - cam.x, oz - cam.z) - C * 0.7), cam.y);
     if (d > r1) continue;
     const prev = chunks.get(cx + ',' + cz);
-    const lodR = prev && prev.lod === 0 ? r0 * 1.1 : r0 * 0.9;          // hysteresis: no rebuild ping-pong at the boundary
-    want.push({ cx, cz, d, lod: d < lodR ? 0 : 1 });
+    want.push({ cx, cz, d, lod: chunkLod(d, r0, prev ? prev.lod : -1) });
   }
   want.sort((a, b) => a.d - b.d);
   const seen = new Set();
@@ -361,7 +360,7 @@ function stream(now) {
     if (!c) { c = { cx: w.cx, cz: w.cz, g: null, lod: -1, req: 0, loaded: false }; chunks.set(key, c); }
     c.seen = now; c.want = w.lod; c.d = w.d;
     // the outer half of the detail ring uses the lighter meshes (details there are sub-pixel anyway)
-    const lite = isLow() || (w.lod === 0 && w.d >= r0 * (c.lite ? 0.45 : 0.55));
+    const lite = chunkLite(isLow(), w.lod, w.d, r0, c.lite);
     if ((c.lod !== w.lod || c.stale || (c.g && c.lite !== lite)) && !c.req && budget > 0) {
       const custom = customFor(w.cx, w.cz);
       if (custom === undefined) continue;          // still downloading
@@ -395,7 +394,7 @@ function stream(now) {
     let s = skies.get(key);
     if (!s) { s = { rx, rz, g: null, req: 0, loaded: false }; skies.set(key, s); }
     s.seen = now; s.d = d;
-    const slite = isLow() || d > (s.lite ? 1350 : 1650);                 // far tiles: plain boxes, no crowns
+    const slite = skyLite(isLow(), d, s.lite);                             // far tiles: plain boxes, no crowns
     if ((!s.loaded || s.stale || s.lite !== slite) && !s.req && budget > 0) { s.stale = false; s.lite = slite; send({ type: 'sky', rx, rz, lite: slite }, s, 0); budget--; }
   }
   for (const [key, s] of skies) if (!sseen.has(key) && now - s.seen > 5000) { if (s.req) { const r = reqs.get(s.req); if (r) r.dead = true; } release(s.g); s.gone = true; skies.delete(key); }
@@ -404,7 +403,7 @@ function stream(now) {
 // ---------------- time of day ----------------
 // keys: 0 noon, 1 sunset, 2 night, 3 dawn (cycle of 4)
 const KEYS = [
-  { top: [0.14, 0.4, 0.86], hor: [0.64, 0.79, 0.95], sun: [1.42, 1.24, 1.0], sky: [0.28, 0.34, 0.5], gnd: [0.32, 0.29, 0.24], fog: [0.68, 0.79, 0.93], el: 0.62, night: 0 },
+  { top: [0.14, 0.4, 0.86], hor: [0.64, 0.79, 0.95], sun: [1.42, 1.24, 1.0], sky: [0.30, 0.35, 0.44], gnd: [0.40, 0.34, 0.27], fog: [0.68, 0.79, 0.93], el: 0.62, night: 0 },
   { top: [0.22, 0.3, 0.62], hor: [1.0, 0.64, 0.42], sun: [1.05, 0.7, 0.42], sky: [0.42, 0.46, 0.62], gnd: [0.36, 0.3, 0.28], fog: [0.84, 0.66, 0.6], el: 0.12, night: 0.25 },
   { top: [0.015, 0.025, 0.08], hor: [0.06, 0.08, 0.18], sun: [0.22, 0.28, 0.42], sky: [0.26, 0.31, 0.5], gnd: [0.12, 0.12, 0.16], fog: [0.06, 0.08, 0.16], el: 0.9, night: 1 },
   { top: [0.3, 0.42, 0.75], hor: [1.0, 0.78, 0.62], sun: [1.0, 0.78, 0.56], sky: [0.45, 0.48, 0.65], gnd: [0.4, 0.34, 0.3], fog: [0.92, 0.8, 0.72], el: 0.14, night: 0.2 },
@@ -545,7 +544,7 @@ function render(now) {
     gl.drawElements(gl.TRIANGLES, c.g.n, c.g.it, 0);
     tris += c.g.n / 3; draws++;
     // shadows: distance to the chunk's bounding square, not its centre (no corner gaps, no chunk-sized pops)
-    if (hyp2(Math.max(0, Math.abs(ox - cam.x) - 96), Math.max(0, Math.abs(oz - cam.z) - 96)) < shadowR) drawn.push(c);
+    if (hyp2(Math.max(0, Math.abs(ox - cam.x) - CHUNK * PITCH / 2), Math.max(0, Math.abs(oz - cam.z) - CHUNK * PITCH / 2)) < shadowR) drawn.push(c);
   }
   gl.uniform4f(geo.u.uLod, fadeA, fadeB, 1, 2);    // skyline tiles are stored at 1/32 m
   const RS = SKY * PITCH * 0.75;
@@ -640,6 +639,7 @@ function setFull(u, T, time, fogD, r1) {
   gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, groundTex); gl.uniform1i(u.uGround, 0);
   const shDir = shadowDir(T);
   gl.uniform4f(u.uFar, r1 * 0.72, r1 * 0.96, quality.s > 0.7 ? 1 : 0, 5 / shDir[1] * 0.5);
+  gl.uniform1f(u.uClouds, 1);
   gl.uniform1f(u.uPx, halfActive ? 0.5 : 1);
 }
 

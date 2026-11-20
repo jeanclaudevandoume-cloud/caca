@@ -18,7 +18,11 @@
     shown = true;
   }
   window.addEventListener('error', function (e) { if (!window.__ftBooted) show('Error: ' + (e.message || e.error)); });
-  setTimeout(function () { if (!window.__ftBooted) show('The app script never started (it failed to load or to parse).'); }, 8000);
+  window.addEventListener('unhandledrejection', function (e) { if (!window.__ftBooted) show('Error: ' + (e.reason && e.reason.message || e.reason)); });
+  // the timer starts once the (possibly multi-MB) page is parsed, so a slow phone doesn't see a false alarm
+  document.addEventListener('DOMContentLoaded', function () {
+    setTimeout(function () { if (!window.__ftBooted) show('The app script never started (it failed to load or to parse).'); }, 8000);
+  });
 })();
 </script>
 <style>

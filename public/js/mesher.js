@@ -8,7 +8,7 @@
 // Index buffer: caster triangles first (count `ns`), then non-casters.
 import {
   PITCH, FLOOR_H, K, hash3, mod, fdiv, kindAt, cellKind, zoneLevel, plotsIn, plotFrame, recipe, occupied,
-  ROOF, CITY, ACCENT, avenueX, avenueZ, isRiver, portLane, bayHalf, homeRect, regionOf, regionKey, lineIndex, CHUNK, REGION,
+  ROOF, CITY, ACCENT, clampSV, avenueX, avenueZ, isRiver, portLane, bayHalf, homeRect, regionOf, regionKey, lineIndex, CHUNK, REGION,
 } from './town.js';
 
 // Trig rounded to 1e-7 so every JS engine builds byte-identical geometry (positions are then
@@ -220,7 +220,8 @@ export class MB {
     const W = sides + 1;
     for (let j = 0; j < rows; j++) for (let i = 0; i < sides; i++) {
       const p = base + j * W + i;
-      this.tri(p, p + W + 1, p + 1); this.tri(p, p + W, p + W + 1);
+      if (half || j > 0) this.tri(p, p + W + 1, p + 1);   // bottom pole row would be zero-area
+      if (j < rows - 1) this.tri(p, p + W, p + W + 1);     // top pole row would be zero-area
     }
   }
   pyramid(x, y0, z, w, d, h, c, a = 0) {
@@ -308,7 +309,7 @@ function treeBody(mb, x, z, s, h, lod) {
     const c = kind === 6 ? BLOSSOM[(h >>> 3) % 3] : LEAVES[(h >>> 3) % LEAVES.length];
     mb.cyl(x, 0, z, 0.25 * s, 1.6 * s, 0.25 * s, 3, TRUNK, M.PLAIN, h & 255, false);
     if (kind < 2) mb.cyl(x, 1.0 * s, z, 2.2 * s, 6 * s, 0, 4, shade(c, 0.85), M.LEAF, h & 255);
-    else mb.ell(x, 3.6 * s, z, 2.3 * s, 2.0 * s, 2.3 * s, 4, 1, c, M.LEAF, h & 255);
+    else mb.ell(x, 3.4 * s, z, 2.2 * s, 1.9 * s, 2.2 * s, 4, 2, c, M.LEAF, h & 255, false, 0.62);   // 24 tris, rounder than a diamond
     return;
   }
   const c = kind === 6 ? BLOSSOM[(h >>> 3) % 3] : LEAVES[(h >>> 3) % LEAVES.length];
@@ -374,6 +375,7 @@ export function shape(mb, name, x, y, z, s, c, a, lod) {
       mb.cyl(x, y + 4.0 * s, z, 0.6 * s, y + 5.2 * s, 0.1, 6, 0xffd34d, M.METAL, a, false);
       break;
     case 'castle': {
+      c = clampSV(c, 0.25, 0.72);
       mb.cbox(x, y, z, 7 * s, 5 * s, 7 * s, c, M.WIN, a);
       for (let i = 0; i < 4; i++) {
         const tx = x + (i & 1 ? 3.5 : -3.5) * s, tz = z + (i & 2 ? 3.5 : -3.5) * s;
@@ -515,7 +517,7 @@ export function home(mb, bx, bz, f, r, lod) {
       // built-in garage: dark opening with a light lintel
       if (r.garage) {
         const gx0 = r.side > 0 ? x1 - 3.2 : x0 + 0.4, gx1 = gx0 + 2.8;
-        mb.wq(gx0, gx1, 0, 2.5, wallZ + fs * 0.03, fs, 0x6f7a80, M.METAL, a);   // roller shutter
+        mb.wq(gx0, gx1, 0, 2.5, wallZ + fs * 0.03, fs, (r.hash >>> 25) & 1 ? 0x24262a : 0x5f676c, M.METAL, a);   // open (dark) or a roller shutter
         if (!LITE) mb.wq(gx0 - 0.15, gx1 + 0.15, 2.5, 2.7, wallZ + fs * 0.04, fs, 0xd9d3c7, M.PLAIN, a);
       }
       // floor-2 balcony: slab + solid parapet across 60% of the front
@@ -531,6 +533,20 @@ export function home(mb, bx, bz, f, r, lod) {
         }
         if ((r.hash >>> 24) & 1)                      // laundry / futon hung over the balcony: a splash of colour
           mb.wq(bx0 + 0.4, bx0 + 0.4 + bw * 0.5, FLOOR_H + 0.5, FLOOR_H + 1.1, zf + fs * 0.03, fs, ACCENT[(r.hash >>> 3) % ACCENT.length], M.PLAIN, a);
+      }
+      // the open side wall faces the lane: outdoor AC unit, downpipe and meter box make it read as a real wall
+      {
+        const sx = r.side > 0 ? x0 : x1, sxs = r.side > 0 ? -1 : 1;
+        const zm = (z0 + z1) / 2, zr = f.face < 0 ? z1 - 0.3 : z0 + 0.3;
+        if (LITE) {                                   // lite: flat quads on the wall (2 tris each)
+          mb.xq(sx + sxs * 0.02, zm + 0.8, zm + 1.6, 0.15, 0.75, sxs, 0xd8d8d4, M.METAL, a);
+          mb.xq(sx + sxs * 0.02, zr - 0.05, zr + 0.05, 0, top, sxs, 0x5a5e62, M.METAL, a);
+        } else {
+          mb.cbox(sx + sxs * 0.2, 0.15, zm + 1.2, 0.4, 0.6, 0.85, 0xd8d8d4, M.METAL, a);
+          mb.cbox(sx + sxs * 0.06, 0, zr, 0.1, top, 0.1, 0x5a5e62, M.METAL, a);
+          mb.cbox(sx + sxs * 0.06, 1.2, zm - 1.4, 0.1, 0.5, 0.4, 0xbfc3c6, M.METAL, a);
+        }
+        if (!LITE) mb.cbox(sx + sxs * 0.2, FLOOR_H + 0.4, zm - 2.2, 0.4, 0.55, 0.8, 0xd8d8d4, M.METAL, a);
       }
       mb.cast = true;
       door(mb, doorX, wallZ, fs, r, rc, a);
@@ -789,8 +805,9 @@ export function buildChunk(L, cx, cz, lod, customs, lite = false) {
         const step = lod ? 13.3 : 6.66;
         for (let t = -20 + step / 2; t < 20; t += step) {
           const h = hash3(bx, bz, 300 + Math.round(t));
-          if (ax) { tree(mb, X - 1.6, Z + t, 0.75, h, lod); if (!lod) tree(mb, X + 1.6, Z + t, 0.7, h >>> 5, lod); }
-          else { tree(mb, X + t, Z - 1.6, 0.75, h, lod); if (!lod) tree(mb, X + t, Z + 1.6, 0.7, h >>> 5, lod); }
+          const hz = ((h >>> 3) & ~7) | 2;                 // zelkova: one round leafy species, no cones or blossom
+          if (ax) { tree(mb, X, Z + t, 0.8, hz, lod); }
+          else { tree(mb, X + t, Z, 0.8, hz, lod); }
         }
         if (!lod) {
           if (ax) { lamp(mb, X - 4.2, Z, 2); lamp(mb, X + 4.2, Z - 10, 2); }

@@ -16,6 +16,8 @@ import path from 'node:path';
 import os from 'node:os';
 import vm from 'node:vm';
 import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');   // works from any directory
 
 const args = process.argv.slice(2).filter((a) => !a.startsWith('--'));
 const force = process.argv.includes('--force');
@@ -27,7 +29,7 @@ const die = (msg) => { console.error('single.mjs: ' + msg); process.exit(1); };
 // ---- modules -> scoped registry ----
 const IMPORT = /^import\s*\{([^}]*)\}\s*from\s*'(\.\/[a-z]+\.js)';[ \t]*$/gm;
 function wrap(file) {
-  let src = fs.readFileSync(path.join('public/js', file), 'utf8');
+  let src = fs.readFileSync(path.join(ROOT, 'public/js', file), 'utf8');
   const head = [];
   src = src.replace(IMPORT, (m, list, from) => {
     const parts = list.split(',').map((s) => s.trim()).filter(Boolean).map((s) => {
@@ -78,7 +80,7 @@ if (fs.existsSync(path.join(townDir, 'order.bin'))) bins['order.bin'] = fs.readF
 const manifest = JSON.parse(files['manifest.json']);
 
 let stamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
-try { stamp = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { stdio: 'pipe' }).toString().trim() + ' ' + stamp; } catch { /* not a git checkout */ }
+try { stamp = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { stdio: 'pipe', cwd: ROOT }).toString().trim() + ' ' + stamp; } catch { /* not a git checkout */ }
 
 const prelude = `
 window.FT_BUILD = ${JSON.stringify(stamp)};
@@ -116,17 +118,19 @@ for (const [label, src] of [['main bundle', mainSrc], ['worker bundle', workerSr
     ctx.onmessage({ data: { type: 'chunk', id: 1, cx: 0, cz: 0, lod: 0, custom: null } });
     ctx.onmessage({ data: { type: 'chunk', id: 2, cx: 1, cz: 0, lod: 0, custom: null, lite: true } });
     ctx.onmessage({ data: { type: 'sky', id: 3, rx: 0, rz: 0 } });
+    ctx.onmessage({ data: { type: 'chunk', id: 4, cx: 2, cz: 1, lod: 1, custom: null } });
+    ctx.onmessage({ data: { type: 'sky', id: 5, rx: 0, rz: 0, lite: true } });
   } catch (e) { die('worker bundle failed when run: ' + (e.stack || e)); }
   const err = replies.find((r) => r.type === 'error');
   if (err) die('worker bundle reported an error: ' + err.message);
   const meshes = replies.filter((r) => r.type === 'mesh' && r.ib && r.ib.length > 0);
-  if (!replies.some((r) => r.type === 'layout') || meshes.length < 3) die(`worker bundle smoke run incomplete (${replies.map((r) => r.type).join(',')})`);
+  if (!replies.some((r) => r.type === 'layout') || meshes.length < 5) die(`worker bundle smoke run incomplete (${replies.map((r) => r.type).join(',')})`);
 }
 
 // ---- HTML ----
 // data: escape every '<' so nothing in a follower name can end the <script> element
 const dataJson = JSON.stringify({ f: files, b: bins }).replace(/</g, '\\u003c');
-let html = fs.readFileSync('public/index.html', 'utf8');
+let html = fs.readFileSync(path.join(ROOT, 'public/index.html'), 'utf8');
 const tag = '<script type="module" src="js/main.js"></script>';
 if (!html.includes(tag)) die('index.html script tag not found');
 html = html.replace(tag, () =>

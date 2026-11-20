@@ -143,7 +143,7 @@ export function roofIdx(bx, bz, slot) {
 export const districtAccent = (bx, bz) => hash3(fdiv(bx, 4), fdiv(bz, 4), 31) % 6;
 
 // Palettes (0xRRGGBB). The ground shader holds ROOF too.
-export const WALL = [0xf0ece2, 0xe2d8c4, 0xcdbfa5, 0x9a8f80, 0x3e3a36, 0xc9b49a, 0x8a5a3c, 0x5c6870];   // ART.md: Tokyo/Seoul palette (round B: one house in ~4 is dark, for rhythm)
+export const WALL = [0xf0ece2, 0xe2d8c4, 0xcdbfa5, 0x9a8f80, 0x5a544c, 0xc9b49a, 0x8a5a3c, 0x5c6870];   // ART.md: Tokyo/Seoul palette (round B: one house in ~4 is dark, for rhythm)
 // townhouses: three brick tones, then stucco
 export const TOWN = [0x9a5a43, 0xb07a5a, 0xc8b08e, 0x8e8a84, 0xe3dccf];
 export const ROOF = [0x3a3e45, 0x4b5663, 0x8c4a32, 0x6b3a2e, 0x3f6b62, 0x4f6b45, 0x7a4a32, 0x2b2d31];   // ART.md: charcoal kawara 3/8, terracotta/brown 3/8, green/teal 2/8 (round B)
@@ -415,3 +415,9 @@ export function shardFor(norm, split) {
   while (split && split.includes(shardKey(norm, len)) && len < 6) len++;
   return shardKey(norm, len);
 }
+
+// ---- streaming decisions (pure, with hysteresis so nothing ping-pongs at a boundary; tested in selftest) ----
+export const chunkLod = (d, r0, prevLod) => (d < r0 * (prevLod === 0 ? 1.1 : 0.9) ? 0 : 1);
+export const chunkLite = (low, lod, d, r0, prevLite) => low || (lod === 0 && d >= r0 * (prevLite ? 0.45 : 0.55));
+export const skyLite = (low, d, prevLite) => low || d > (prevLite ? 1350 : 1650);
+export const lowNext = (prev, s) => (prev === null || (prev && s > 0.74) || (!prev && s < 0.66) ? s < 0.7 : prev);
