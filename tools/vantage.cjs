@@ -1,7 +1,7 @@
 // Capture the fixed vantage set into shots/<tag>/ for before/after comparison:
 //   timeout 1500 node tools/vantage.cjs <tag> [name ...]
 // Needs the server on PORT (default 8080). One browser, one page at a time (SwiftShader is slow).
-const { chromium } = require('playwright');
+const { chromium, devices } = require('playwright');
 const fs = require('fs');
 const V = {
   downtown: ['q=high&t=10&notags&cam=6,24,660,0,-0.03'],
@@ -16,6 +16,7 @@ const V = {
   port: ['q=high&t=10&notags&cam=1250,140,350,0.5,-0.25'],
   custom: ['q=high&u=maxramen95643&instant&t=10'],
   phone: ['q=low&t=10&notags&cam=2184,7,1260,0,-0.05', 844, 390],
+  phoneauto: ['t=10&notags', 0, 0, 'Pixel 7'],      // the owner's real path: auto preset, phone UA, no MSAA, DPR 2.6
   house: ['q=high&t=10&notags&cam=2200,5,1272,-0.25,-0.1'],
   portrait: ['q=low&t=10&notags&cam=6,24,660,0,-0.07', 390, 844],
   downtownlow: ['q=low&t=10&notags&cam=6,24,660,0,-0.03', 844, 390],
@@ -31,17 +32,19 @@ const V = {
   const b = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--enable-precise-memory-info'] });
   const probeAll = process.env.PROBE === '1';   // default: probe only the low-preset vantages (high ones are very slow here)
   const perf = {};
-  const out = {};
+  const out = {}, failed = [];
   const save = () => {
     let prev = {}, pp = {};
     try { prev = JSON.parse(fs.readFileSync(`shots/${tag}/stats.json`, 'utf8')); } catch { /* first run */ }
     try { pp = JSON.parse(fs.readFileSync(`shots/${tag}/perf.json`, 'utf8')); } catch { /* first run */ }
-    fs.writeFileSync(`shots/${tag}/stats.json`, JSON.stringify({ ...prev, ...out }, null, 1));
+    for (const f of failed) delete prev[f];
+    fs.writeFileSync(`shots/${tag}/stats.json`, JSON.stringify({ ...prev, ...out, ...(failed.length ? { failed } : {}) }, null, 1));
     if (Object.keys(perf).length) fs.writeFileSync(`shots/${tag}/perf.json`, JSON.stringify({ ...pp, ...perf }, null, 1));
   };
   for (const n of names) {
-    const [q, w = 1100, h = 620] = V[n];
-    const p = await b.newPage({ viewport: { width: w, height: h } });
+    const [q, w = 1100, h = 620, dev] = V[n];
+    const ctx = dev ? await b.newContext(devices[dev]) : null;
+    const p = dev ? await ctx.newPage() : await b.newPage({ viewport: { width: w, height: h } });
     let bad = null;
     p.on('pageerror', (e) => { bad = bad || 'pageerror: ' + e.message.slice(0, 200); console.log(n, 'pageerror:', e.message.slice(0, 300)); });
     let bytes = 0;
@@ -54,7 +57,10 @@ const V = {
       // a failed capture must not be recorded as numbers (the previous good entry stays)
       console.log(n, 'FAILED:', bad);
       process.exitCode = 1;
-      await p.close();
+      failed.push(n);
+      fs.rmSync(`shots/${tag}/${n}.png`, { force: true });   // no stale image that looks like a success
+      delete out[n];
+      await p.close(); if (ctx) await ctx.close();
       continue;
     }
     await p.waitForTimeout(800);
@@ -82,8 +88,9 @@ const V = {
       console.log(n, 'perf', JSON.stringify(perf[n]));
     }
     console.log(n, JSON.stringify(out[n]));
+    if (bad) { console.log(n, 'FAILED after capture:', bad); process.exitCode = 1; failed.push(n); fs.rmSync(`shots/${tag}/${n}.png`, { force: true }); delete out[n]; delete perf[n]; }
     save();
-    await p.close();
+    await p.close(); if (ctx) await ctx.close();
   }
   await b.close();
 })();

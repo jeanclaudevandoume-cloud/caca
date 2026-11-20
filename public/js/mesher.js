@@ -500,13 +500,16 @@ export function home(mb, bx, bz, f, r, lod) {
       // ground storey (two-tone on half the houses: darker, with a string course), upper storeys with baked eave shade
       const g = shade(r.wall, r.twoTone ? 0.62 : 0.78);           // the ground storey is always darker: value structure
       mb.box(x0, 0, z0, x1, FLOOR_H, z1, g, -1, M.WIN, wa);
+      // upper storeys cantilever 0.6 m over the garage toward the street
+      const cz0 = r.garage && f.face < 0 ? z0 - 0.6 : z0, cz1 = r.garage && f.face > 0 ? z1 + 0.6 : z1;
       if (r.floors >= 3) {
-        // stepped massing: the top storey sits 1.5 m back from the street, its roof terrace in front
-        const zs0 = f.face < 0 ? z0 + 1.5 : z0, zs1 = f.face < 0 ? z1 : z1 - 1.5;
-        mb.box(x0, FLOOR_H, z0, x1, 2 * FLOOR_H, z1, r.wall, 0x8c8f93, M.WIN, wa, 1);
+        // stepped massing: the top storey sits back from the street (0 / 1.5 / 2.2 m), its roof terrace in front
+        const sb = [0, 1.5, 2.2][(r.hash >>> 28) % 3];
+        const zs0 = f.face < 0 ? cz0 + sb : cz0, zs1 = f.face < 0 ? cz1 : cz1 - sb;
+        mb.box(x0, FLOOR_H, cz0, x1, 2 * FLOOR_H, cz1, r.wall, 0x8c8f93, M.WIN, wa, 1);
         mb.boxEave(x0, 2 * FLOOR_H, zs0, x1, top, zs1, r.wall, r.roofType === 2 ? 0x8c8f93 : -1, M.WIN, wa, 0.4);
-      } else mb.boxEave(x0, FLOOR_H, z0, x1, top, z1, r.wall, r.roofType === 2 ? 0x8c8f93 : -1, M.WIN, wa, 0.4);
-      const rz0 = r.floors >= 3 && f.face < 0 ? z0 + 1.5 : z0, rz1 = r.floors >= 3 && f.face > 0 ? z1 - 1.5 : z1;
+        var rz0 = zs0, rz1 = zs1;
+      } else { mb.boxEave(x0, FLOOR_H, cz0, x1, top, cz1, r.wall, r.roofType === 2 ? 0x8c8f93 : -1, M.WIN, wa, 0.4); var rz0 = cz0, rz1 = cz1; }
       if (r.twoTone && !LITE) { mb.cast = false; mb.box(x0 - 0.03, FLOOR_H - 0.05, z0 - 0.03, x1 + 0.03, FLOOR_H + 0.02, z1 + 0.03, 0x3a3836, -1, M.PLAIN, a); mb.cast = true; }
       // roof: mono-pitch / low gable with thin eaves and a dark fascia / flat with a parapet ring
       const o = 0.45;
@@ -710,9 +713,13 @@ export function home(mb, bx, bz, f, r, lod) {
           const n = 1 + ((r.hash >>> 5) % 2);
           for (let i = 0; i < n; i++) mb.cbox(r.hash & 1 ? x1 - 0.4 : x0 + 0.4, 4.2 + i * 4.0, fz + fs * 0.45, 0.25, 3.5, 0.6, ACCENT_SIGN[((r.hash >>> 9) + i * 3) % ACCENT_SIGN.length], M.LIGHT, a);
         }
-        if ((r.hash >>> 26) % 4 === 0 && !LITE) {   // rooftop billboard
-          mb.cbox(f.x - 2, roofTop, f.z, 0.2, 2.5, 0.2, 0x3a3e45, M.METAL, a); mb.cbox(f.x + 2, roofTop, f.z, 0.2, 2.5, 0.2, 0x3a3e45, M.METAL, a);
-          mb.cbox(f.x, roofTop + 2.5, f.z, 6, 3, 0.3, ACCENT[(r.hash >>> 4) % ACCENT.length], M.LIGHT, a);
+        if ((r.hash >>> 26) % 4 === 0) {           // rooftop billboard (lite: a double-sided panel, 4 tris)
+          const bc = ACCENT[(r.hash >>> 4) % ACCENT.length];
+          if (LITE) { mb.wq(f.x - 3, f.x + 3, roofTop + 2.5, roofTop + 5.5, f.z, 1, bc, M.LIGHT, a); mb.wq(f.x - 3, f.x + 3, roofTop + 2.5, roofTop + 5.5, f.z, -1, bc, M.LIGHT, a); }
+          else {
+            mb.cbox(f.x - 2, roofTop, f.z, 0.2, 2.5, 0.2, 0x3a3e45, M.METAL, a); mb.cbox(f.x + 2, roofTop, f.z, 0.2, 2.5, 0.2, 0x3a3e45, M.METAL, a);
+            mb.cbox(f.x, roofTop + 2.5, f.z, 6, 3, 0.3, bc, M.LIGHT, a);
+          }
         }
       }
       if (r.hash & 4 && !LITE) {
@@ -822,6 +829,16 @@ export function buildChunk(L, cx, cz, lod, customs, lite = false) {
           else { tree(mb, X + t, Z, 0.8, hz, lod); }
         }
         if (!lod) {
+          // traffic: taxis, cars and the odd bus on the carriageways (LITE too, ~10 tris each)
+          for (let i = 0; i < 4; i++) {
+            const hc = hash3(bx, bz, 700 + i);
+            if (hc % 3 === 0) continue;
+            const lane = (i & 1 ? 1 : -1) * (6 + ((hc >>> 4) % 3) * 3.4), along = -16 + i * 10 + ((hc >>> 8) % 5);
+            const bus = (hc >>> 12) % 9 === 0, len = bus ? 10 : 4.2, wid = bus ? 2.5 : 1.8, hgt = bus ? 3.0 : 1.4;
+            const col = bus ? 0x2f8f6f : (hc >>> 14) % 4 === 0 ? 0xf2c230 : CARS[(hc >>> 16) % CARS.length];
+            if (ax) mb.cbox(X + lane, 0.2, Z + along, wid, hgt, len, col, M.METAL, hc & 255);
+            else mb.cbox(X + along, 0.2, Z + lane, len, hgt, wid, col, M.METAL, hc & 255);
+          }
           if (ax) { lamp(mb, X - 4.2, Z, 2); lamp(mb, X + 4.2, Z - 10, 2); }
           else { lamp(mb, X, Z - 4.2, 2); lamp(mb, X - 10, Z + 4.2, 2); }
         }

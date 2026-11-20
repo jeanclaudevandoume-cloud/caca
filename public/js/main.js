@@ -274,6 +274,8 @@ function onLayout(lt, ground) {
   if (!ready) {
     ready = true;
     window.__ftReady = true;
+    // desktops may switch presets: compile the other material variant while idle, never inside a frame
+    if (!isPhone) (window.requestIdleCallback || ((f) => setTimeout(f, 2000)))(() => { try { geoProg(isLow() ? 'geo' : 'geoLow'); } catch (e) { console.error(e); } });
     bootMs = performance.now();
     $('#loading').classList.add('gone');
     const u = params.get('u') || hashParams().get('u');
