@@ -9,6 +9,7 @@ const customs = new Map();          // regionKey -> {line: spec} | null
 onmessage = (e) => {
   const m = e.data;
   if (m.type === 'init') {
+    try {
     customs.clear();
     if (m.layout) L = finishLayout(m.layout);
     else {
@@ -16,6 +17,7 @@ onmessage = (e) => {
       const g = buildGround(L);
       postMessage({ type: 'layout', layout: layoutTransfer(L), ground: g }, [g.data.buffer]);
     }
+    } catch (err) { postMessage({ type: 'error', fatal: true, message: 'layout: ' + String((err && err.stack) || err) }); }
     return;
   }
   try {

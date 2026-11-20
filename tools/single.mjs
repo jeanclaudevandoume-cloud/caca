@@ -52,6 +52,17 @@ html = html.replace(tag, () =>
   `<script type="text/plain" id="worker-src">${safe(workerSrc)}</script>\n` +
   `<script type="application/json" id="town-data">${safe(JSON.stringify({ f: files, b: bins }))}</script>\n` +
   `<script type="module">${safe(bundle)}</script>`);
+// The modules are concatenated into one scope: refuse to write a bundle that does not parse
+// (e.g. two modules declaring the same top-level name — that once broke every phone build).
+import { execFileSync } from 'node:child_process';
+import os from 'node:os';
+for (const [label, src, ext] of [['main bundle', bundle, '.mjs'], ['worker bundle', workerSrc, '.js']]) {
+  const tmp = path.join(os.tmpdir(), `ft-check-${process.pid}${ext}`);
+  fs.writeFileSync(tmp, src);
+  try { execFileSync(process.execPath, ['--check', tmp], { stdio: 'pipe' }); }
+  catch (e) { console.error(`${label} does not parse:\n` + String(e.stderr).slice(0, 800)); process.exit(1); }
+  finally { fs.unlinkSync(tmp); }
+}
 fs.mkdirSync(path.dirname(out), { recursive: true });
 fs.writeFileSync(out, html);
 console.log(`${out}: ${(html.length / 1048576).toFixed(1)} MB, ${Object.keys(files).length} embedded files`);

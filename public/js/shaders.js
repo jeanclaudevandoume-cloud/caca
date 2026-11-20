@@ -53,6 +53,7 @@ void main() {
 
 export const GEO_FS = /* glsl */ `#version 300 es
 precision highp float;
+precision highp int;
 ${COMMON}
 in vec3 vW; in vec3 vN; in vec2 vUV; in vec4 vCol; flat in int vMat;
 out vec4 o;
@@ -242,8 +243,9 @@ uint hash3(int a, int b, int c) {
 }
 int fdiv(int a, int b) { return a >= 0 ? a / b : -((-a + b - 1) / b); }
 int imod(int a, int b) { return a - b * fdiv(a, b); }
-const int RIV[48] = int[48](0,1,2,2,3,4,4,5,5,6,6,6,6,6,6,6,5,5,4,4,3,2,2,1,0,-1,-2,-2,-3,-4,-4,-5,-5,-6,-6,-6,-6,-6,-6,-6,-5,-5,-4,-4,-3,-2,-2,-1);
-int riverZ(int bx) { return 9 + RIV[imod(bx, 48)]; }
+// round(6 sin) reproduces town.js RIV exactly (no value within 0.08 of a .5 tie), without a const array
+// (dynamically indexed const arrays are fragile on some mobile drivers)
+int riverZ(int bx) { return 9 + int(floor(6.0 * sin(6.2831853 * float(imod(bx, 48)) / 48.0) + 0.5)); }
 bool isRiver(int bx, int bz) { int a = riverZ(bx), b = riverZ(bx + 1); return (bz >= a - 1 && bz <= a + 1) || (bz >= b - 1 && bz <= b + 1); }
 int bayHalf(int bx) { return min(3 + fdiv((bx - 24) * 3, 4), 18); }
 bool bayAt(int bx, int bz) { return bx >= 24 && bz >= 2 - bayHalf(bx) && bz <= 2 + bayHalf(bx); }
@@ -419,8 +421,8 @@ vec3 blockCol(uvec4 c, int bx, int bz, vec2 l, vec2 p, float t, float w, vec3 gr
   uint hw = hash3(fdiv(bx, 3), fdiv(bz, 3), 41) % 5u;
   if (hw < 2u) return grass * vec3(0.62, 0.78, 0.6) * (0.85 + 0.3 * vnoise(p * 0.08));
   uint hf = hash3(bx, bz, 43);
-  vec3 crops[5] = vec3[5](vec3(0.75, 0.82, 0.36), vec3(0.88, 0.78, 0.4), vec3(0.5, 0.72, 0.3), vec3(0.62, 0.78, 0.42), vec3(0.8, 0.66, 0.42));
-  vec3 cc = crops[hf % 5u];
+  uint ci = hf % 5u;
+  vec3 cc = ci == 0u ? vec3(0.75, 0.82, 0.36) : ci == 1u ? vec3(0.88, 0.78, 0.4) : ci == 2u ? vec3(0.5, 0.72, 0.3) : ci == 3u ? vec3(0.62, 0.78, 0.42) : vec3(0.8, 0.66, 0.42);
   float rows = (hf & 32u) != 0u ? l.x : l.y;
   return cc * (0.93 + 0.07 * step(0.5, fract(rows / 2.5)) * (1.0 - smoothstep(0.4, 1.2, w)));
 }

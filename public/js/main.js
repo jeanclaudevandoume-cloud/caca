@@ -7,27 +7,44 @@ import { MB, M, SKY } from './mesher.js';
 import { GEO_VS, GEO_FS, SHADOW_VS, SHADOW_FS, FULL_VS, FULL_FS, COPY_FS } from './shaders.js';
 
 const $ = (s) => document.querySelector(s);
+// ---- diagnostics: on any failure show the reason on screen (phones have no console) ----
+const DIAG = [];
+function fail(msg) {
+  DIAG.push(String(msg).slice(0, 600));
+  const el = document.getElementById('loading');
+  if (el) { el.classList.remove('gone'); el.style.whiteSpace = 'pre-wrap'; el.style.fontSize = '13px'; el.style.padding = '16px'; el.style.textAlign = 'left'; el.textContent = 'Follower Town could not start on this device:\n\n' + DIAG.join('\n\n'); }
+}
+addEventListener('error', (e) => fail('Error: ' + (e.message || e.error)));
+addEventListener('unhandledrejection', (e) => fail('Error: ' + (e.reason && (e.reason.stack || e.reason.message) || e.reason)));
 const params = new URLSearchParams(location.search);
 const hashParams = () => new URLSearchParams(location.hash.slice(1));
-const TOWN = 'town/';
+const TOWN_URL = 'town/';
 
 // ---------------- GL ----------------
 const canvas = $('#c');
 const qParam = params.get('q') || 'auto';
 const gl = canvas.getContext('webgl2', { antialias: qParam !== 'low', stencil: true, alpha: false, powerPreference: 'high-performance', preserveDrawingBuffer: params.has('shot') });
-if (!gl) { $('#loading').textContent = 'This town needs WebGL2. Try a newer browser.'; throw new Error('no webgl2'); }
-canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); setTimeout(() => location.reload(), 500); });
+if (!gl) { fail('This town needs WebGL2, which this browser does not provide.'); throw new Error('no webgl2'); }
+// Context lost: reload once; if it happens again soon, explain instead of looping forever.
+canvas.addEventListener('webglcontextlost', (e) => {
+  e.preventDefault();
+  let n = 0;
+  try { n = +(sessionStorage.getItem('ft-lost') || 0); sessionStorage.setItem('ft-lost', String(n + 1)); } catch { n = 9; }
+  if (n < 1) setTimeout(() => location.reload(), 500);
+  else fail('The graphics context was lost twice (the GPU ran out of memory or was reset). Try ?q=low or close other tabs.');
+});
+setTimeout(() => { try { sessionStorage.removeItem('ft-lost'); } catch { /* ignore */ } }, 20000);
 
 function prog(vs, fs) {
   const p = gl.createProgram();
   for (const [t, src] of [[gl.VERTEX_SHADER, vs], [gl.FRAGMENT_SHADER, fs]]) {
     const s = gl.createShader(t);
     gl.shaderSource(s, src); gl.compileShader(s);
-    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s) + '\n' + src.split('\n').map((l, i) => i + 1 + ': ' + l).join('\n'));
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) { fail('Shader compile failed: ' + gl.getShaderInfoLog(s)); throw new Error(gl.getShaderInfoLog(s)); }
     gl.attachShader(p, s);
   }
   gl.linkProgram(p);
-  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) { fail('Shader link failed: ' + gl.getProgramInfoLog(p)); throw new Error(gl.getProgramInfoLog(p)); }
   const u = {};
   const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
   for (let i = 0; i < n; i++) { const a = gl.getActiveUniform(p, i); u[a.name.replace(/\[0\]$/, '')] = gl.getUniformLocation(p, a.name); }
@@ -158,7 +175,7 @@ function onWorker(e) {
   const r = reqs.get(m.id);
   reqs.delete(m.id);
   if (r) r.w.load--;
-  if (m.type === 'error') { console.error(m.message); if (r) r.target.req = 0; return; }
+  if (m.type === 'error') { console.error(m.message); if (m.fatal) fail('Worker: ' + m.message); if (r) r.target.req = 0; return; }
   if (!r) return;
   const t = r.target;
   if (t.req !== m.id) return;      // superseded
@@ -170,7 +187,7 @@ function onWorker(e) {
 }
 for (let i = 0; i < NW; i++) {
   const w = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
-  w.load = 0; w.onmessage = onWorker; w.onerror = (e) => console.error('worker', e.message);
+  w.load = 0; w.onmessage = onWorker; w.onerror = (e) => fail('Worker: ' + (e.message || 'failed to start'));
   workers.push(w);
 }
 function send(msg, target, lod) {
@@ -186,7 +203,7 @@ function send(msg, target, lod) {
 
 // ---------------- boot ----------------
 async function loadManifest() {
-  const r = await fetch(TOWN + 'manifest.json', { cache: 'no-cache' });
+  const r = await fetch(TOWN_URL + 'manifest.json', { cache: 'no-cache' });
   if (!r.ok) throw new Error('manifest ' + r.status);
   return r.json();
 }
@@ -244,7 +261,7 @@ function customFor(cx, cz) {
   if (!manifest.c || !manifest.c[key]) return null;
   const v = customCache.get(key);
   if (v === undefined) {
-    customCache.set(key, fetch(`${TOWN}c/${key}.json?v=${manifest.c[key]}`).then((r) => (r.ok ? r.json() : null)).catch(() => null)
+    customCache.set(key, fetch(`${TOWN_URL}c/${key}.json?v=${manifest.c[key]}`).then((r) => (r.ok ? r.json() : null)).catch(() => null)
       .then((j) => { customCache.set(key, j); }));
     return undefined;
   }
@@ -254,13 +271,17 @@ function customFor(cx, cz) {
 async function initLayout() {
   let order = null;
   if (manifest.order) {
-    try { const r = await fetch(`${TOWN}order.bin?v=${manifest.order}`); if (r.ok) order = await r.arrayBuffer(); } catch { /* fall back */ }
+    try { const r = await fetch(`${TOWN_URL}order.bin?v=${manifest.order}`); if (r.ok) order = await r.arrayBuffer(); } catch { /* fall back */ }
   }
   if (order) workers[0].postMessage({ type: 'init', n: manifest.n, order }, [order]);
   else workers[0].postMessage({ type: 'init', n: manifest.n });
 }
+let stage = 'starting';
+setTimeout(() => { if (!ready) fail('Still not ready after 25 s. Last step: ' + stage + '.'); }, 25000);
 async function boot() {
+  stage = 'loading the town data';
   try { manifest = await loadManifest(); } catch (e) { $('#loading').textContent = 'No town data yet. Run: npm run demo'; throw e; }
+  stage = 'building the layout in the worker';
   initLayout();
   setInterval(async () => {
     try {
@@ -453,7 +474,7 @@ function render(now) {
   const { r0, r1 } = radii();
   const fogD = Math.max(3600, 4500 + cam.y * 5) * (0.75 + 0.25 * quality.s);
 
-  const half = quality.s < 0.7 && !params.has('fullres') && PROBE !== 'geo' ? halfGround(W, H, T, time, fogD, r1) : null;
+  const half = quality.s < 0.7 && !halfBroken && !params.has('fullres') && PROBE !== 'geo' ? halfGround(W, H, T, time, fogD, r1) : null;
   gl.viewport(0, 0, W, H);
   gl.clearColor(T.fog[0], T.fog[1], T.fog[2], 1);
   gl.clearStencil(0);
@@ -584,7 +605,7 @@ function setFull(u, T, time, fogD, r1) {
 
 // Low quality: run the expensive ground/sky shader at half resolution into a texture
 // (a quarter of the fragments), then upsample it where no geometry was drawn.
-let halfRT = null, halfActive = false;
+let halfRT = null, halfActive = false, halfBroken = false;
 function halfGround(W, H, T, time, fogD, r1) {
   const w = Math.max(1, W >> 1), h = Math.max(1, H >> 1);
   if (!halfRT || halfRT.w !== w || halfRT.h !== h) {
@@ -599,6 +620,11 @@ function halfGround(W, H, T, time, fogD, r1) {
     const fb = gl.createFramebuffer();
     gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+    if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      halfBroken = true;
+      return null;
+    }
     halfRT = { w, h, fb, tex };
   }
   gl.bindFramebuffer(gl.FRAMEBUFFER, halfRT.fb);
@@ -696,7 +722,7 @@ async function nameOf(bx, bz, slot) {
   const key = regionKey(regionOf(bx), regionOf(bz));
   let lines = nameCache.get(key);
   if (!lines) {
-    lines = fetch(`${TOWN}n/${key}.txt?v=${(manifest.nh && manifest.nh[key]) || manifest.built}`).then((r) => (r.ok ? r.text() : '')).then((t) => t.split('\n')).catch(() => []);
+    lines = fetch(`${TOWN_URL}n/${key}.txt?v=${(manifest.nh && manifest.nh[key]) || manifest.built}`).then((r) => (r.ok ? r.text() : '')).then((t) => t.split('\n')).catch(() => []);
     nameCache.set(key, lines);
   }
   if (lines.then) { lines = await lines; nameCache.set(key, lines); }
@@ -892,7 +918,7 @@ function updateFly(now) {
 const shardCache = new Map();
 async function shard(norm) {
   const key = shardFor(norm, manifest.split);
-  if (!shardCache.has(key)) shardCache.set(key, fetch(`${TOWN}s/${key}.json?v=${(manifest.sh && manifest.sh[key]) || manifest.built}`).then((r) => (r.ok ? r.json() : [])).catch(() => []));
+  if (!shardCache.has(key)) shardCache.set(key, fetch(`${TOWN_URL}s/${key}.json?v=${(manifest.sh && manifest.sh[key]) || manifest.built}`).then((r) => (r.ok ? r.json() : [])).catch(() => []));
   return shardCache.get(key);
 }
 async function findName(q) {
