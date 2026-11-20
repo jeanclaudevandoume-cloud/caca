@@ -55,8 +55,12 @@ below target while the image got less vibrant; the goal says "vibrant".
 
 ## Composition (AD)
 
-- The opening view stands on the central avenue at ~24 m among mid-rises with signs and rooftop billboards,
-  looking north over the river and bridge to the towers and the spire (round B, both looks reviewers).
+### OVERRIDE (meta-review, round F): the opening view shows homes
+The avenue view (round B) showed zero homes in portrait: the narrow frame cropped the mid-rises out and left
+asphalt, lawn and a wall of plain boxes. The product is "your follower's home", so the opening view is now a low
+drone (y 40, pitch -0.40; landscape y 34, pitch -0.30) over dense jutaku and villa lanes south-west of the river,
+looking north-north-east to the towers, with name tags on the nearest homes. The sun moved to the south-south-west
+(~30° off the grid) so the street fronts this camera sees are lit and the side walls alternate.
 
 ## Measurable targets (checked with tools/sheet.py on the fixed vantage set)
 
@@ -69,6 +73,7 @@ perf.json is measured in this container (software GL): use it for **ratios betwe
 
 | Vantage | Tris | Draws | GPU MB | Notes |
 |---|---|---|---|---|
+| phoneauto = the opening view (auto preset, Pixel 7, incl. the near shadow pass) | ≤ 85k portrait, ≤ 95k landscape | ≤ 24 | ≤ 6 | Trade-off (round F): cast shadows within 130 m on low add ~18k caster tris in a flat-colour pass; phones are fill-bound (round C isolation test), and the shadows are the grounding every reviewer asked for. |
 | phone (low, 844x390) | ≤ 60k | ≤ 20 | ≤ 6 | ground pass ≤ 0.45× of `phonefull`. (Round 13 tried 75k for cast shadows on low; reverted: done correctly they cost 25–45% more tris.) Any low-preset camera, incl. chunk corners, ≤ 75k. |
 | portrait (low, 390x844) | ≤ 75k | ≤ 20 | ≤ 6 | ground pass ≤ 0.45× of `portraitfull` |
 | downtownlow (low) | ≤ 110k | ≤ 30 | ≤ 8 | |
@@ -94,6 +99,14 @@ build; 10 = also clear margin under budget.
 **Optimization**
 1. Boot cost (layout/data at 1M and 10M). 2. Low-preset tris/draws per vantage. 3. Fill cost of
 full-screen passes. 4. Per-frame allocations. 5. LOD artifacts/pops. 6. GPU memory.
+
+## Process (revised after meta-review, round F)
+
+- `phoneauto` (what the owner sees on opening the page) weighs ≥ 50% of Looks and Design; show it at phone size
+  next to the previous build. If no home is visible in the opening frame, Looks is capped at 5.
+- A Looks fix counts only if it changes ≥ 15% of the `phoneauto` or `portrait` pixels, or is visible in a 2× crop.
+- House micro-detail that is sub-pixel at the opening camera does not take a slot until Looks on `phoneauto` ≥ 7.
+- Merge or delete process rules before adding new ones.
 
 ## Process (revised after meta-review 3)
 

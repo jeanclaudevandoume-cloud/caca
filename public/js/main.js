@@ -34,6 +34,8 @@ canvas.addEventListener('webglcontextlost', (e) => {
   e.preventDefault();
   let n = 0;
   try { n = +(sessionStorage.getItem('ft-lost') || 0); sessionStorage.setItem('ft-lost', String(n + 1)); } catch { n = 9; }
+  // keep the view across the reload (cam is defined later; the handler only runs after boot)
+  try { sessionStorage.setItem('ft-cam', [cam.x, cam.y, cam.z, cam.yaw, cam.pitch].map((v) => v.toFixed(3)).join(',')); } catch { /* ignore */ }
   if (n < 1) setTimeout(() => location.reload(), 500);
   else fail('The graphics context was lost twice (the GPU ran out of memory or was reset). Try ?q=low or close other tabs.');
 });
@@ -44,6 +46,7 @@ function prog(vs, fs) {
   for (const [t, src] of [[gl.VERTEX_SHADER, vs], [gl.FRAGMENT_SHADER, fs]]) {
     const s = gl.createShader(t);
     gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS) && gl.isContextLost()) throw new Error('context lost');   // the reload handles it
     if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) { fail('Shader compile failed: ' + gl.getShaderInfoLog(s)); throw new Error(gl.getShaderInfoLog(s)); }
     gl.attachShader(p, s);
   }
@@ -149,9 +152,10 @@ function inFrustum(pl, x, y, z, r) {
 }
 
 // ---------------- state ----------------
-const HOME = { x: 6, y: 24, z: 660, yaw: 0, pitch: -0.03 };   // ART.md: on the central avenue among mid-rises with signs; river, bridge, towers and spire ahead
-// portrait phones: start closer so the bridge and water don't fill the lower half
-if (innerWidth / innerHeight < 0.75) Object.assign(HOME, { pitch: -0.07 });   // portrait: the street fills the lower third
+// ART.md composition (round F): a low drone over dense jutaku and villa lanes south-west of the river, the
+// towers and spire as the backdrop. The product is "your follower's home", so homes fill the opening frame.
+const HOME = { x: -192, y: 40, z: 1150, yaw: -0.17, pitch: -0.40 };
+if (innerWidth / innerHeight > 1.2) Object.assign(HOME, { y: 34, pitch: -0.30 });   // landscape: wider frame, flatter
 const cam = { ...HOME };
 const PRESETS = { low: { s: 0.55, pr: 1 }, mid: { s: 0.8, pr: 1.5 }, high: { s: 1, pr: 2 } };
 const isPhone = PHONE;
@@ -177,7 +181,7 @@ const frozenT = params.has('t') ? parseFloat(params.get('t')) : null;
 let tod = params.has('tod') ? parseFloat(params.get('tod')) : 0.22;
 const showTags = !params.has('notags');
 
-{ const c = params.get('cam'); if (c) { const v = c.split(',').map(Number); if (v.length === 5 && v.every(Number.isFinite)) Object.assign(cam, { x: v[0], y: v[1], z: v[2], yaw: v[3], pitch: v[4] }); } }
+{ let c = params.get('cam'); try { if (!c) c = sessionStorage.getItem('ft-cam'); sessionStorage.removeItem('ft-cam'); } catch { /* ignore */ } if (c) { const v = c.split(',').map(Number); if (v.length === 5 && v.every(Number.isFinite)) Object.assign(cam, { x: v[0], y: v[1], z: v[2], yaw: v[3], pitch: v[4] }); } }
 
 // ---------------- workers ----------------
 const NW = Math.max(1, Math.min(3, (navigator.hardwareConcurrency || 2) - 1));
@@ -223,18 +227,41 @@ function drainUploads() {
     t.g = g; t.lod = lod; t.loaded = true;
   }
 }
-for (let i = 0; i < NW; i++) {
+// A worker that dies (out of memory on a phone, a crash) is replaced: its requests are released so their
+// chunks are asked for again, and the new worker gets the layout. Before the layout exists a dead worker is fatal.
+let lastLayout = null, respawns = 0;
+function spawnWorker(i) {
   const w = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
-  w.load = 0; w.onmessage = onWorker; w.onerror = (e) => fail('Worker: ' + (e.message || 'failed to start'));
-  workers.push(w);
+  w.load = 0; w.onmessage = onWorker;
+  w.onerror = (e) => { e.preventDefault && e.preventDefault(); workerDied(w, e.message || 'failed to start'); };
+  workers[i] = w;
+  if (lastLayout) w.postMessage({ type: 'init', layout: lastLayout });
+  return w;
 }
+function workerDied(w, why) {
+  const i = workers.indexOf(w);
+  if (i < 0) return;                                   // already replaced
+  console.error('worker died:', why);
+  if (!lastLayout || ++respawns > 6) { fail('Worker: ' + why); return; }
+  try { w.terminate(); } catch { /* already gone */ }
+  for (const [id, r] of reqs) if (r.w === w) {
+    reqs.delete(id);
+    if (r.target.req === id) { r.target.req = 0; r.target.fails = (r.target.fails || 0) + 1; if (r.target.fails >= 3) { r.target.loaded = true; r.target.lod = r.lod; } }
+  }
+  spawnWorker(i);
+}
+// a request that never answers (a hung worker) counts as a dead worker
+function sweepStale(now) {
+  for (const r of reqs.values()) if (now - r.t0 > 20000) { workerDied(r.w, 'no reply in 20 s'); return; }
+}
+for (let i = 0; i < NW; i++) spawnWorker(i);
 function send(msg, target, lod) {
   let w = workers[0];
   for (const x of workers) if (x.load < w.load) w = x;
   const id = nextId++;
   msg.id = id;
   w.load++;
-  reqs.set(id, { w, target, lod });
+  reqs.set(id, { w, target, lod, t0: performance.now() });
   target.req = id;
   w.postMessage(msg);
 }
@@ -246,13 +273,14 @@ async function loadManifest() {
   return r.json();
 }
 let layoutStage = null;
-let groundTex = null, groundExt = 0, tallRegions = new Set();
+let groundTex = null, groundExt = 0, groundBytes = 0, tallRegions = new Set();
 function onLayout(lt, ground) {
   const nl = finishLayout(lt);
   const old = L;
   L = nl;
+  lastLayout = lt;
   for (let i = 1; i < workers.length; i++) workers[i].postMessage({ type: 'init', layout: lt });
-  if (ground.size > gl.getParameter(gl.MAX_TEXTURE_SIZE)) fail(`This town is too large for this GPU (${ground.size} > ${gl.getParameter(gl.MAX_TEXTURE_SIZE)}).`);
+  if (ground.size > gl.getParameter(gl.MAX_TEXTURE_SIZE)) { L = old; fail(`This town is too large for this GPU (${ground.size} > ${gl.getParameter(gl.MAX_TEXTURE_SIZE)}).`); return; }
   if (!groundTex) groundTex = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, groundTex);
   gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
@@ -261,7 +289,7 @@ function onLayout(lt, ground) {
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-  groundExt = ground.ext;
+  groundExt = ground.ext; groundBytes = ground.size * ground.size * 4;
   // regions that can hold skyline buildings (so empty ones are never requested)
   tallRegions = new Set(['0_0']);
   for (let i = 0; i < L.count; i++) {
@@ -346,6 +374,7 @@ let lastStream = 0;
 function stream(now) {
   if (!L || now - lastStream < 150) return;
   lastStream = now;
+  sweepStale(now);
   const { r0, r1, rs } = radii();
   const C = CHUNK * PITCH;
   const ccx = Math.floor((cam.x + 24) / C), ccz = Math.floor((cam.z + 24) / C);
@@ -430,7 +459,8 @@ function todState(t) {
   }
   TOD.night = a.night + (b.night - a.night) * s;
   const el = a.el + (b.el - a.el) * s;
-  const az = 2.65 + t * 0.9;     // ~25° off the street grid so neighbouring faces read lit / unlit
+  const az = 1.89 + t * 0.9;     // day: sun from the south-south-west, ~30° off the grid: the street fronts the
+  // opening camera sees are lit, side walls alternate lit/unlit, and shadows fall north-east beside each house
   TOD.dir[0] = Math.cos(el) * Math.cos(az); TOD.dir[1] = Math.sin(el); TOD.dir[2] = Math.cos(el) * Math.sin(az);
   return TOD;
 }
@@ -455,6 +485,7 @@ function resize() {
 }
 function frame(now) {
   requestAnimationFrame(frame);
+  if (gl.isContextLost()) return;          // the context-lost handler reloads; draw nothing meanwhile
   step(now);
 }
 function step(now) {
@@ -535,7 +566,7 @@ function render(now) {
   gl.useProgram(geo.p);
   setCommonU(geo.u, T, time, fogD);
   gl.uniformMatrix4fv(geo.u.uVP, false, VP);
-  const fadeA = r1 * 0.72, fadeB = r1 * 0.96, shadowR = isLow() ? 50 : 650 * quality.s;
+  const fadeA = r1 * 0.72, fadeB = r1 * 0.96, shadowR = isLow() ? LOW_SHADOW : 650 * quality.s;
   gl.uniform4f(geo.u.uLod, fadeA, fadeB, 0, 0);
   const R = CHUNK * PITCH * 0.75;
   const drawn = DRAWN;
@@ -610,7 +641,7 @@ function render(now) {
 
   // projected planar shadows on the ground (stencil: each pixel darkened once)
   const shDir = shadowDir(T);
-  if (T.night < 0.6 && drawn.length && !isLow() && hasStencil && PROBE !== 'full') {   // low quality: painted ground shadows instead (cast shadows cost 25-45% more tris there)
+  if (T.night < 0.6 && drawn.length && hasStencil && PROBE !== 'full') {   // low: only the nearest chunks cast; painted ground shadows take over beyond LOW_SHADOW
     const sh = P.shadow;
     gl.useProgram(sh.p);
     gl.uniformMatrix4fv(sh.u.uVP, false, VP);
@@ -632,7 +663,7 @@ function render(now) {
   }
   gl.depthMask(true);
   gl.bindVertexArray(null);
-  stats.tris = Math.round(tris); stats.draws = draws; stats.sky = sky; stats.chunks = chunks.size; stats.mb = Math.round(bytes / 1048576);
+  stats.tris = Math.round(tris); stats.draws = draws; stats.sky = sky; stats.chunks = chunks.size; stats.mb = Math.round((bytes + groundBytes + (halfRT ? halfRT.w * halfRT.h * 4 : 0)) / 1048576);   // meshes + ground texture + half-res target
 }
 function setCommonU(u, T, time, fogD) {
   gl.uniform3fv(u.uSunDir, T.dir); gl.uniform3fv(u.uSunCol, T.sun); gl.uniform3fv(u.uSkyCol, T.sky); gl.uniform3fv(u.uGndCol, T.gnd);
@@ -647,7 +678,7 @@ function setFull(u, T, time, fogD, r1) {
   gl.uniform4f(u.uTown, L ? L.townD2 : 100, groundExt, L ? L.seaX : 1e9, L ? L.seaBx : 1e6);
   gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, groundTex); gl.uniform1i(u.uGround, 0);
   const shDir = shadowDir(T);
-  gl.uniform4f(u.uFar, r1 * 0.72, r1 * 0.96, quality.s > 0.7 ? 1 : 0, 5 / shDir[1] * 0.5);
+  gl.uniform4f(u.uFar, r1 * 0.72, r1 * 0.96, quality.s > 0.7 ? 1 : hasStencil ? -LOW_SHADOW : 0, 5 / shDir[1] * 0.5);   // z < 0: low preset with cast shadows out to -z
   gl.uniform1f(u.uClouds, 1);
   gl.uniform1f(u.uPx, halfActive ? 0.5 : 1);
 }
@@ -692,6 +723,9 @@ function halfGround(W, H, T, time, fogD, r1) {
   return halfRT;
 }
 
+// Low preset: cast shadows from the nearest chunks only (the opening view's homes are grounded; casters beyond
+// this are painted by the ground shader, which fades its own shadows in where these fade out).
+const LOW_SHADOW = 130;
 function shadowDir(T) {
   const d = SHD;
   if (T.night > 0.5) { d[0] = 0.3; d[1] = 0.9; d[2] = 0.2; } else { d[0] = T.dir[0]; d[1] = T.dir[1]; d[2] = T.dir[2]; }
@@ -793,18 +827,20 @@ function tags(now) {
   if (now - lastTagScan > 300 && !fly) {
     lastTagScan = now;
     const list = [];
-    const R = cam.y < 35 ? 130 : 0;
+    const R = cam.y < 60 ? 140 : 0;
+    // scan around a point ahead of the camera, where the homes on screen are
+    const ax = cam.x + Math.sin(cam.yaw) * R * 0.7, az = cam.z - Math.cos(cam.yaw) * R * 0.7;
     if (R) {
-      const b0x = Math.floor((cam.x - R + 24) / PITCH), b1x = Math.floor((cam.x + R + 24) / PITCH);
-      const b0z = Math.floor((cam.z - R + 24) / PITCH), b1z = Math.floor((cam.z + R + 24) / PITCH);
+      const b0x = Math.floor((ax - R + 24) / PITCH), b1x = Math.floor((ax + R + 24) / PITCH);
+      const b0z = Math.floor((az - R + 24) / PITCH), b1z = Math.floor((az + R + 24) / PITCH);
       const f = {};
       for (let bz = b0z; bz <= b1z; bz++) for (let bx = b0x; bx <= b1x; bx++) {
         if (kindAt(L, bx, bz) !== K.HOMES) continue;
         const zone = zoneLevel(bx, bz), occ = occupied(L, bx, bz);
         for (let s = 0; s < occ; s++) {
           plotFrame(bx, bz, s, zone, f);
-          const d = Math.hypot(f.x - cam.x, f.z - cam.z);
-          if (d > R) continue;
+          if (Math.hypot(f.x - ax, f.z - az) > R) continue;
+          const d = Math.hypot(f.x - cam.x, f.z - cam.z, cam.y);
           list.push({ bx, bz, s, x: f.x, z: f.z, y: homeTop(bx, bz, s, zone) + 2.5, d });
         }
       }
@@ -845,7 +881,7 @@ function tags(now) {
     if (!el) { el = document.createElement('div'); el.className = 'tag'; $('#tags').appendChild(el); tagPool.push(el); }
     if (el.textContent !== t.name) el.textContent = t.name;
     el.style.transform = `translate(${sx.toFixed(1)}px,${sy.toFixed(1)}px) translate(-50%,-100%)`;
-    el.style.opacity = String(Math.max(0.35, 1 - t.d / 140));
+    el.style.opacity = String(Math.max(0.4, 1 - t.d / 260));
     el.style.display = '';
     used++;
   }
@@ -998,11 +1034,13 @@ async function flyToName(name, instant) {
   return true;
 }
 const search = $('#search'), sugg = $('#sugg');
-let suggTimer = 0, suggSel = -1;
+let suggTimer = 0, suggSel = -1, suggSeq = 0;
 search.addEventListener('input', () => {
   clearTimeout(suggTimer);
   suggTimer = setTimeout(async () => {
+    const my = ++suggSeq;
     const list = await findName(search.value);
+    if (my !== suggSeq) return;              // a newer query answered first: never show stale suggestions
     suggSel = -1;
     sugg.innerHTML = '';
     for (const [n, p] of list) {

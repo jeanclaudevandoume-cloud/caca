@@ -26,7 +26,9 @@ const shards = new Map();
 const index = new Map();
 const dupes = [];
 for (let i = 0; i < n; i++) {
-  const name = Array.from(lines[i].trim().replace(/[\r\n\t]/g, '')).slice(0, 40).join('');   // truncate by code point (never split an emoji)
+  // NFC, no control/format characters (bidi overrides, zero-width), at most 2 combining marks in a row (no
+  // "zalgo" towers), then truncate by code point (never split an emoji). Emoji ZWJ sequences keep U+200D.
+  const name = Array.from(lines[i].normalize('NFC').replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, (ch) => (ch === '\u200d' ? ch : '')).replace(/(\p{M}{2})\p{M}+/gu, '$1').trim()).slice(0, 40).join('');
   if (!name) continue;
   const { bx, bz, slot } = plotOf(L, i);
   const key = regionKey(regionOf(bx), regionOf(bz));
