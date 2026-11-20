@@ -67,9 +67,13 @@ const V = {
     if (!q.includes('notags')) await p.waitForFunction(() => [...document.querySelectorAll('#tags .tag')].filter((e) => e.style.display !== 'none' && e.textContent).length >= 4, null, { timeout: 8000 }).catch(() => console.log(n, 'fewer than 4 name tags'));
     await p.screenshot({ path: `shots/${tag}/${n}.png` });
     out[n] = await p.evaluate(() => { const s = window.__town.stats; return { tris: s.tris, draws: s.draws, sky: s.sky, mb: s.mb }; });
-    if (probeAll || q.includes('q=low')) {
+    if (probeAll || q.includes('q=low') || dev) {
       // pass timings (relative, this machine) + allocated bytes per frame from Chrome's sampling heap profiler
-      const t = await p.evaluate(() => window.__town.probe(6));
+      // median of 3 probes per pass (one probe was noisy enough to flip a budget verdict)
+      const runs = [];
+      for (let k = 0; k < 3; k++) runs.push(await p.evaluate(() => window.__town.probe(6)));
+      const t = { ...runs[0] };
+      for (const key of Object.keys(t)) if (typeof t[key] === 'number' && /Ms$/.test(key) && key !== 'bootMs') t[key] = runs.map((r) => r[key]).sort((x, y) => x - y)[1];
       const cdp = await p.context().newCDPSession(p);
       await p.evaluate(() => window.__town.spin(600));          // warm up: let the JIT optimise the frame loop
       await cdp.send('HeapProfiler.enable');
