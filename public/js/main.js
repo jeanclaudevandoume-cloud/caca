@@ -380,6 +380,9 @@ async function boot() {
 
 // ---------------- streaming ----------------
 let lastStream = 0;
+const ckey = (x, z) => (x + 32768) * 65536 + (z + 32768);   // numeric map keys: no strings in the stream loop
+const WANT = [], WANTP = [], SEEN = new Set(), SSEEN = new Set();
+const byWantD = (a, b) => a.d - b.d;
 function stream(now) {
   if (!L || now - lastStream < 150) return;
   lastStream = now;
@@ -388,20 +391,25 @@ function stream(now) {
   const C = CHUNK * PITCH;
   const ccx = Math.floor((cam.x + 24) / C), ccz = Math.floor((cam.z + 24) / C);
   const n = Math.ceil(r1 / C) + 1;
-  const want = [];
+  // allocation-free (round M): pooled wants, numeric keys, reused sets
+  const want = WANT;
+  want.length = 0;
   for (let dz = -n; dz <= n; dz++) for (let dx = -n; dx <= n; dx++) {
     const cx = ccx + dx, cz = ccz + dz;
     const ox = (cx * CHUNK + 1.5) * PITCH, oz = (cz * CHUNK + 1.5) * PITCH;
-    const d = Math.hypot(Math.max(0, hyp2(ox - cam.x, oz - cam.z) - C * 0.7), cam.y);
+    const d = hyp2(Math.max(0, hyp2(ox - cam.x, oz - cam.z) - C * 0.7), cam.y);
     if (d > r1) continue;
-    const prev = chunks.get(cx + ',' + cz);
-    want.push({ cx, cz, d, lod: chunkLod(d, r0, prev ? prev.lod : -1) });
+    const prev = chunks.get(ckey(cx, cz));
+    const w = WANTP[want.length] || (WANTP[want.length] = { cx: 0, cz: 0, d: 0, lod: 0 });
+    w.cx = cx; w.cz = cz; w.d = d; w.lod = chunkLod(d, r0, prev ? prev.lod : -1);
+    want.push(w);
   }
-  want.sort((a, b) => a.d - b.d);
-  const seen = new Set();
+  want.sort(byWantD);
+  const seen = SEEN;
+  seen.clear();
   let budget = sup.workers.length * 3 - reqs.size;
   for (const w of want) {
-    const key = w.cx + ',' + w.cz;
+    const key = ckey(w.cx, w.cz);
     seen.add(key);
     let c = chunks.get(key);
     if (!c) { c = { cx: w.cx, cz: w.cz, g: null, lod: -1, req: 0, loaded: false }; chunks.set(key, c); }
@@ -428,7 +436,8 @@ function stream(now) {
   const rn = Math.ceil(rs / R) + 1;
   const crx = Math.floor((cam.x + 24) / R), crz = Math.floor((cam.z + 24) / R);
   const lim = Math.ceil((L.rB + 2) / SKY);
-  const sseen = new Set();
+  const sseen = SSEEN;
+  sseen.clear();
   for (let dz = -rn; dz <= rn; dz++) for (let dx = -rn; dx <= rn; dx++) {
     const rx = crx + dx, rz = crz + dz;
     if (Math.abs(rx) > lim || Math.abs(rz) > lim || !tallRegions.has(regionKey(rx, rz))) continue;
@@ -436,7 +445,7 @@ function stream(now) {
     const dh = Math.max(0, hyp2(ox - cam.x, oz - cam.z) - R * 0.7);
     const d = hyp2(dh, cam.y);
     if (d > rs || hyp2(dh + R * 1.4, cam.y) < r1 * 0.72) continue;
-    const key = rx + ',' + rz;
+    const key = ckey(rx, rz);
     sseen.add(key);
     let s = skies.get(key);
     if (!s) { s = { rx, rz, g: null, req: 0, loaded: false }; skies.set(key, s); }
@@ -515,6 +524,7 @@ function uiRects() {
 }
 function resize() {
   uiRects();
+  if (typeof tagCtx !== 'undefined') tagCtx.resize();
   const pr = Math.min(window.devicePixelRatio || 1, quality.pr);
   const w = Math.round(innerWidth * pr), h = Math.round(innerHeight * pr);
   if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
@@ -573,6 +583,8 @@ const byDist = (a, b) => a.d - b.d;
 function sortByDist(arr) {   // insertion sort: allocation-free, fast on nearly sorted lists
   for (let i = 1; i < arr.length; i++) { const v = arr[i]; let j = i - 1; while (j >= 0 && arr[j].d > v.d) { arr[j + 1] = arr[j]; j--; } arr[j + 1] = v; }
 }
+const MIDORD = [];
+const pushOrder = (c) => { if (c.g) ORDER.push(c); }, pushSky = (s) => { if (s.g) SKYORD.push(s); }, pushMid = (s) => { if (s.g) MIDORD.push(s); };
 function render(now) {
   const time = frozenT ?? (now - t0) / 1000;
   const W = canvas.width, H = canvas.height;
@@ -608,7 +620,7 @@ function render(now) {
   const drawn = DRAWN;
   drawn.length = 0;
   ORDER.length = 0;                                   // front to back: less overdraw (reused arrays)
-  for (const c of chunks.values()) if (c.g) ORDER.push(c);
+  chunks.forEach(pushOrder);                         // forEach with a fixed callback: no iterator objects per frame
   sortByDist(ORDER);
   for (const c of (PROBE === 'full' ? NONE : ORDER)) {
     bytes += c.g.bytes;
@@ -625,7 +637,7 @@ function render(now) {
   gl.uniform4f(geo.u.uLod, fadeA, fadeB, 1, 2);    // skyline tiles are stored at 1/32 m
   const RS = SKY * PITCH * 0.75;
   SKYORD.length = 0;
-  for (const s of skies.values()) if (s.g) SKYORD.push(s);
+  skies.forEach(pushSky);
   sortByDist(SKYORD);
   for (const s of (PROBE === 'full' ? NONE : SKYORD)) {
     bytes += s.g.bytes;
@@ -642,8 +654,9 @@ function render(now) {
   // mid-band massing (skyline mode: hidden where chunks still draw homes, growing in as they shrink)
   gl.uniform4f(geo.u.uLod, fadeA, fadeB, 1, 0);
   const RMd = MID * PITCH * 0.75;
-  for (const s of (PROBE === 'full' ? NONE : mids.values())) {
-    if (!s.g) continue;
+  MIDORD.length = 0;
+  if (PROBE !== 'full') mids.forEach(pushMid);
+  for (const s of MIDORD) {
     bytes += s.g.bytes;
     const ox = (s.rx * MID + MID / 2 - 0.5) * PITCH, oz = (s.rz * MID + MID / 2 - 0.5) * PITCH;
     if (!inFrustum(PL, ox, 8, oz, hyp2(RMd, 10))) continue;
@@ -890,11 +903,9 @@ async function nameOf(bx, bz, slot) {
 }
 
 // ---------------- name tags ----------------
-const tagPool = [];
 const PLACED = [], TV = [0, 0, 0, 1], TC = [0, 0, 0, 0];
 let tagList = [], lastTagScan = 0;
 const CAND = [], SORT = [], TAGF = {};
-const byTagD = (a, b) => a.d - b.d;
 const tagCam = new Float64Array([NaN, 0, 0, 0, 0]);   // NaN: compared with !(<=) below, so the first scan always runs
 let nameEpoch = 0;
 function tags(now) {
@@ -919,25 +930,30 @@ function tags(now) {
         const zone = zoneLevel(bx, bz), occ = occupied(L, bx, bz);
         for (let s = 0; s < occ; s++) {
           plotFrame(bx, bz, s, zone, f);
-          if (Math.hypot(f.x - ax, f.z - az) > R) continue;
+          if (hyp2(f.x - ax, f.z - az) > R) continue;
           const c = CAND[n] || (CAND[n] = { key: -1, name: null });
           const key = plotKey(bx, bz, s);
           if (c.key !== key) { c.key = key; c.name = nameMemo.get(key) || null; }
           c.bx = bx; c.bz = bz; c.s = s; c.x = f.x; c.z = f.z; c.y = homeTop(bx, bz, s, zone) + 2.5;
-          c.d = Math.hypot(f.x - cam.x, f.z - cam.z, cam.y);
+          c.d = hyp3(f.x - cam.x, f.z - cam.z, cam.y);
           SORT.push(c); n++;
         }
       }
-      SORT.sort(byTagD);
     }
+    // the 40 nearest by partial selection (Array.sort allocates its merge buffers)
     tagList.length = 0;
-    for (let k = 0; k < SORT.length && k < 40; k++) tagList.push(SORT[k]);
+    for (let k = 0; k < 40 && k < SORT.length; k++) {
+      let m = k;
+      for (let q = k + 1; q < SORT.length; q++) if (SORT[q].d < SORT[m].d) m = q;
+      const tmp = SORT[k]; SORT[k] = SORT[m]; SORT[m] = tmp;
+      tagList.push(SORT[k]);
+    }
     // occlusion is tested here (every 300 ms), not per frame: heightAt runs the house recipe
     for (const t of tagList) {
       t.hidden = false;
       for (let k = 1; k < 6 && !t.hidden; k++) {
         const f = k / 6, x = cam.x + (t.x - cam.x) * f, y = cam.y + (t.y - cam.y) * f, z = cam.z + (t.z - cam.z) * f;
-        if (Math.hypot(x - t.x, z - t.z) > 8 && y < heightAt(x, z)) t.hidden = true;
+        if (hyp2(x - t.x, z - t.z) > 8 && y < heightAt(x, z)) t.hidden = true;
       }
     }
     for (const t of tagList) {
@@ -956,7 +972,7 @@ function tags(now) {
   const W = innerWidth, H = innerHeight;
   const placed = PLACED;
   placed.length = 0;
-  let used = 0;
+  let used = 0, sig = 0;
   for (const t of tagList) {
     if (!t.name || used >= 24) continue;
     TV[0] = t.x; TV[1] = t.y; TV[2] = t.z; TV[3] = 1;
@@ -966,28 +982,66 @@ function tags(now) {
     if (sx < -50 || sx > W + 50 || sy < -20 || sy > H + 20) continue;
     if (t.hidden) continue;                     // behind a building (tested at the last scan)
     if (pin && pin.key !== undefined && t.key !== pin.key) continue;   // a home is selected: only its name (closing the card brings the others back)
-    const w = t.name.length * 7 + 16;
+    const b = tagBitmap(t.name);
+    const w = b.cw;
     // never under the search bar or the round buttons (rects refreshed on resize)
     if (sy - 26 < UI_TOP || (sx + w / 2 > UI_TOOLS_X && sy > UI_TOOLS_Y)) continue;
     let clash = false;
     for (let q = 0; q < placed.length; q += 3) if (Math.abs(placed[q] - sx) < (placed[q + 2] + w) / 2 && Math.abs(placed[q + 1] - sy) < 20) { clash = true; break; }
     if (clash) continue;
     placed.push(sx, sy, w);
-    let el = tagPool[used];
-    if (!el) { el = document.createElement('div'); el.className = 'tag'; $('#tags').appendChild(el); tagPool.push(el); }
-    if (el.textContent !== t.name) el.textContent = t.name;
-    // touch the DOM only when the tag actually moved (each write builds a string)
-    const ix = Math.round(sx), iy = Math.round(sy);   // whole pixels: small-integer strings are cached by the engine
-    if (ix !== el.sx || iy !== el.sy || el.style.display === 'none') {
-      el.sx = ix; el.sy = iy;
-      el.style.transform = 'translate(' + ix + 'px,' + iy + 'px) translate(-50%,-100%)';
-    }
-    const op = Math.round(Math.max(0.45, 1 - t.d / 400) * 20);
-    if (el.op !== op) { el.op = op; el.style.opacity = String(op / 20); }
-    el.style.display = '';
+    const ix = Math.round(sx), iy = Math.round(sy), op = Math.round(Math.max(0.45, 1 - t.d / 400) * 20);
+    DRAW[used] = b; DRAWXY[used * 3] = ix; DRAWXY[used * 3 + 1] = iy; DRAWXY[used * 3 + 2] = op;
+    sig = (sig * 31 + ix * 7 + iy * 13 + op + b.id) | 0;
     used++;
   }
-  for (let i = used; i < tagPool.length; i++) tagPool[i].style.display = 'none';
+  // Tags are drawn on a 2D overlay canvas at the screen's full pixel ratio from cached name bitmaps (round M):
+  // crisp text even when the 3D view renders at 1x, no DOM writes and no per-frame strings. Redrawn only
+  // when something moved.
+  if (sig === tagSig && used === tagUsed) return;
+  tagSig = sig; tagUsed = used;
+  const dpr = tagCtx.dpr;
+  tagCtx.g.clearRect(0, 0, tagCtx.c.width, tagCtx.c.height);
+  for (let i = 0; i < used; i++) {
+    const b = DRAW[i];
+    tagCtx.g.globalAlpha = DRAWXY[i * 3 + 2] / 20;
+    tagCtx.g.drawImage(b.img, Math.round((DRAWXY[i * 3] - b.cw / 2) * dpr), Math.round((DRAWXY[i * 3 + 1] - b.ch) * dpr));
+  }
+  tagCtx.g.globalAlpha = 1;
+}
+let tagSig = 0, tagUsed = -1, tagIds = 0;
+const DRAW = [], DRAWXY = new Float64Array(24 * 3);
+const tagCtx = (() => {
+  const c = document.getElementById('tagc'), g = c.getContext('2d');
+  const o = { c, g, dpr: 1 };
+  o.resize = () => { o.dpr = Math.min(3, devicePixelRatio || 1); c.width = Math.round(innerWidth * o.dpr); c.height = Math.round(innerHeight * o.dpr); tagSig = 1; tagUsed = -1; };
+  o.resize();
+  return o;
+})();
+// a name's pill (white rounded box, shadow, pointer), rendered once at device resolution; LRU of 96
+const TAGBMP = new Map();
+function tagBitmap(name) {
+  let b = TAGBMP.get(name);
+  if (b) { TAGBMP.delete(name); TAGBMP.set(name, b); return b; }   // refresh LRU order
+  const dpr = tagCtx.dpr, font = `600 ${12 * dpr}px system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif`;
+  const m = document.createElement('canvas').getContext('2d');
+  m.font = font;
+  const tw = Math.ceil(m.measureText(name).width / dpr), cw = tw + 16, ch = 26;
+  const cv = document.createElement('canvas');
+  cv.width = Math.ceil((cw + 6) * dpr); cv.height = Math.ceil((ch + 4) * dpr);
+  const g = cv.getContext('2d');
+  g.scale(dpr, dpr);
+  g.shadowColor = 'rgba(0,0,0,0.18)'; g.shadowBlur = 5; g.shadowOffsetY = 2;
+  g.fillStyle = 'rgba(255,255,255,0.9)';
+  g.beginPath(); g.roundRect ? g.roundRect(1, 1, cw, 20, 10) : g.rect(1, 1, cw, 20); g.fill();
+  g.shadowColor = 'transparent';
+  g.beginPath(); g.moveTo(1 + cw / 2 - 4, 21); g.lineTo(1 + cw / 2 + 4, 21); g.lineTo(1 + cw / 2, 25); g.fill();
+  g.fillStyle = '#1d2433'; g.font = font.replace(`${12 * dpr}px`, '12px'); g.textBaseline = 'middle';
+  g.fillText(name, 9, 11.5);
+  b = { img: cv, cw: cw + 2, ch, id: ++tagIds };
+  TAGBMP.set(name, b);
+  if (TAGBMP.size > 96) TAGBMP.delete(TAGBMP.keys().next().value);
+  return b;
 }
 
 // ---------------- input ----------------
@@ -1269,6 +1323,7 @@ $('#help').onclick = () => { $('#help').hidden = true; };
 // ---------------- debug / automation hooks ----------------
 window.__town = {
   cam, stats, quality, chunks, skies, flyToName, setTod,
+  get tagCount() { return tagUsed; },
   killWorker: (i) => sup.died(sup.workers[i], 'killed by test'),
   probe, spin, get dbg() { return { reqs: reqs.size, upq: UPQ.length, budget: sup.workers.length * 3 - reqs.size, loads: sup.workers.map((w) => w.load) }; }, get layout() { return L; }, get ready() { return ready; }, get VP() { return VP; },
   idle() {

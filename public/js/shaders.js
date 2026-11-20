@@ -161,6 +161,13 @@ void main() {
       winLayout(seed, cell, glass, style, g, n, wt, has, mx, my0, my1);
       if (glass < 0.5) col *= mix(0.7, 1.0, smoothstep(0.42, 0.48, vW.y)) * (1.0 - 0.06 * step(0.94, fract(vW.y / 0.45)) * k);   // plinth + cheap panel courses
       vec2 e = vec2(0.07 / sp, 0.022);
+      if (glass < 0.5) {
+        // homes: the whole window is one atlas fetch (no procedural frame/pane work on the phone)
+        float share = 18.0 + float(ih(seed * 31u + 7u) % 82u);
+        float lit = mix(share / 512.0, float(float(cell & 255u) < share), k);
+        vec3 refl = mix(vec3(0.3, 0.38, 0.46), uSkyHor, 0.4);
+        if (step(0.3, v) > 0.0) atlasWindow(col, emis, f, g, vec2(mx, my0) - e, vec2(1.0 - mx, my1) + e, has, wt, cell, n, amb * ao, key, refl, lit, vec3(1.0, 0.75, 0.42));
+      } else {
       float frame = step(mx - e.x, f.x) * step(f.x, 1.0 - mx + e.x) * step(my0 - e.y, f.y) * step(f.y, my1 + e.y) * has * step(0.3, v);
       float pane = step(mx, f.x) * step(f.x, 1.0 - mx) * step(my0, f.y) * step(f.y, my1) * has * step(0.3, v);
       pane = mix(mix(0.22, 0.75, glass), pane, k); frame *= k;
@@ -175,7 +182,7 @@ void main() {
       float share = 18.0 + float(ih(seed * 31u + 7u) % 82u);
       float lit = mix(share / 512.0, float(float(cell & 255u) < share), k);
       emis = vec3(1.0, 0.75, 0.42) * lit * pane * smoothstep(0.05, 0.6, uNight);
-      if (glass < 0.5 && step(0.3, v) > 0.0) atlasWindow(col, emis, f, g, vec2(mx, my0) - e, vec2(1.0 - mx, my1) + e, has, wt, cell, n, amb * ao, key, refl, lit, vec3(1.0, 0.75, 0.42));
+      }
 #else
 
     // tower facade type: 0 ribbon glass, 1 vertical fins, 2 stone grid, 3 warm bronze
