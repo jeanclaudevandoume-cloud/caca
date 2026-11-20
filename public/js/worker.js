@@ -13,7 +13,12 @@ onmessage = (e) => {
     customs.clear();
     if (m.layout) L = finishLayout(m.layout);
     else {
-      L = m.order ? layoutFromOrder(m.n, new Int16Array(m.order)) : buildLayout(m.n);
+      L = null;
+      if (m.order && m.order.byteLength % 4 === 0) {           // validate the prebuilt order; fall back to sorting
+        const t = layoutFromOrder(m.n, new Int16Array(m.order));
+        if (t.start[t.count] >= m.n) L = t;
+      }
+      if (!L) L = buildLayout(m.n);
       const g = buildGround(L);
       postMessage({ type: 'layout', layout: layoutTransfer(L), ground: g }, [g.data.buffer]);
     }

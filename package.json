@@ -7,7 +7,11 @@
   "scripts": {
     "demo": "node tools/demo-data.mjs data/demo 1000000 && node tools/build.mjs data/demo",
     "build": "node tools/build.mjs data/live",
-    "start": "node server.mjs"
+    "start": "node server.mjs",
+    "test": "node tools/selftest.mjs",
+    "phone": "node tools/demo-data.mjs data/small 100000 && node tools/build.mjs data/small /tmp/ft-town-small && node tools/single.mjs /tmp/ft-town-small dist/follower-town.html && node tools/phonetest.cjs dist/follower-town.html"
   },
-  "engines": { "node": ">=18" }
+  "engines": {
+    "node": ">=18"
+  }
 }

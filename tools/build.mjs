@@ -14,7 +14,7 @@ const out = process.argv[3] || 'public/town';
 const t0 = Date.now();
 const SHARD_MAX = 1500;
 
-const lines = fs.readFileSync(path.join(src, 'followers.txt'), 'utf8').split(/\r?\n/);
+const lines = fs.readFileSync(path.join(src, 'followers.txt'), 'utf8').replace(/^\uFEFF/, '').split(/\r?\n/);   // strip a BOM
 while (lines.length && lines[lines.length - 1].trim() === '') lines.pop();
 const n = lines.length;
 let custom = {};
@@ -24,8 +24,9 @@ const L = buildLayout(n);
 const regions = new Map();
 const shards = new Map();
 const index = new Map();
+const dupes = [];
 for (let i = 0; i < n; i++) {
-  const name = lines[i].trim().slice(0, 40).replace(/[\r\n\t]/g, '');
+  const name = Array.from(lines[i].trim().replace(/[\r\n\t]/g, '')).slice(0, 40).join('');   // truncate by code point (never split an emoji)
   if (!name) continue;
   const { bx, bz, slot } = plotOf(L, i);
   const key = regionKey(regionOf(bx), regionOf(bz));
@@ -35,6 +36,7 @@ for (let i = 0; i < n; i++) {
   const norm = normName(name);
   if (!norm) continue;
   if (!index.has(norm)) index.set(norm, i);
+  else if (dupes.length < 20) dupes.push(`"${name}" (#${i + 1}) normalises like #${index.get(norm) + 1}; search finds the first`);
   const k = shardKey(norm, 2);
   if (!shards.has(k)) shards.set(k, []);
   shards.get(k).push([norm, i]);
@@ -66,7 +68,8 @@ function put(rel, text) {
   live.add(path.normalize(f));
   try { if (fs.readFileSync(f, 'utf8') === text) { kept++; return; } } catch { /* new */ }
   fs.mkdirSync(path.dirname(f), { recursive: true });
-  fs.writeFileSync(f, text);
+  fs.writeFileSync(f + '.tmp', text);
+  fs.renameSync(f + '.tmp', f);                // atomic: a reader never sees a half-written file
   written++;
 }
 
@@ -120,7 +123,7 @@ const ordBuf = Buffer.from(ord.buffer);
   live.add(path.normalize(f));
   let same = false;
   try { same = fs.readFileSync(f).equals(ordBuf); } catch { /* new */ }
-  if (!same) { fs.mkdirSync(out, { recursive: true }); fs.writeFileSync(f, ordBuf); written++; } else kept++;
+  if (!same) { fs.mkdirSync(out, { recursive: true }); fs.writeFileSync(f + '.tmp', ordBuf); fs.renameSync(f + '.tmp', f); written++; } else kept++;
 }
 const manifestBody = { v: 3, n, c: cman, split, nh, sh, order: hash(ordBuf) };
 const built = hash(JSON.stringify(manifestBody) + JSON.stringify([...regions.keys()].sort()) + written);
@@ -130,3 +133,4 @@ const manifest = { ...manifestBody, built: written || !prev ? built : prev.built
 put('manifest.json', JSON.stringify(manifest));
 console.log(`${n} followers, ${nc} custom homes (${bad} skipped), ${regions.size} regions, ${shards.size} shards (${split.length} split); ` +
   `${written} files written, ${kept} unchanged, ${Date.now() - t0} ms`);
+if (dupes.length) console.warn('warning: names that normalise to the same search key:\n  ' + dupes.join('\n  '));

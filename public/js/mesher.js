@@ -20,6 +20,8 @@ export const M = { PLAIN: 0, WIN: 1, LEAF: 2, METAL: 3, LIGHT: 4, GLASS: 5, WATE
 const TALL = 8;
 
 export class MB {
+  static strict = false;
+  static overflow = [];
   constructor(ox, oz, cap = 4096) {
     this.ox = ox; this.oz = oz;
     this.alloc(cap);
@@ -37,6 +39,11 @@ export class MB {
   v(x, y, z, u, v, nx, ny, nz, m, c, a) {
     if (this.nv >= this.cap) this.alloc(this.cap * 2);
     const n = this.nv, o = n * 8, b = n * 16;
+    if (MB.strict) {      // tools/selftest.mjs: vertex attributes must fit their packed formats
+      const px = (x - this.ox) * this.sc, py = y * this.sc, pz = (z - this.oz) * this.sc;
+      if (Math.abs(px) > 32767 || Math.abs(py) > 32767 || Math.abs(pz) > 32767) MB.overflow.push(`pos ${x},${y},${z}`);
+      if (u * 8 > 255.5 || v * 4 > 255.5) MB.overflow.push(`uv ${u.toFixed(1)},${v.toFixed(1)}`);
+    }
     this.i16[o] = Math.round((x - this.ox) * this.sc);
     this.i16[o + 1] = Math.round(y * this.sc);
     this.i16[o + 2] = Math.round((z - this.oz) * this.sc);
@@ -104,7 +111,7 @@ export class MB {
     // centre the window grid on each wall so no window is cut at a corner
     const sp = m === M.GLASS ? 1.7 : 2.6, win = m === M.WIN || m === M.GLASS;
     // every wall holds a whole number of window cells (stretched to fit), so no window wraps a corner
-    const uw = win ? Math.max(1, Math.round(w / sp)) * sp : w, ud = win ? Math.max(1, Math.round(d / sp)) * sp : d;
+    const uw = win ? Math.max(1, Math.round(w / sp)) * sp : 0, ud = win ? Math.max(1, Math.round(d / sp)) * sp : 0;   // non-window materials never read u
     this.q(x0, y0, z1, x1, y0, z1, x1, y1, z1, x0, y1, z1, 0, 0, 1, 0, v0, uw, v1, m, c, a);
     this.q(x1, y0, z0, x0, y0, z0, x0, y1, z0, x1, y1, z0, 0, 0, -1, 0, v0, uw, v1, m, c, a);
     this.q(x1, y0, z1, x1, y0, z0, x1, y1, z0, x1, y1, z1, 1, 0, 0, 0, v0, ud, v1, m, c, a);
@@ -915,4 +922,3 @@ export function buildSkyline(L, sx, sz, lite = false) {
   return mb.finish();
 }
 
-void mod; void isRiver;

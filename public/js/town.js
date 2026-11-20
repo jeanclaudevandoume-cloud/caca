@@ -188,10 +188,10 @@ export function recipe(bx, bz, slot, zone, custom) {
     const d = isqrt(bx * bx + bz * bz);
     const hubFar = d > 10;
     // a landmark cluster right around the plaza, tapering steadily outward
-    const maxF = hubFar ? 30 : d <= 2 ? 60 : Math.max(18, 48 - 4 * d);
+    const maxF = hubFar ? 30 : d <= 2 ? 58 : Math.max(18, 48 - 4 * d);
     const roll = h % 100;
     r.floors = Math.max(8, Math.floor(maxF * ((d <= 3 ? 60 : 35) + (h >>> 7) % (d <= 3 ? 41 : 66)) / 100));
-    if (roll < 6) r.floors = Math.min(60, Math.floor(maxF * 1.25));
+    if (roll < 6) r.floors = Math.min(58, Math.floor(maxF * 1.25));   // 58 + a 4-floor crown stays under the packed v limit (63.75 floors)
     r.sig = d <= 1 && roll < 6;                  // the few signature towers (lantern crown + spire)
     r.w = 7.5 + ((h >>> 3) % 5) * 0.5; r.d = 11 + ((h >>> 5) % 7);
     r.roofType = 2; r.mat = 5;

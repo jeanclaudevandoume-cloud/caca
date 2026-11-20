@@ -4,3 +4,4 @@ data/demo/
 shots/
 *.log
 dist/
+data/small/

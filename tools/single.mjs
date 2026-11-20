@@ -1,25 +1,71 @@
-// Bundle the whole town into ONE self-contained HTML file (code, worker and data), for testing
-// on a phone without a server:  node tools/single.mjs <town dir> [out.html]
-//   e.g. node tools/demo-data.mjs data/small 100000 && node tools/build.mjs data/small /tmp/town-small
-//        node tools/single.mjs /tmp/town-small dist/follower-town.html
-// The data is embedded, so keep it small (100k followers ≈ 4 MB). Real deployments use the
-// normal static files instead.
+// Bundle the whole town into ONE self-contained HTML file (code, worker and data) for testing on a
+// phone without a server:
+//   node tools/demo-data.mjs data/small 100000 && node tools/build.mjs data/small /tmp/town-small
+//   node tools/single.mjs /tmp/town-small dist/follower-town.html [--force]
+//
+// Safe by construction:
+//  - every ES module keeps its own scope (a tiny module registry), so two modules declaring the same
+//    top-level name can never collide (that once broke every phone build for several rounds);
+//  - only a strict import/export grammar is accepted — anything else stops the build;
+//  - both bundles are parse-checked, and the worker bundle is actually executed in Node (layout +
+//    one chunk + one skyline tile) before the file is written;
+//  - embedded data is escaped so no follower name can close a <script> element;
+//  - a size guard refuses accidental huge files.
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
+import vm from 'node:vm';
+import { execFileSync } from 'node:child_process';
 
-const townDir = process.argv[2];
-const out = process.argv[3] || 'dist/follower-town.html';
-if (!townDir) { console.error('usage: node tools/single.mjs <town dir> [out.html]'); process.exit(1); }
-const js = (f) => fs.readFileSync(path.join('public/js', f), 'utf8');
-// strip ES module syntax so the files can be concatenated into one script
-const flat = (src) => src.replace(/^import[\s\S]*?from\s+'[^']+';\s*$/gm, '').replace(/^export\s+(?=(const|let|function|class)\b)/gm, '');
+const args = process.argv.slice(2).filter((a) => !a.startsWith('--'));
+const force = process.argv.includes('--force');
+const townDir = args[0];
+const out = args[1] || 'dist/follower-town.html';
+if (!townDir) { console.error('usage: node tools/single.mjs <town dir> [out.html] [--force]'); process.exit(1); }
+const die = (msg) => { console.error('single.mjs: ' + msg); process.exit(1); };
 
-const workerSrc = [flat(js('town.js')), flat(js('mesher.js')), flat(js('worker.js'))].join('\n;\n');
-let mainSrc = flat(js('main.js')).replace(
-  "new Worker(new URL('./worker.js', import.meta.url), { type: 'module' })",
-  'new Worker(WORKER_URL)');
-if (mainSrc.includes('import.meta')) throw new Error('main.js still references import.meta');
+// ---- modules -> scoped registry ----
+const IMPORT = /^import\s*\{([^}]*)\}\s*from\s*'(\.\/[a-z]+\.js)';[ \t]*$/gm;
+function wrap(file) {
+  let src = fs.readFileSync(path.join('public/js', file), 'utf8');
+  const head = [];
+  src = src.replace(IMPORT, (m, list, from) => {
+    const parts = list.split(',').map((s) => s.trim()).filter(Boolean).map((s) => {
+      const mm = /^([A-Za-z_$][\w$]*)(?:\s+as\s+([A-Za-z_$][\w$]*))?$/.exec(s);
+      if (!mm) die(`${file}: unsupported import specifier "${s}"`);
+      return mm[2] ? `${mm[1]}: ${mm[2]}` : mm[1];
+    });
+    head.push(`const { ${parts.join(', ')} } = __req('${from}');`);
+    return '';
+  });
+  const names = [];
+  src = src.replace(/^export\s+(async\s+function\*?|function\*?|const|class)\s+([A-Za-z_$][\w$]*)/gm, (m, kind, name) => {
+    names.push(name);
+    return `${kind} ${name}`;
+  });
+  // anything left that looks like module syntax is unsupported here
+  const left = /^\s*(import\b|export\b)/m.exec(src);
+  if (left) die(`${file}: unsupported module syntax near "${src.slice(left.index, left.index + 60).trim()}"`);
+  if (/import\.meta/.test(src)) {
+    if (file !== 'main.js') die(`${file}: import.meta is not supported`);
+    const w = "new Worker(new URL('./worker.js', import.meta.url), { type: 'module' })";
+    if (!src.includes(w)) die('main.js: unexpected import.meta use');
+    src = src.replace(w, 'new Worker(WORKER_URL)');
+  }
+  if (/<\/?script|<!--/i.test(src)) die(`${file}: contains "<script" or "<!--", which would break the HTML`);
+  return `__def('./${file}', function (__req) {\n${head.join('\n')}\n${src}\nreturn { ${names.join(', ')} };\n});\n`;
+}
+const RUNTIME = `const __mods = {}, __cache = {};
+function __def(name, fn) { __mods[name] = fn; }
+function __req(name) {
+  if (!(name in __cache)) { if (!__mods[name]) throw new Error('module not bundled: ' + name); __cache[name] = null; __cache[name] = __mods[name](__req); }
+  if (__cache[name] === null) throw new Error('circular import: ' + name);
+  return __cache[name];
+}
+`;
+const workerSrc = '"use strict";\n' + RUNTIME + ['town.js', 'mesher.js', 'worker.js'].map(wrap).join('') + "__req('./worker.js');\n";
 
+// ---- data ----
 const files = {};
 for (const sub of ['n', 'c', 's']) {
   const d = path.join(townDir, sub);
@@ -29,8 +75,13 @@ for (const sub of ['n', 'c', 's']) {
 files['manifest.json'] = fs.readFileSync(path.join(townDir, 'manifest.json'), 'utf8');
 const bins = {};
 if (fs.existsSync(path.join(townDir, 'order.bin'))) bins['order.bin'] = fs.readFileSync(path.join(townDir, 'order.bin')).toString('base64');
+const manifest = JSON.parse(files['manifest.json']);
+
+let stamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
+try { stamp = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { stdio: 'pipe' }).toString().trim() + ' ' + stamp; } catch { /* not a git checkout */ }
 
 const prelude = `
+window.FT_BUILD = ${JSON.stringify(stamp)};
 const WORKER_URL = URL.createObjectURL(new Blob([document.getElementById('worker-src').textContent], { type: 'text/javascript' }));
 const TOWN_ALL = JSON.parse(document.getElementById('town-data').textContent), TOWN_FILES = TOWN_ALL.f, TOWN_BIN = TOWN_ALL.b;
 const netFetch = window.fetch.bind(window);
@@ -42,27 +93,48 @@ window.fetch = (u, o) => {
   return Promise.resolve(p in TOWN_FILES ? new Response(TOWN_FILES[p], { status: 200 }) : new Response('', { status: 404 }));
 };
 `;
-const bundle = [prelude, flat(js('town.js')), flat(js('mesher.js')), flat(js('shaders.js')), mainSrc].join('\n;\n');
-const safe = (t) => t.replace(/<\/(script)/gi, '<\\/$1');
+const mainSrc = '"use strict";\n' + RUNTIME + prelude + ['town.js', 'mesher.js', 'shaders.js', 'main.js'].map(wrap).join('') + "__req('./main.js');\n";
 
-let html = fs.readFileSync('public/index.html', 'utf8');
-const tag = '<script type="module" src="js/main.js"></script>';
-if (!html.includes(tag)) throw new Error('index.html script tag not found');
-html = html.replace(tag, () =>
-  `<script type="text/plain" id="worker-src">${safe(workerSrc)}</script>\n` +
-  `<script type="application/json" id="town-data">${safe(JSON.stringify({ f: files, b: bins }))}</script>\n` +
-  `<script type="module">${safe(bundle)}</script>`);
-// The modules are concatenated into one scope: refuse to write a bundle that does not parse
-// (e.g. two modules declaring the same top-level name — that once broke every phone build).
-import { execFileSync } from 'node:child_process';
-import os from 'node:os';
-for (const [label, src, ext] of [['main bundle', bundle, '.mjs'], ['worker bundle', workerSrc, '.js']]) {
-  const tmp = path.join(os.tmpdir(), `ft-check-${process.pid}${ext}`);
+// ---- checks ----
+for (const [label, src] of [['main bundle', mainSrc], ['worker bundle', workerSrc]]) {
+  const tmp = path.join(os.tmpdir(), `ft-check-${process.pid}.js`);
   fs.writeFileSync(tmp, src);
   try { execFileSync(process.execPath, ['--check', tmp], { stdio: 'pipe' }); }
-  catch (e) { console.error(`${label} does not parse:\n` + String(e.stderr).slice(0, 800)); process.exit(1); }
+  catch (e) { die(`${label} does not parse:\n` + String(e.stderr).slice(0, 800)); }
   finally { fs.unlinkSync(tmp); }
 }
+// run the worker bundle for real: layout, one chunk, one skyline tile
+{
+  const replies = [];
+  const ctx = { onmessage: null, postMessage: (m) => replies.push(m), console, URL, Math, Date, performance: { now: () => 0 } };
+  ctx.self = ctx;
+  vm.createContext(ctx);
+  try {
+    vm.runInContext(workerSrc, ctx, { timeout: 30000 });
+    if (typeof ctx.onmessage !== 'function') die('worker bundle did not install onmessage');
+    ctx.onmessage({ data: { type: 'init', n: Math.min(manifest.n || 1000, 5000) } });
+    ctx.onmessage({ data: { type: 'chunk', id: 1, cx: 0, cz: 0, lod: 0, custom: null } });
+    ctx.onmessage({ data: { type: 'chunk', id: 2, cx: 1, cz: 0, lod: 0, custom: null, lite: true } });
+    ctx.onmessage({ data: { type: 'sky', id: 3, rx: 0, rz: 0 } });
+  } catch (e) { die('worker bundle failed when run: ' + (e.stack || e)); }
+  const err = replies.find((r) => r.type === 'error');
+  if (err) die('worker bundle reported an error: ' + err.message);
+  const meshes = replies.filter((r) => r.type === 'mesh' && r.ib && r.ib.length > 0);
+  if (!replies.some((r) => r.type === 'layout') || meshes.length < 3) die(`worker bundle smoke run incomplete (${replies.map((r) => r.type).join(',')})`);
+}
+
+// ---- HTML ----
+// data: escape every '<' so nothing in a follower name can end the <script> element
+const dataJson = JSON.stringify({ f: files, b: bins }).replace(/</g, '\\u003c');
+let html = fs.readFileSync('public/index.html', 'utf8');
+const tag = '<script type="module" src="js/main.js"></script>';
+if (!html.includes(tag)) die('index.html script tag not found');
+html = html.replace(tag, () =>
+  `<script type="text/plain" id="worker-src">${workerSrc}</script>\n` +
+  `<script type="application/json" id="town-data">${dataJson}</script>\n` +
+  `<script>${mainSrc}</script>`);
+const mb = html.length / 1048576;
+if (mb > 15 && !force) die(`output would be ${mb.toFixed(1)} MB (> 15 MB). Use a smaller dataset or --force.`);
 fs.mkdirSync(path.dirname(out), { recursive: true });
 fs.writeFileSync(out, html);
-console.log(`${out}: ${(html.length / 1048576).toFixed(1)} MB, ${Object.keys(files).length} embedded files`);
+console.log(`${out}: ${mb.toFixed(1)} MB, ${Object.keys(files).length} embedded files, build ${stamp}`);

@@ -6,11 +6,13 @@ import {
 import { MB, M, SKY } from './mesher.js';
 import { GEO_VS, GEO_FS, SHADOW_VS, SHADOW_FS, FULL_VS, FULL_FS, COPY_FS } from './shaders.js';
 
+window.__ftBooted = true;
 const $ = (s) => document.querySelector(s);
 // ---- diagnostics: on any failure show the reason on screen (phones have no console) ----
 const DIAG = [];
 function fail(msg) {
-  DIAG.push(String(msg).slice(0, 600));
+  if (window.__ftReady && !String(msg).includes('lost')) { console.error(msg); try { toast('Something went wrong: ' + String(msg).slice(0, 80)); } catch { /* ignore */ } return; }
+  DIAG.push(String(msg).slice(0, 600) + (window.FT_BUILD ? '\n(build ' + window.FT_BUILD + ')' : ''));
   const el = document.getElementById('loading');
   if (el) { el.classList.remove('gone'); el.style.whiteSpace = 'pre-wrap'; el.style.fontSize = '13px'; el.style.padding = '16px'; el.style.textAlign = 'left'; el.textContent = 'Follower Town could not start on this device:\n\n' + DIAG.join('\n\n'); }
 }
@@ -52,6 +54,7 @@ function prog(vs, fs) {
 }
 const P = { geo: prog(GEO_VS, GEO_FS), shadow: prog(SHADOW_VS, SHADOW_FS), full: prog(FULL_VS, FULL_FS), copy: prog(FULL_VS, COPY_FS) };
 const fullVao = gl.createVertexArray();
+const hasStencil = !!(gl.getContextAttributes() || {}).stencil;      // without it shadows would darken twice
 gl.useProgram(P.full.p);
 gl.uniform3fv(P.full.u.uRoof, new Float32Array(ROOF.flatMap((c) => [((c >> 16) & 255) / 255, ((c >> 8) & 255) / 255, (c & 255) / 255])));
 let pinMesh = null, pin = null;   // marker over the selected home
@@ -146,11 +149,17 @@ if (innerWidth / innerHeight < 0.75) Object.assign(HOME, { z: 525, pitch: -0.1 }
 const cam = { ...HOME };
 const PRESETS = { low: { s: 0.55, pr: 1 }, mid: { s: 0.8, pr: 1.5 }, high: { s: 1, pr: 2 } };
 const isPhone = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) || Math.min(screen.width, screen.height) < 600;
+let lowState = null;
+// Low preset with hysteresis: the governor drifting around 0.7 must not rebuild every chunk back and forth.
+function isLow() {
+  if (lowState === null || (lowState && quality.s > 0.74) || (!lowState && quality.s < 0.66)) lowState = quality.s < 0.7;
+  return lowState;
+}
 const quality = { mode: qParam, ...(qParam === 'high' ? PRESETS.high : qParam === 'low' ? PRESETS.low : isPhone ? PRESETS.low : PRESETS.mid) };
 quality.maxS = quality.s; quality.maxPr = quality.pr;
 const RAD = { r0: 0, r1: 0, rs: 0 };
 function radii() {          // fills one object (no per-frame allocation)
-  RAD.r0 = 320 * Math.max(0.6, quality.s); RAD.r1 = 1100 * quality.s * (quality.s < 0.7 ? 0.75 : 1); RAD.rs = Math.min(5000, 7000 * quality.s * quality.s);
+  RAD.r0 = 320 * Math.max(0.6, quality.s); RAD.r1 = 1100 * quality.s * (isLow() ? 0.75 : 1); RAD.rs = Math.min(5000, 7000 * quality.s * quality.s);
   return RAD;
 }
 const stats = { tris: 0, draws: 0, sky: 0, chunks: 0, mb: 0, fps: 0, ms: 0 };
@@ -175,7 +184,16 @@ function onWorker(e) {
   const r = reqs.get(m.id);
   reqs.delete(m.id);
   if (r) r.w.load--;
-  if (m.type === 'error') { console.error(m.message); if (m.fatal) fail('Worker: ' + m.message); if (r) r.target.req = 0; return; }
+  if (m.type === 'error') {
+    console.error(m.message);
+    if (m.fatal) fail('Worker: ' + m.message);
+    if (r && r.target.req === m.id) {          // only the request that failed; give up after 3 tries
+      const t = r.target;
+      t.req = 0; t.fails = (t.fails || 0) + 1;
+      if (t.fails >= 3) { t.loaded = true; t.lod = r.lod; }
+    }
+    return;
+  }
   if (!r) return;
   const t = r.target;
   if (t.req !== m.id) return;      // superseded
@@ -214,6 +232,7 @@ function onLayout(lt, ground) {
   const old = L;
   L = nl;
   for (let i = 1; i < workers.length; i++) workers[i].postMessage({ type: 'init', layout: lt });
+  if (ground.size > gl.getParameter(gl.MAX_TEXTURE_SIZE)) fail(`This town is too large for this GPU (${ground.size} > ${gl.getParameter(gl.MAX_TEXTURE_SIZE)}).`);
   if (!groundTex) groundTex = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, groundTex);
   gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
@@ -234,6 +253,7 @@ function onLayout(lt, ground) {
   $('#count').textContent = L.n.toLocaleString() + ' homes';
   if (!ready) {
     ready = true;
+    window.__ftReady = true;
     bootMs = performance.now();
     $('#loading').classList.add('gone');
     const u = params.get('u') || hashParams().get('u');
@@ -259,10 +279,12 @@ const customCache = new Map();   // regionKey -> object | null | Promise
 function customFor(cx, cz) {
   const key = regionKey(regionOf(cx * CHUNK), regionOf(cz * CHUNK));
   if (!manifest.c || !manifest.c[key]) return null;
-  const v = customCache.get(key);
+  const ck = key + '@' + manifest.c[key];           // versioned key: an old download can't overwrite new data
+  const v = customCache.get(ck);
   if (v === undefined) {
-    customCache.set(key, fetch(`${TOWN_URL}c/${key}.json?v=${manifest.c[key]}`).then((r) => (r.ok ? r.json() : null)).catch(() => null)
-      .then((j) => { customCache.set(key, j); }));
+    const pr = fetch(`${TOWN_URL}c/${key}.json?v=${manifest.c[key]}`).then((r) => (r.ok ? r.json() : null)).catch(() => null)
+      .then((j) => { if (customCache.get(ck) === pr) customCache.set(ck, j); });
+    capSet(customCache, ck, pr);
     return undefined;
   }
   return v && v.then ? undefined : v;
@@ -286,10 +308,10 @@ async function boot() {
   setInterval(async () => {
     try {
       const m = await loadManifest();
-      if (m.built !== manifest.built) {
+      if (m.built !== manifest.built && !layoutStage) {   // skip while a previous update is still being applied
         const oldC = manifest.c;
         manifest = m;
-        layoutStage = { oldC, flush: Object.keys(m.c || {}).filter((k) => !oldC || oldC[k] !== m.c[k]) };
+        layoutStage = { oldC };
         initLayout();
         nameCache.clear(); shardCache.clear(); nameMemo.clear();
       }
@@ -323,7 +345,7 @@ function stream(now) {
     let c = chunks.get(key);
     if (!c) { c = { cx: w.cx, cz: w.cz, g: null, lod: -1, req: 0, loaded: false }; chunks.set(key, c); }
     c.seen = now; c.want = w.lod; c.d = w.d;
-    const lite = quality.s < 0.7;
+    const lite = isLow();
     if ((c.lod !== w.lod || c.stale || (c.g && c.lite !== lite)) && !c.req && budget > 0) {
       const custom = customFor(w.cx, w.cz);
       if (custom === undefined) continue;          // still downloading
@@ -357,7 +379,7 @@ function stream(now) {
     let s = skies.get(key);
     if (!s) { s = { rx, rz, g: null, req: 0, loaded: false }; skies.set(key, s); }
     s.seen = now; s.d = d;
-    const slite = quality.s < 0.7;
+    const slite = isLow();
     if ((!s.loaded || s.stale || s.lite !== slite) && !s.req && budget > 0) { s.stale = false; s.lite = slite; send({ type: 'sky', rx, rz, lite: slite }, s, 0); budget--; }
   }
   for (const [key, s] of skies) if (!sseen.has(key) && now - s.seen > 5000) { if (s.req) { const r = reqs.get(s.req); if (r) r.dead = true; } release(s.g); skies.delete(key); }
@@ -415,7 +437,6 @@ function step(now) {
   const dtMs = now - lastFrame; lastFrame = now;
   const dt = Math.min(0.1, dtMs / 1000);
   if (refresh.samples.length < 90) { refresh.samples.push(dtMs); if (refresh.samples.length === 90) { const s = refresh.samples.slice(30).sort((a, b) => a - b); refresh.ms = Math.max(6.9, s[s.length >> 1]); } }
-  frameAcc += dtMs; frameN++;
   governor(now);
   updateInput(dt);
   updateFly(now);
@@ -426,6 +447,7 @@ function step(now) {
   // with frozen time (?t=) an idle frame is identical: don't redraw at all
   if (now - lastActive > 1500 && (frozenT !== null || now - lastRender < 80) && !params.has('shot')) return;
   lastRender = now;
+  if (now - lastActive < 1500) { frameAcc += dtMs; frameN++; }   // the governor only counts active, rendered frames
   render(now);
   if (showTags) tags(now);
   if (params.has('debug')) $('#debug').textContent = `${stats.fps} fps · ${(stats.tris / 1000) | 0}k tris · ${stats.draws} draws · ${stats.sky} sky · ${stats.chunks} chunks · ${stats.mb} MB · pr ${quality.pr.toFixed(2)} s ${quality.s.toFixed(2)}`;
@@ -474,7 +496,7 @@ function render(now) {
   const { r0, r1 } = radii();
   const fogD = Math.max(3600, 4500 + cam.y * 5) * (0.75 + 0.25 * quality.s);
 
-  const half = quality.s < 0.7 && !halfBroken && !params.has('fullres') && PROBE !== 'geo' ? halfGround(W, H, T, time, fogD, r1) : null;
+  const half = isLow() && !halfBroken && !params.has('fullres') && PROBE !== 'geo' ? halfGround(W, H, T, time, fogD, r1) : null;
   gl.viewport(0, 0, W, H);
   gl.clearColor(T.fog[0], T.fog[1], T.fog[2], 1);
   gl.clearStencil(0);
@@ -487,7 +509,7 @@ function render(now) {
   gl.useProgram(geo.p);
   setCommonU(geo.u, T, time, fogD);
   gl.uniformMatrix4fv(geo.u.uVP, false, VP);
-  const fadeA = r1 * 0.72, fadeB = r1 * 0.96, shadowR = quality.s < 0.7 ? 50 : 650 * quality.s;
+  const fadeA = r1 * 0.72, fadeB = r1 * 0.96, shadowR = isLow() ? 50 : 650 * quality.s;
   gl.uniform4f(geo.u.uLod, fadeA, fadeB, 0, 0);
   const R = CHUNK * PITCH * 0.75;
   const drawn = DRAWN;
@@ -562,7 +584,7 @@ function render(now) {
 
   // projected planar shadows on the ground (stencil: each pixel darkened once)
   const shDir = shadowDir(T);
-  if (T.night < 0.6 && drawn.length && quality.s >= 0.7 && PROBE !== 'full') {   // low quality: painted ground shadows instead (cast shadows cost 25-45% more tris there)
+  if (T.night < 0.6 && drawn.length && !isLow() && hasStencil && PROBE !== 'full') {   // low quality: painted ground shadows instead (cast shadows cost 25-45% more tris there)
     const sh = P.shadow;
     gl.useProgram(sh.p);
     gl.uniformMatrix4fv(sh.u.uVP, false, VP);
@@ -591,7 +613,7 @@ function setCommonU(u, T, time, fogD) {
   gl.uniform3fv(u.uFogCol, T.fog); gl.uniform3fv(u.uSkyTop, T.top); gl.uniform3fv(u.uSkyHor, T.hor);
   gl.uniform1f(u.uFogD, fogD); gl.uniform1f(u.uNight, T.night); gl.uniform1f(u.uTime, time);
   gl.uniform3f(u.uCam, cam.x, cam.y, cam.z);
-  if (u.uLowQ) gl.uniform1f(u.uLowQ, quality.s < 0.7 ? 1 : 0);
+  if (u.uLowQ) gl.uniform1f(u.uLowQ, isLow() ? 1 : 0);
 }
 function setFull(u, T, time, fogD, r1) {
   setCommonU(u, T, time, fogD);
@@ -622,6 +644,7 @@ function halfGround(W, H, T, time, fogD, r1) {
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
     if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.deleteFramebuffer(fb); gl.deleteTexture(tex);
       halfBroken = true;
       return null;
     }
@@ -653,6 +676,7 @@ function shadowDir(T) {
 let govGood = 0;
 function governor(now) {
   if (now - lastGov < 1000) return;
+  if (frameN < 10) { lastGov = now; return; }          // idle: nothing to judge
   const avg = frameAcc / Math.max(1, frameN);
   stats.fps = Math.round(1000 / avg); stats.ms = avg;
   frameAcc = 0; frameN = 0; lastGov = now;
@@ -675,6 +699,8 @@ function governor(now) {
 
 // ---------------- heights & picking ----------------
 const nameCache = new Map();
+// Map used as a small LRU: newest last, oldest evicted beyond 64 entries.
+function capSet(map, k, v) { map.delete(k); map.set(k, v); if (map.size > 64) map.delete(map.keys().next().value); }
 const nameMemo = new Map();      // 'bx,bz,slot' -> name, so tags never blink between scans
 function homeTop(bx, bz, slot, zone) {
   const r = recipe(bx, bz, slot, zone, null);
@@ -719,13 +745,15 @@ function plotAtWorld(x, z) {
   return p < 0 ? null : { p, bx, bz, slot: s, zone };
 }
 async function nameOf(bx, bz, slot) {
-  const key = regionKey(regionOf(bx), regionOf(bz));
+  const ver = (manifest.nh && manifest.nh[regionKey(regionOf(bx), regionOf(bz))]) || manifest.built;
+  const key = regionKey(regionOf(bx), regionOf(bz)) + '@' + ver;
   let lines = nameCache.get(key);
   if (!lines) {
-    lines = fetch(`${TOWN_URL}n/${key}.txt?v=${(manifest.nh && manifest.nh[key]) || manifest.built}`).then((r) => (r.ok ? r.text() : '')).then((t) => t.split('\n')).catch(() => []);
-    nameCache.set(key, lines);
+    const pr = fetch(`${TOWN_URL}n/${regionKey(regionOf(bx), regionOf(bz))}.txt?v=${ver}`).then((r) => (r.ok ? r.text() : '')).then((t) => t.split('\n')).catch(() => []);
+    capSet(nameCache, key, pr);
+    lines = pr;
   }
-  if (lines.then) { lines = await lines; nameCache.set(key, lines); }
+  if (lines.then) { const pr = lines; lines = await lines; if (nameCache.get(key) === pr) nameCache.set(key, lines); }
   return lines[lineIndex(bx, bz, slot)] || '';
 }
 
@@ -918,7 +946,7 @@ function updateFly(now) {
 const shardCache = new Map();
 async function shard(norm) {
   const key = shardFor(norm, manifest.split);
-  if (!shardCache.has(key)) shardCache.set(key, fetch(`${TOWN_URL}s/${key}.json?v=${(manifest.sh && manifest.sh[key]) || manifest.built}`).then((r) => (r.ok ? r.json() : [])).catch(() => []));
+  if (!shardCache.has(key)) capSet(shardCache, key, fetch(`${TOWN_URL}s/${key}.json?v=${(manifest.sh && manifest.sh[key]) || manifest.built}`).then((r) => (r.ok ? r.json() : [])).catch(() => []));
   return shardCache.get(key);
 }
 async function findName(q) {
@@ -1013,7 +1041,6 @@ window.__town = {
     return true;
   },
 };
-void cellKind; void fdiv;
 boot();
 requestAnimationFrame(frame);
 setTimeout(clampCam, 1500);

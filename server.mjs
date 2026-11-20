@@ -4,8 +4,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), 'public');
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'public');   // works with spaces / Windows paths
 const PORT = +process.env.PORT || 8080;
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json', '.txt': 'text/plain; charset=utf-8', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.bin': 'application/octet-stream' };
 // LRU of prepared responses (raw + gzip + etag), bounded by bytes; reads and compression are async.
@@ -54,8 +55,9 @@ http.createServer((req, res) => {
         // town files are addressed with ?v=<content hash>, so they can be cached for long
         'cache-control': town ? (p === '/town/manifest.json' ? 'no-cache' : 'public, max-age=604800') : 'no-cache',
       };
-      if (req.headers['if-none-match'] === c.etag) { res.writeHead(304, headers).end(); return; }
       const useGz = c.gz && /\bgzip\b/.test(req.headers['accept-encoding'] || '');
+      if (useGz) headers.etag = c.etag.slice(0, -1) + '-gz"';          // the gzip body is a different representation
+      if (req.headers['if-none-match'] === headers.etag) { res.writeHead(304, headers).end(); return; }
       const body = useGz ? c.gz : c.raw;
       if (useGz) headers['content-encoding'] = 'gzip';
       headers['content-length'] = body.length;
