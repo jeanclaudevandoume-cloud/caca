@@ -106,6 +106,17 @@ build; 10 = also clear margin under budget.
 1. Boot cost (layout/data at 1M and 10M). 2. Low-preset tris/draws per vantage. 3. Fill cost of
 full-screen passes. 4. Per-frame allocations. 5. LOD artifacts/pops. 6. GPU memory.
 
+## Process (owner, round L) — overrides everything below
+
+- **A round must raise each graded axis by >= 1.0.** A round that does not is not finished: its change is
+  extended or replaced (or reverted) before the next round starts, and the reviewer must say why their
+  prediction failed and widen the scope (a subsystem rewrite, not more tuning).
+- **Reviewers propose, predict, then re-grade.** Each axis reviewer names 1-2 BIG changes and the score they
+  will give when each is done (each must predict >= +1.5). Lists of small fixes are rejected.
+- **The same reviewer re-grades** (continued, not respawned) so the scale stays calibrated; a fresh reviewer
+  is used only to check that one is not drifting.
+- All axes' big changes ship in the same round.
+
 ## Process (meta-review 2, round K) — supersedes conflicting rules below
 
 - **The frame is frozen**: opening camera, sun (LOCKED above), wall/roof palettes and exposure as of round K.
