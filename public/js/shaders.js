@@ -16,6 +16,10 @@ vec3 fogMix(vec3 col, vec3 dir, float dist) {
   float f = 1.0 - exp(-pow(dist / (uFogD * 1.4), 1.6));
   float s = pow(max(dot(dir, uSunDir), 0.0), 6.0);
   vec3 fc = uFogCol + uSunCol * s * 0.25 * (1.0 - uNight);
+  // aerial perspective (round L): from a few hundred metres on, colours lose saturation and drift toward the
+  // haze, so near homes, the roofscape and the towers separate into planes instead of one flat sheet
+  float a = (1.0 - exp(-dist / 1500.0)) * 0.42 * (1.0 - 0.7 * uNight);
+  col = mix(col, mix(vec3(dot(col, vec3(0.3, 0.55, 0.15))), fc, 0.6), a);
   return mix(col, fc, clamp(f, 0.0, 1.0));
 }
 `;
@@ -88,10 +92,15 @@ void main() {
   uint sa = uint(vCol.a * 255.0 + 0.5);
   bool city = vMat == 5 || (vMat == 1 && (sa & 3u) == 3u);
   // canyon shade: city walls darken strongly toward the street (no building-on-building shadows otherwise)
-  float ao = mix(1.0, city ? mix(0.45, 1.0, smoothstep(0.0, 30.0, vW.y)) : mix(0.6, 1.0, smoothstep(0.0, 2.5, vW.y)), wall);
+  // homes: a contact ramp (0.5 at the ground over the first 1.2 m, a softer one to 3.5 m)
+  float ao = mix(1.0, city ? mix(0.45, 1.0, smoothstep(0.0, 30.0, vW.y)) : mix(0.5, 1.0, smoothstep(0.0, 1.2, vW.y)) * mix(0.84, 1.0, smoothstep(1.2, 3.5, vW.y)), wall);
+  // homes stand 0.4-1.2 m apart and face the +-z streets: their x-facing side walls sit in a slot the sun and
+  // most of the sky can't reach below the neighbour's eaves (round L: those walls used to read fully sunlit)
+  float gap = (!city && vMat == 1 && abs(n.x) > 0.5) ? mix(0.62, 1.0, smoothstep(4.0, 8.0, vW.y)) : 1.0;   // softened: corner houses face an open street there
+  ao *= gap;
   float avert = mix(1.0, city ? 0.8 : 0.58, wall * step(dot(n, uSunDir), 0.0));             // faces turned from the sun
   float jitter = (vMat == 5 ? 0.62 : city ? 0.85 : 0.74) + (vMat == 5 ? 0.42 : city ? 0.15 : 0.26) * float((sa * 2654435761u) >> 24u) / 255.0;   // towers: dark to light glass   // neighbours separate
-  vec3 col = base * jitter * (amb * ao * avert + key * sun);
+  vec3 col = base * jitter * (amb * ao * avert + key * sun * sqrt(ao) * gap);   // occlusion darkens the sunlit side too
   vec3 emis = vec3(0.0);
   uint seedAll = uint(vCol.a * 255.0 + 0.5);
   if (vMat == 1 || vMat == 5) {

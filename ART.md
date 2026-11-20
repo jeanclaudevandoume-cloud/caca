@@ -106,6 +106,20 @@ build; 10 = also clear margin under budget.
 1. Boot cost (layout/data at 1M and 10M). 2. Low-preset tris/draws per vantage. 3. Fill cost of
 full-screen passes. 4. Per-frame allocations. 5. LOD artifacts/pops. 6. GPU memory.
 
+## Process (meta-review 2, round K) — supersedes conflicting rules below
+
+- **The frame is frozen**: opening camera, sun (LOCKED above), wall/roof palettes and exposure as of round K.
+  A reviewer note on any of these is discarded unless it comes as an OVERRIDE with before/after crops.
+- **Structural rounds**: rounds L-N each carry one new visual capability, not a global parameter swing:
+  L = occlusion (contact ramp on lit and shaded walls, side-wall gap occlusion, aerial perspective);
+  M = a facade/roof texture atlas generated at load (window types with frames/reveals, roof tiles, mipmapped);
+  N = fill the mid-band between the house ring and the towers.
+- A Looks fix counts when it is visible in a 2× crop of a fixed region and wins an A/B, not by % of pixels.
+- Design and Looks reviewers grade with the same anchors; complaints must name a material or technique.
+- **Code moratorium**: no new robustness layers in main.js. The worker supervisor moves to a pure module with an
+  injected clock and spawn, covered by a Node unit harness (death, hang, double death, back-off expiry, build
+  superseded). Every code finding gets a failing test before its fix; tests are never deleted.
+
 ## Process (revised after meta-review, round F)
 
 - `phoneauto` (what the owner sees on opening the page) weighs ≥ 50% of Looks and Design; show it at phone size
