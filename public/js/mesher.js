@@ -10,7 +10,7 @@
 // from `so` to the end.
 import {
   PITCH, FLOOR_H, K, hash3, mod, fdiv, kindAt, cellKind, zoneLevel, plotsIn, plotFrame, recipe, occupied,
-  ROOF, CITY, ACCENT, clampSV, avenueX, avenueZ, isRiver, portLane, bayHalf, homeRect, regionOf, regionKey, lineIndex, CHUNK, REGION,
+  ROOF, CITY, ACCENT, clampSV, civicType, avenueX, avenueZ, isRiver, portLane, bayHalf, homeRect, regionOf, regionKey, lineIndex, CHUNK, REGION,
 } from './town.js';
 
 // Trig rounded to 1e-7 so every JS engine builds byte-identical geometry (positions are then
@@ -495,9 +495,95 @@ function door(mb, x, zw, fs, r, rc, a) {
   } else if (r.hash & 32) mb.cbox(x, 2.6, zw + fs * 0.5, 2.0, 0.12, 1.0, rc, M.PLAIN, a);
 }
 const F = {};
+// Shop house on a shotengai (town.js shopLaneX): ground-floor shop facing the lane (r.shop = +-1 along x),
+// recessed glazing with a warm interior, an awning, a lit vertical sign; flats above with city windows.
+const AWNING = [0x2f6f8f, 0xb8452f, 0x3d7a4f, 0x7a3b5e];
+function shopHouse(mb, f, r, lod, a) {
+  const [x0, z0, x1, z1] = homeRect(f, r), top = r.floors * FLOOR_H, fs = r.shop, fx = fs > 0 ? x1 : x0;
+  const wa = (a & 0xfc) | 3;                            // concrete style: windows on every face
+  if (lod) { mb.box(x0, 0, z0, x1, top, z1, r.wall, 0x5a5f66, M.WIN, wa); return; }
+  mb.shadowBox(x0, 0, z0, x1, top + 0.6, z1);
+  mb.noCast = true;
+  const gh = 3.6;
+  mb.box(x0, 0, z0, x1, gh, z1, shade(r.wall, 0.72), -1, M.PLAIN, a);
+  // shopfront: dark frame, warm lit interior, a mid mullion and a lit fascia band
+  mb.xq(fx + fs * 0.02, z0 + 0.5, z1 - 0.5, 0.15, 3.0, fs, 0x2a2f36, M.PLAIN, a);
+  mb.xq(fx + fs * 0.04, z0 + 0.8, z1 - 0.8, 0.35, 2.75, fs, (r.sign & 1) ? 0xf3dcb0 : 0xdfe8ef, M.LIGHT, a);
+  for (const zz of [z0 + (z1 - z0) / 3, z0 + (z1 - z0) * 2 / 3]) mb.cbox(fx + fs * 0.06, 0.15, zz, 0.08, 2.85, 0.12, 0x2a2f36, M.METAL, a);
+  mb.xq(fx + fs * 0.03, z0 + 0.3, z1 - 0.3, 3.05, 3.55, fs, ACCENT_SIGN[r.sign], M.LIGHT, a);   // fascia sign
+  // awning: a sloped sheet over the shopfront
+  const ac = AWNING[r.awning], ax = fx + fs * 1.4;
+  if (fs > 0) mb.q(fx, 3.0, z1 - 0.3, fx, 3.0, z0 + 0.3, ax, 2.55, z0 + 0.3, ax, 2.55, z1 - 0.3, 0.3, 0.95, 0, 0, 0, 0, 0, M.PLAIN, ac, a);
+  else mb.q(fx, 3.0, z0 + 0.3, fx, 3.0, z1 - 0.3, ax, 2.55, z1 - 0.3, ax, 2.55, z0 + 0.3, -0.3, 0.95, 0, 0, 0, 0, 0, M.PLAIN, ac, a);
+  mb.xq(ax, z0 + 0.3, z1 - 0.3, 2.3, 2.55, fs, shade(ac, 0.8), M.PLAIN, a);     // valance
+  // flats above, a vertical sign on the lane corner, a parapet and a water tank
+  const mem = FLAT_MEM[(r.hash >>> 21) & 3];
+  if (r.roofType === 0) {
+    mb.boxEave(x0, gh, z0, x1, top, z1, r.wall, -1, M.WIN, wa, 0.4);
+    mb.gable(x0 - 0.5, z0 - 0.5, x1 + 0.5, z1 + 0.5, top, 2.2, ROOF[r.roof], r.wall, a, true, true, shade(ROOF[r.roof], 0.55));
+  } else {
+    mb.boxEave(x0, gh, z0, x1, top, z1, r.wall, mem, M.WIN, wa, 0.4);
+    mb.parapet(x0, z0, x1, z1, top, 0.6, shade(r.wall, 0.85), 0xd9d3c7, a, mem);
+    if (!LITE) mb.cyl(x0 + (x1 - x0) / 2, top, z0 + 3, 0.7, top + 1.2, 0.7, 6, 0x9fb3c2, M.METAL, a);
+    // a rooftop billboard on some corner shops, readable from the drone views
+    if ((r.hash >>> 13) % 3 === 0) {
+      const bz0 = z0 + 4, bz1 = z1 - 4, bx = fx - fs * 1.2;
+      mb.xq(bx, bz0, bz1, top + 0.8, top + 3.2, fs, ACCENT_SIGN[(r.sign + 1) % ACCENT_SIGN.length], M.LIGHT, a);
+      mb.xq(bx - fs * 0.05, bz0, bz1, top + 0.8, top + 3.2, -fs, 0x3a3e45, M.PLAIN, a);
+    }
+  }
+  // vertical sign on the lane corner: big enough to read from the opening camera
+  const sz = (r.hash & 1) ? z0 + 0.9 : z1 - 0.9;
+  mb.cbox(fx + fs * 0.6, gh + 0.2, sz, 0.25, Math.max(3.0, top - gh + 0.6), 1.5, ACCENT_SIGN[(r.sign + 2) % ACCENT_SIGN.length], M.LIGHT, a);
+  mb.noCast = false;
+}
+
+// Shrine: a vermilion torii on the south edge, a gravel approach and forecourt, a dark-roofed hall, and a
+// ring of tall trees (chinju no mori) that reads from the drone views.
+function shrine(mb, X, Z, h, lod) {
+  mb.cast = false;
+  mb.q(X - 6, 0.04, Z + 20, X + 6, 0.04, Z + 20, X + 6, 0.04, Z - 8, X - 6, 0.04, Z - 8, 0, 1, 0, 0, 0, 0, 0, M.PLAIN, 0xc9c2b2, 1);   // gravel
+  mb.q(X - 13, 0.03, Z - 4, X + 13, 0.03, Z - 4, X + 13, 0.03, Z - 18, X - 13, 0.03, Z - 18, 0, 1, 0, 0, 0, 0, 0, M.PLAIN, 0xbdb6a6, 1);
+  mb.cast = true;
+  const V = 0xc8402e;
+  for (const tz of lod ? [Z + 16] : [Z + 16, Z + 6]) {
+    mb.cbox(X - 3.2, 0, tz, 0.55, 6.6, 0.55, V, M.PLAIN, 1); mb.cbox(X + 3.2, 0, tz, 0.55, 6.6, 0.55, V, M.PLAIN, 1);
+    mb.cbox(X, 6.6, tz, 9.6, 0.55, 1.0, 0x2a2626, M.PLAIN, 1);                       // kasagi
+    mb.cbox(X, 5.4, tz, 8.0, 0.4, 0.5, V, M.PLAIN, 1);                               // nuki
+  }
+  mb.box(X - 6, 0, Z - 16, X + 6, 1.0, Z - 6, 0xd8d3c6, -1, M.PLAIN, 1);            // stone platform
+  mb.box(X - 5, 1.0, Z - 15, X + 5, 5.2, Z - 7, 0x6b4a32, -1, M.PLAIN, 1);          // hall
+  mb.gable(X - 6.5, Z - 16.5, X + 6.5, Z - 5.5, 5.2, 3.8, 0x3a3e45, 0x6b4a32, 1, true, true, 0x2a2c30);
+  const n = lod ? 10 : 22;
+  for (let t = 0; t < n; t++) {
+    const a = (t / n) * Math.PI * 2, r = 17 + (hash3(X, Z, 500 + t) % 3);
+    const x = Math.cos(a) * r, z = Math.sin(a) * r;
+    if (z > 12 && Math.abs(x) < 7) continue;                                         // the approach stays open
+    tree(mb, X + x, Z + z, 1.35 + (hash3(X, Z, 600 + t) % 4) * 0.12, (hash3(X, Z, 700 + t) & ~7) | 2, lod);
+  }
+}
+// School: a white four-storey slab with a clock, a dirt sports field with white lines and a net fence.
+function school(mb, X, Z, h, lod) {
+  for (const s of [-1, 1]) mb.box(s < 0 ? X - 17 : X, 0, Z - 19, s < 0 ? X : X + 17, 4 * FLOOR_H, Z - 9, 0xeceae4, 0x8c9096, M.WIN, (h & 0xfc) | 3);   // two halves: packed u stays < 32 m
+  mb.parapet(X - 17, Z - 19, X + 17, Z - 9, 4 * FLOOR_H, 0.8, 0xd8d6d0, 0xf2f0ea, h & 255, 0x8c9096);
+  mb.cast = false;
+  mb.cbox(X, 4 * FLOOR_H - 2.6, Z - 8.9, 2.0, 2.0, 0.15, 0xf6f5f0, M.LIGHT, 1);     // clock face
+  mb.cbox(X, 4 * FLOOR_H - 1.7, Z - 8.8, 0.12, 0.8, 0.1, 0x2a2c30, M.PLAIN, 1);
+  mb.q(X - 18, 0.04, Z + 19, X + 18, 0.04, Z + 19, X + 18, 0.04, Z - 6, X - 18, 0.04, Z - 6, 0, 1, 0, 0, 0, 0, 0, M.PLAIN, 0xb08a5c, 1);   // field
+  if (!lod) {
+    mb.q(X - 14, 0.06, Z + 15, X + 14, 0.06, Z + 15, X + 14, 0.06, Z + 14.6, X - 14, 0.06, Z + 14.6, 0, 1, 0, 0, 0, 0, 0, M.PLAIN, 0xf2f0ea, 1);
+    mb.q(X - 14, 0.06, Z - 2, X + 14, 0.06, Z - 2, X + 14, 0.06, Z - 2.4, X - 14, 0.06, Z - 2.4, 0, 1, 0, 0, 0, 0, 0, M.PLAIN, 0xf2f0ea, 1);
+    mb.q(X - 0.2, 0.06, Z + 15, X + 0.2, 0.06, Z + 15, X + 0.2, 0.06, Z - 2.4, X - 0.2, 0.06, Z - 2.4, 0, 1, 0, 0, 0, 0, 0, M.PLAIN, 0xf2f0ea, 1);
+    for (const x of [-18, -9, 0, 9, 18]) mb.cbox(X + x, 0, Z + 19.5, 0.15, 7, 0.15, 0x6e7378, M.METAL, 1);   // net fence posts
+    mb.wq(X - 18, X + 18, 0.5, 7, Z + 19.5, 1, 0x9aa0a6, M.PLAIN, 1);
+  }
+  mb.cast = true;
+}
+
 export function home(mb, bx, bz, f, r, lod) {
   mb.noCast = false;                                  // never inherit a house's 'detail does not cast' state
   const a = r.hash & 255;
+  if (r.shop) { shopHouse(mb, f, r, lod, a); return; }
   const front = f.face < 0 ? f.z - f.d / 2 : f.z + f.d / 2;        // street edge of the plot
   mb.flag = r.height >= 6 * FLOOR_H ? TALL : 0;
   if (lod && r.zone <= 1) mb.cast = false;         // far low homes don't cast: the ground shader's contact AO grounds them
@@ -846,6 +932,9 @@ export function buildChunk(L, cx, cz, lod, customs, lite = false) {
         break;
       }
       case K.PARK: {
+        const ct = civicType(bx, bz);
+        if (ct === 1) { shrine(mb, X, Z, hb, lod); break; }
+        if (ct === 2) { school(mb, X, Z, hb, lod); break; }
         const n = lod ? 7 : 14;
         for (let t = 0; t < n; t++) {
           const h = hash3(bx, bz, 200 + t);

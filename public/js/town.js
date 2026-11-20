@@ -41,6 +41,9 @@ export function isRiver(bx, bz) {
   return (bz >= a - 1 && bz <= a + 1) || (bz >= b - 1 && bz <= b + 1);
 }
 export const avenueX = (bx) => mod(bx, 10) === 0;   // avenue running north-south
+// Shotengai (round M): the north-south lane on the +x side of block bx is a shop street every 5 blocks.
+// The corner plots on both sides of it become shop houses facing the lane (see recipe / mesher shopHouse).
+export const shopLaneX = (bx) => mod(bx + 4, 5) === 0 && !avenueX(bx) && !avenueX(bx + 1);
 export const avenueZ = (bz) => mod(bz, 10) === 0;   // avenue running east-west
 
 export function lakeAt(bx, bz) {
@@ -67,6 +70,13 @@ export function portLane(bx, bz) {
 }
 
 // Static kind: never depends on follower count.
+// Civic cells (round M): one per 6x6-block neighbourhood, never on its border, so two are never adjacent.
+export function isCivic(bx, bz) {
+  const nx = fdiv(bx, 6), nz = fdiv(bz, 6), h = hash3(nx, nz, 3);
+  return bx === nx * 6 + 1 + (h % 4) && bz === nz * 6 + 1 + ((h >>> 4) % 4);
+}
+// 0 park, 1 shrine, 2 school
+export const civicType = (bx, bz) => { const t = hash3(bx, bz, 33) % 10; return t < 4 ? 1 : t < 7 ? 2 : 0; };
 export function cellKind(bx, bz) {
   if (bx === 0 && bz === 0) return K.PLAZA;
   if (bayAt(bx, bz)) return K.SEA;
@@ -74,7 +84,7 @@ export function cellKind(bx, bz) {
   if (isRiver(bx, bz)) return K.RIVER;
   if (avenueX(bx) || avenueZ(bz)) return K.AVENUE;
   const d2 = bx * bx + bz * bz;
-  if (d2 > 16 && hash3(bx, bz, 3) % 100 < 5) return K.PARK;
+  if (d2 > 16 && isCivic(bx, bz)) return K.PARK;   // one civic cell per 6x6 neighbourhood (park, shrine or school)
   if (lakeAt(bx, bz)) return K.LAKE;
   return K.HOMES;
 }
@@ -161,6 +171,17 @@ export function recipe(bx, bz, slot, zone, custom) {
   const h = hash3(bx * 16 + slot, bz, 21), h2 = hash3(bx, bz * 16 + slot, 22);
   const r = { zone, slot, hash: h, roof: roofIdx(bx, bz, slot), wall: 0, floors: 1, w: 7, d: 9,
     roofType: 0, mat: 1, style: 0, sig: false, ox: 0, garden: [], tree: false, shape: null, color: -1, top: false, crown: 0 };
+  const col = slot & 3;
+  if (zone <= 1 && !custom && ((col === 3 && shopLaneX(bx)) || (col === 0 && shopLaneX(bx - 1)))) {
+    // shop house on a shotengai: shop on the ground floor facing the lane, 2-4 storeys of flats above
+    r.shop = col === 3 ? 1 : -1;
+    r.floors = (zone === 1 ? 3 : 2) + (h % 3);
+    r.w = 9.4; r.d = 18.6; r.roofType = (h >>> 20) % 10 < 4 ? 0 : 2;   // 40% pitched (gable along the lane)
+    r.wall = TOWN[(h >>> 11) % TOWN.length];
+    r.sign = (h >>> 7) % 6; r.awning = (h >>> 10) % 4;
+    r.height = r.floors * FLOOR_H;
+    return r;
+  }
   if (zone === 0) {
     // Tokyo jutaku: narrow 2-3 storey house close to the street, hugging one side line
     r.floors = 2 + (h & 1);                   // half are 3 storeys
@@ -351,7 +372,7 @@ export function buildGround(L) {
 
 // Footprint of a regular home on its plot (matches mesher.home), world metres.
 export function homeRect(f, r) {
-  if (r.zone >= 2) return [f.x + r.ox - r.w / 2, f.z - r.d / 2, f.x + r.ox + r.w / 2, f.z + r.d / 2];
+  if (r.zone >= 2 || r.shop) return [f.x + r.ox - r.w / 2, f.z - r.d / 2, f.x + r.ox + r.w / 2, f.z + r.d / 2];
   const front = f.face < 0 ? f.z - f.d / 2 : f.z + f.d / 2, setback = r.zone === 0 ? 0.8 : 1.5;
   const z0 = f.face < 0 ? front + setback : front - setback - r.d;
   if (r.zone === 0) {                         // hugs one side line (mirrored in the ground shader)

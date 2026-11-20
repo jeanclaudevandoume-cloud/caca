@@ -446,14 +446,15 @@ function stream(now) {
   }
   for (const [key, s] of skies) if (!sseen.has(key) && now - s.seen > 5000) { if (s.req) { const r = reqs.get(s.req); if (r) r.dead = true; } release(s.g); s.gone = true; skies.delete(key); }
   // mid-band tiles: the ring from where homes start to shrink out to MID_OUT x r1
-  const RM = MID * PITCH, mn = Math.ceil(r1 * MID_OUT / RM) + 1;
+  const midOut = isLow() ? MID_OUT : 1.35;               // high preset: r1 is already 1.1 km; a narrower massing ring
+  const RM = MID * PITCH, mn = Math.ceil(r1 * midOut / RM) + 1;
   const cmx = Math.floor((cam.x + 24) / RM), cmz = Math.floor((cam.z + 24) / RM);
   MSEEN.clear();
   for (let dz = -mn; dz <= mn; dz++) for (let dx = -mn; dx <= mn; dx++) {
     const mx = cmx + dx, mz = cmz + dz;
     const ox = (mx * MID + MID / 2 - 0.5) * PITCH, oz = (mz * MID + MID / 2 - 0.5) * PITCH;
     const dh = hyp2(ox - cam.x, oz - cam.z);
-    if (dh - RM * 0.71 > r1 * MID_OUT || dh + RM * 0.71 < r1 * 0.72) continue;
+    if (dh - RM * 0.71 > r1 * midOut || dh + RM * 0.71 < r1 * 0.72) continue;
     if ((mx * MID) ** 2 + (mz * MID) ** 2 > (L.rB + MID) ** 2) continue;
     const key = mx * 65536 + mz;
     MSEEN.add(key);
@@ -1095,7 +1096,7 @@ function homeView(p) {
   const { x, z } = best, y = best.y + Math.max(0, best.block + 1);
   const dx = hx - x, dz = (front - face * 1) - z, dh = Math.hypot(dx, dz);
   const yaw = Math.atan2(dx, -dz), pitch = -Math.atan2(y - top * 0.5, dh) - vfov * 0.12;   // home at ~38% from the top
-  return { x, y, z, yaw, pitch, fixed: true, bx, bz, slot, zone, tx: hx, tz: hz, ty: top, px: hx, py: top + 1.2, pz: hz };
+  return { x, y, z, yaw, pitch, fixed: true, bx, bz, slot, zone, tx: hx, tz: hz, ty: top, px: hx, py: top + 0.6, pz: front - face * 2.5 };   // pin on the roof's front edge: it can't read as the house behind
 }
 function lookAtYaw(v) {
   if (v.fixed) return v;                              // homeView already framed it
