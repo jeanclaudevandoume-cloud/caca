@@ -5,7 +5,9 @@
 //   8..10 int8 normal  (* 127)
 //   11    uint8 material (low 3 bits) | 8 = tall (hands over to the skyline)
 //   12..15 rgba8 colour, alpha = per-home random byte
-// Index buffer: caster triangles first (count `ns`), then non-casters.
+// Index buffer: shadow-only proxies (count `so`, never drawn in the colour pass), then visible casters (the
+// shadow pass draws the first `ns` indices, proxies included), then visible non-casters. The colour pass draws
+// from `so` to the end.
 import {
   PITCH, FLOOR_H, K, hash3, mod, fdiv, kindAt, cellKind, zoneLevel, plotsIn, plotFrame, recipe, occupied,
   ROOF, CITY, ACCENT, clampSV, avenueX, avenueZ, isRiver, portLane, bayHalf, homeRect, regionOf, regionKey, lineIndex, CHUNK, REGION,
@@ -28,6 +30,7 @@ export class MB {
     this.nv = 0;
     this.ic = new Uint32Array(cap * 2); this.nc = 0;
     this.io = new Uint32Array(cap); this.no = 0;
+    this.is = new Uint32Array(256); this.nso = 0; this.proxy = false; this.noCast = false;
     this.cast = true; this.flag = 0; this.ymax = 0; this.sc = 64;
   }
   alloc(cap) {
@@ -56,7 +59,10 @@ export class MB {
     return this.nv++;
   }
   tri(a, b, c) {
-    if (this.cast) {
+    if (this.proxy) {
+      if (this.nso + 3 > this.is.length) { const t = new Uint32Array(this.is.length * 2); t.set(this.is); this.is = t; }
+      this.is[this.nso++] = a; this.is[this.nso++] = b; this.is[this.nso++] = c;
+    } else if (this.cast && !this.noCast) {
       if (this.nc + 3 > this.ic.length) { const t = new Uint32Array(this.ic.length * 2); t.set(this.ic); this.ic = t; }
       this.ic[this.nc++] = a; this.ic[this.nc++] = b; this.ic[this.nc++] = c;
     } else {
@@ -274,10 +280,19 @@ export class MB {
       this.ft(x1, y, z0, x0, y, z0, xm, y + h, z0 + i, M.ROOF, c, a);
     }
   }
+  // A shadow-only stand-in: an open-bottomed box (10 tris) that casts the shadow of a detailed building whose
+  // own triangles then don't cast (round G: full-detail casters cost the phone 8-43% frame time).
+  shadowBox(x0, y0, z0, x1, y1, z1) {
+    if (!this.cast || this.noCast) return;
+    this.proxy = true;
+    this.box(x0, y0, z0, x1, y1, z1, 0, 0, M.PLAIN, 0);   // walls + top: rays reaching the far half of the shadow enter through the roof
+    this.proxy = false;
+  }
   finish() {
-    const ib = this.nv <= 65535 ? new Uint16Array(this.nc + this.no) : new Uint32Array(this.nc + this.no);
-    ib.set(this.ic.subarray(0, this.nc)); ib.set(this.io.subarray(0, this.no), this.nc);
-    return { vb: this.buf.slice(0, this.nv * 16), ib, ns: this.nc, nv: this.nv, ymax: this.ymax };
+    const n = this.nso + this.nc + this.no;
+    const ib = this.nv <= 65535 ? new Uint16Array(n) : new Uint32Array(n);
+    ib.set(this.is.subarray(0, this.nso)); ib.set(this.ic.subarray(0, this.nc), this.nso); ib.set(this.io.subarray(0, this.no), this.nso + this.nc);
+    return { vb: this.buf.slice(0, this.nv * 16), ib, so: this.nso, ns: this.nso + this.nc, nv: this.nv, ymax: this.ymax };
   }
 }
 
@@ -497,6 +512,8 @@ export function home(mb, bx, bz, f, r, lod) {
       if (r.roofType === 3) mb.mono(x0, z0, x1, z1, 0.2, top, 2.2, fs, rc, r.wall, a, 0, false);
       else if (r.roofType === 0) mb.gable(x0 - 0.3, z0 - 0.3, x1 + 0.3, z1 + 0.3, top, 1.6, rc, r.wall, a, true, false);
     } else {
+      mb.shadowBox(x0, 0, z0, x1, top + (r.roofType === 3 ? 1.1 : r.roofType === 0 ? 0.8 : 0.6), z1);
+      mb.noCast = true;                                  // the detailed house below casts through its proxy only
       // ground storey (two-tone on half the houses: darker, with a string course), upper storeys with baked eave shade
       const g = shade(r.wall, r.twoTone ? 0.62 : 0.78);           // the ground storey is always darker: value structure
       mb.box(x0, 0, z0, x1, FLOOR_H, z1, g, -1, M.WIN, wa);
@@ -578,6 +595,7 @@ export function home(mb, bx, bz, f, r, lod) {
       }
       mb.cast = true;
       door(mb, doorX, wallZ, fs, r, rc, a);
+      mb.noCast = false;
     }
     if (!lod) {
       // side planting strip with a small tree; vending machine at the front corner
@@ -606,6 +624,8 @@ export function home(mb, bx, bz, f, r, lod) {
     } else if (lod) {
       mb.box(x0, 0, z0, x1, top, z1, r.wall, r.roofMem, M.WIN, wa);
     } else {
+      mb.shadowBox(x0, 0, z0, x1, top + (r.mansard ? 1.0 : 0.6), z1);
+      mb.noCast = true;
       // pilotis: dark parking void at the front half, columns, upper mass from floor 2
       const pz0 = f.face < 0 ? z0 : z0 + r.d * 0.5, pz1 = f.face < 0 ? z0 + r.d * 0.5 : z1;
       const bz0 = f.face < 0 ? pz1 : z0, bz1 = f.face < 0 ? z1 : pz0;
@@ -624,6 +644,7 @@ export function home(mb, bx, bz, f, r, lod) {
       else { mb.parapet(x0, z0, x1, z1, top, 0.6, shade(r.wall, 0.85), 0xd9d3c7, a, r.roofMem); }
       if (!LITE) mb.cyl(x0 + 1.6, top, (z0 + z1) / 2, 0.9, top + 1.6, 0.9, 6, (r.hash >>> 7) & 1 ? 0x2f6fb0 : 0xd9a441, M.METAL, a);
       door(mb, f.x, wallZ, fs, r, ROOF[r.roof], a);
+      mb.noCast = false;
     }
   } else {
     const tower = r.zone === 3;

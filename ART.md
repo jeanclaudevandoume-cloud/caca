@@ -73,7 +73,7 @@ perf.json is measured in this container (software GL): use it for **ratios betwe
 
 | Vantage | Tris | Draws | GPU MB | Notes |
 |---|---|---|---|---|
-| phoneauto = the opening view (auto preset, Pixel 7, incl. the near shadow pass) | ≤ 85k portrait, ≤ 95k landscape | ≤ 24 | ≤ 6 | Trade-off (round F): cast shadows within 130 m on low add ~18k caster tris in a flat-colour pass; phones are fill-bound (round C isolation test), and the shadows are the grounding every reviewer asked for. |
+| phoneauto = the opening view (auto preset, Pixel 7, incl. the near shadow pass) | ≤ 60k portrait, ≤ 75k landscape | ≤ 20 | ≤ 6 | Round H: low-preset cast shadows within 130 m come from one 12-tri shadow-only proxy per home (never drawn in colour), not the detailed mesh, so they fit the original budgets (round G's full-detail casters cost +18k tris and 8–43% frame time). |
 | phone (low, 844x390) | ≤ 60k | ≤ 20 | ≤ 6 | ground pass ≤ 0.45× of `phonefull`. (Round 13 tried 75k for cast shadows on low; reverted: done correctly they cost 25–45% more tris.) Any low-preset camera, incl. chunk corners, ≤ 75k. |
 | portrait (low, 390x844) | ≤ 75k | ≤ 20 | ≤ 6 | ground pass ≤ 0.45× of `portraitfull` |
 | downtownlow (low) | ≤ 110k | ≤ 30 | ≤ 8 | |

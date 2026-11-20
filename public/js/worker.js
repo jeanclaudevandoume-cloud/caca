@@ -31,7 +31,7 @@ onmessage = (e) => {
       customs.set(regionKey(fdiv(m.cx * CHUNK, REGION), fdiv(m.cz * CHUNK, REGION)), m.custom || null);
       r = buildChunk(L, m.cx, m.cz, m.lod, customs, !!m.lite);
     } else r = buildSkyline(L, m.rx, m.rz, !!m.lite);
-    postMessage({ type: 'mesh', id: m.id, vb: r.vb, ib: r.ib, ns: r.ns, ymax: r.ymax }, [r.vb, r.ib.buffer]);
+    postMessage({ type: 'mesh', id: m.id, vb: r.vb, ib: r.ib, so: r.so, ns: r.ns, ymax: r.ymax }, [r.vb, r.ib.buffer]);
   } catch (err) {
     postMessage({ type: 'error', id: m.id, message: String((err && err.stack) || err) });
   }

@@ -460,7 +460,8 @@ vec3 blockCol(uvec4 c, int bx, int bz, vec2 l, vec2 p, float t, float w, vec3 gr
       }
       float dd = length(max(q, 0.0));
       lot *= 1.0 - 0.5 * exp(-dd * 1.1) * outside;                          // contact shade around the walls
-      if (uFar.z < 0.5 && w < 1.4) {
+      float castNear = uFar.z < 0.0 ? smoothstep(-uFar.z * 0.6, -uFar.z, t) : 1.0;   // where cast shadows exist, skip the painted ones
+      if (uFar.z < 0.5 && w < 1.4 && castNear > 0.0) {
         // low preset (no shadow pass): the house shadow projected along the sun, scaled by its height
         float fl = zone == 0 ? 2.0 + float(h & 1u) : 4.5;
         vec2 off = -uSunDir.xz / max(uSunDir.y, 0.3) * (fl * 3.2 + 1.2);
@@ -469,7 +470,7 @@ vec3 blockCol(uvec4 c, int bx, int bz, vec2 l, vec2 p, float t, float w, vec3 gr
           vec2 qs = abs(l - c0 - off * (float(i) * 0.25)) - vec2(hw, hd * 0.5);
           sh = max(sh, 1.0 - smoothstep(-0.2, 0.4, max(qs.x, qs.y)));
         }
-        lot *= 1.0 - 0.62 * sh * outside * (1.0 - uNight) * (1.0 - smoothstep(0.9, 1.4, w)) * (uFar.z < 0.0 ? smoothstep(-uFar.z * 0.6, -uFar.z, t) : 1.0);
+        lot *= 1.0 - 0.62 * sh * outside * (1.0 - uNight) * (1.0 - smoothstep(0.9, 1.4, w)) * castNear;
       }
     }
     return edge ? mix(int(c.g & 3u) <= 1 ? vec3(0.56, 0.54, 0.51) : WALK, lot, smoothstep(0.5, 3.0, w)) : lot;

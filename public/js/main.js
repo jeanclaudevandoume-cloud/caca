@@ -86,7 +86,7 @@ function upload(m) {
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
   gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, m.ib, gl.STATIC_DRAW);
   gl.bindVertexArray(null);
-  return { vao, vbo, ibo, n: m.ib.length, ns: m.ns, ymax: m.ymax, it: m.ib.BYTES_PER_ELEMENT === 2 ? gl.UNSIGNED_SHORT : gl.UNSIGNED_INT, bytes: m.vb.byteLength + m.ib.byteLength };
+  return { vao, vbo, ibo, n: m.ib.length - (m.so || 0), so: (m.so || 0) * m.ib.BYTES_PER_ELEMENT, ns: m.ns, ymax: m.ymax, it: m.ib.BYTES_PER_ELEMENT === 2 ? gl.UNSIGNED_SHORT : gl.UNSIGNED_INT, bytes: m.vb.byteLength + m.ib.byteLength };
 }
 function release(g) { if (!g) return; gl.deleteVertexArray(g.vao); gl.deleteBuffer(g.vbo); gl.deleteBuffer(g.ibo); }
 
@@ -592,7 +592,7 @@ function render(now) {
     if (!inFrustum(PL, ox, hy, oz, hyp2(R, hy))) continue;
     gl.uniform3f(geo.u.uOrigin, ox, 0, oz);
     gl.bindVertexArray(c.g.vao);
-    gl.drawElements(gl.TRIANGLES, c.g.n, c.g.it, 0);
+    gl.drawElements(gl.TRIANGLES, c.g.n, c.g.it, c.g.so);       // shadow-only proxies are skipped
     tris += c.g.n / 3; draws++;
     // shadows: distance to the chunk's bounding square, not its centre (no corner gaps, no chunk-sized pops)
     if (hyp2(Math.max(0, Math.abs(ox - cam.x) - CHUNK * PITCH / 2), Math.max(0, Math.abs(oz - cam.z) - CHUNK * PITCH / 2)) < shadowR) drawn.push(c);
@@ -610,7 +610,7 @@ function render(now) {
     if (hyp2(hyp2(ox - cam.x, oz - cam.z) + RS, cam.y) < fadeA) continue;
     gl.uniform3f(geo.u.uOrigin, ox, 0, oz);
     gl.bindVertexArray(s.g.vao);
-    gl.drawElements(gl.TRIANGLES, s.g.n, s.g.it, 0);
+    gl.drawElements(gl.TRIANGLES, s.g.n, s.g.it, s.g.so);
     tris += s.g.n / 3; draws++; sky++;
   }
 
