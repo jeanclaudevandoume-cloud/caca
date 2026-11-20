@@ -26,6 +26,10 @@ onmessage = (e) => {
     if (m.type === 'chunk') {
       customs.set(regionKey(fdiv(m.cx * CHUNK, REGION), fdiv(m.cz * CHUNK, REGION)), m.custom || null);
       r = buildChunk(L, m.cx, m.cz, m.lod, customs, !!m.lite);
+    } else if (m.type === 'ground') {                         // a new ground window around the camera
+      const g = buildGround(L, m.cx, m.cz);
+      postMessage({ type: 'ground', id: m.id, ground: g }, [g.data.buffer]);
+      return;
     } else if (m.type === 'mid') r = buildMid(L, m.rx, m.rz);
     else r = buildSkyline(L, m.rx, m.rz, !!m.lite);
     postMessage({ type: 'mesh', id: m.id, vb: r.vb, ib: r.ib, so: r.so, ns: r.ns, ymax: r.ymax }, [r.vb, r.ib.buffer]);

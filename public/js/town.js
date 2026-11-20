@@ -401,11 +401,16 @@ export function finishLayout(L) {
 // Per-block data for the ground shader (so it does not re-derive the rules per pixel).
 // RGBA8, (2*ext+1)^2 texels centred on the plaza, ext = rB + 10:
 //   R kind · G zone | inhabited<<2 | avenueX<<3 | avenueZ<<4 · B roof colours c0 | c1<<3 · A c2
-export function buildGround(L) {
-  const ext = L.rB + 10, S = 2 * ext + 1;
+// A window of at most GROUND_MAX^2 blocks (round M; 641: a 1.2M-follower town fits whole): the whole town when it fits, otherwise centred on
+// (cx, cz) — the main thread asks for a new window when the camera moves far — so the texture is the same
+// size at 1M and at 10M followers. ox/oz: the block at texel (0, 0).
+export const GROUND_MAX = 641;
+export function buildGround(L, cx = 0, cz = 0) {
+  const full = 2 * (L.rB + 10) + 1, S = Math.min(full, GROUND_MAX), h = (S - 1) / 2;
+  const ox = full <= GROUND_MAX ? -h : cx - h, oz = full <= GROUND_MAX ? -h : cz - h;
   const d = new Uint8Array(S * S * 4);
   for (let j = 0; j < S; j++) for (let i = 0; i < S; i++) {
-    const bx = i - ext, bz = j - ext, o = (j * S + i) * 4;
+    const bx = i + ox, bz = j + oz, o = (j * S + i) * 4;
     const k = kindAt(L, bx, bz);
     const homes = k === K.HOMES;
     const base = hash3(fdiv(bx, 5), fdiv(bz, 5), 101);
@@ -414,7 +419,7 @@ export function buildGround(L) {
     d[o + 2] = (base % 8) | (((base >>> 4) % 8) << 3);
     d[o + 3] = (base >>> 8) % 8;
   }
-  return { ext, size: S, data: d };
+  return { size: S, ox, oz, cx, cz, full: full <= GROUND_MAX, data: d };
 }
 
 // Footprint of a regular home on its plot (matches mesher.home), world metres.

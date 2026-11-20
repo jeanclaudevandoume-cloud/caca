@@ -217,6 +217,7 @@ const sup = new Supervisor({
 const reqs = sup.reqs;                                 // read-only views for streaming, idle() and the probe
 function onWorker(e) {
   const m = e.data;
+  if (m.type === 'ground') { sup.reply(m.id); if (groundWin.req === m.id) { groundWin.req = 0; setGround(m.ground); } return; }
   if (m.type === 'layout') { if (sup.finishBuild(m.build)) onLayout(m.layout, m.ground); return; }   // stale builds are ignored
   const r = sup.reply(m.id);
   if (m.type === 'error') {
@@ -269,6 +270,22 @@ async function loadManifest() {
 }
 let layoutStage = null;
 let groundTex = null, groundExt = 0, groundBytes = 0, tallRegions = new Set();
+// The ground data texture is a window of at most 641^2 blocks (1.6 MB) (town.js buildGround): the whole town when it
+// fits, otherwise centred near the camera and replaced by a worker-built window when the camera has moved
+// more than 96 blocks from its centre. Same size at 1M and 10M followers.
+const groundWin = { ox: 0, oz: 0, cx: 0, cz: 0, full: true, req: 0 };
+function setGround(g) {
+  if (!groundTex) groundTex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, groundTex);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8UI, g.size, g.size, 0, gl.RGBA_INTEGER, gl.UNSIGNED_BYTE, g.data);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  groundExt = g.size; groundBytes = g.size * g.size * 4;
+  Object.assign(groundWin, { ox: g.ox, oz: g.oz, cx: g.cx, cz: g.cz, full: g.full });
+}
 function onLayout(lt, ground) {
   // validate before touching anything: a rejected layout leaves the current one (and every worker) as it was
   if (ground.size > gl.getParameter(gl.MAX_TEXTURE_SIZE)) {
@@ -281,15 +298,7 @@ function onLayout(lt, ground) {
   const old = L;
   L = nl;
   sup.commit(lt);                                   // every worker, the builder too (it built into a local)
-  if (!groundTex) groundTex = gl.createTexture();
-  gl.bindTexture(gl.TEXTURE_2D, groundTex);
-  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8UI, ground.size, ground.size, 0, gl.RGBA_INTEGER, gl.UNSIGNED_BYTE, ground.data);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-  groundExt = ground.ext; groundBytes = ground.size * ground.size * 4;
+  setGround(ground);
   // regions that can hold skyline buildings (so empty ones are never requested)
   tallRegions = new Set(L.tall);                     // computed by the worker with the layout (no main-thread scan)
   if (layoutStage) {
@@ -387,6 +396,11 @@ function stream(now) {
   const C = CHUNK * PITCH;
   const ccx = Math.floor((cam.x + 24) / C), ccz = Math.floor((cam.z + 24) / C);
   const n = Math.ceil(r1 / C) + 1;
+  // a big town: keep the ground window around the camera
+  if (!groundWin.full && !groundWin.req) {
+    const bx = Math.floor((cam.x + 24) / PITCH), bz = Math.floor((cam.z + 24) / PITCH);
+    if (Math.max(Math.abs(bx - groundWin.cx), Math.abs(bz - groundWin.cz)) > 96) sup.request({ type: 'ground', cx: bx, cz: bz }, groundWin, 0);
+  }
   // allocation-free (round M): pooled wants, numeric keys, reused sets
   const want = WANT;
   want.length = 0;
@@ -738,6 +752,7 @@ function setFull(u, T, time, fogD, r1) {
   setCommonU(u, T, time, fogD);
   gl.uniformMatrix4fv(u.uInvVP, false, invVP);
   gl.uniform4f(u.uTown, L ? L.townD2 : 100, groundExt, L ? L.seaX : 1e9, L ? L.seaBx : 1e6);
+  gl.uniform2f(u.uGroundO, groundWin.ox, groundWin.oz);
   gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, groundTex); gl.uniform1i(u.uGround, 0);
   const shDir = shadowDir(T);
   gl.uniform4f(u.uFar, r1 * 0.72, r1 * 0.96, !isLow() ? 1 : hasStencil ? -LOW_SHADOW : 0, 5 / shDir[1] * 0.5);   // z < 0: low preset with cast shadows out to -z
