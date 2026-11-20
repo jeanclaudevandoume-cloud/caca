@@ -25,7 +25,9 @@ const TOWN_URL = 'town/';
 // ---------------- GL ----------------
 const canvas = $('#c');
 const qParam = params.get('q') || 'auto';
-const gl = canvas.getContext('webgl2', { antialias: qParam !== 'low', stencil: true, alpha: false, powerPreference: 'high-performance', preserveDrawingBuffer: params.has('shot') });
+const PHONE = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) || Math.min(screen.width, screen.height) < 600;
+// phones (auto) and q=low run the low preset without MSAA: its window shader assumes hard edges
+const gl = canvas.getContext('webgl2', { antialias: !(qParam === 'low' || (qParam === 'auto' && PHONE)), stencil: true, alpha: false, powerPreference: 'high-performance', preserveDrawingBuffer: params.has('shot') });
 if (!gl) { fail('This town needs WebGL2, which this browser does not provide.'); throw new Error('no webgl2'); }
 // Context lost: reload once; if it happens again soon, explain instead of looping forever.
 canvas.addEventListener('webglcontextlost', (e) => {
@@ -52,7 +54,11 @@ function prog(vs, fs) {
   for (let i = 0; i < n; i++) { const a = gl.getActiveUniform(p, i); u[a.name.replace(/\[0\]$/, '')] = gl.getUniformLocation(p, a.name); }
   return { p, u };
 }
-const P = { geo: prog(GEO_VS, GEO_FS), geoLow: prog(GEO_VS, GEO_FS.replace('#version 300 es', '#version 300 es\n#define LOWQ')), shadow: prog(SHADOW_VS, SHADOW_FS), full: prog(FULL_VS, FULL_FS), copy: prog(FULL_VS, COPY_FS) };
+// The material shader exists in two variants; only the one the preset uses is compiled at boot,
+// the other on first use (phones never pay for the high one).
+const GEO_SRC = { geo: GEO_FS, geoLow: GEO_FS.replace('#version 300 es', '#version 300 es\n#define LOWQ') };
+function geoProg(which) { if (!P[which]) P[which] = prog(GEO_VS, GEO_SRC[which]); return P[which]; }
+const P = { shadow: prog(SHADOW_VS, SHADOW_FS), full: prog(FULL_VS, FULL_FS), copy: prog(FULL_VS, COPY_FS) };
 const fullVao = gl.createVertexArray();
 const hasStencil = !!(gl.getContextAttributes() || {}).stencil;      // without it shadows would darken twice
 gl.useProgram(P.full.p);
@@ -148,7 +154,7 @@ const HOME = { x: 6, y: 24, z: 660, yaw: 0, pitch: -0.03 };   // ART.md: on the 
 if (innerWidth / innerHeight < 0.75) Object.assign(HOME, { pitch: -0.07 });   // portrait: the street fills the lower third
 const cam = { ...HOME };
 const PRESETS = { low: { s: 0.55, pr: 1 }, mid: { s: 0.8, pr: 1.5 }, high: { s: 1, pr: 2 } };
-const isPhone = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) || Math.min(screen.width, screen.height) < 600;
+const isPhone = PHONE;
 let lowState = null;
 // Low preset with hysteresis: the governor drifting around 0.7 must not rebuild every chunk back and forth.
 function isLow() {
@@ -202,9 +208,10 @@ function onWorker(e) {
 }
 // Mesh uploads are spread over frames (<= 512 KB per frame, nearest first) so streaming never hitches.
 const UPQ = [];
+const byTargetDist = (a, b) => (a.t.d || 0) - (b.t.d || 0);
 function drainUploads() {
   if (!UPQ.length) return;
-  UPQ.sort((a, b) => (a.t.d || 0) - (b.t.d || 0));
+  UPQ.sort(byTargetDist);
   let bytes = 0;
   while (UPQ.length && (bytes < 512 * 1024 || !bytes)) {
     const { t, m, lod, id } = UPQ.shift();
@@ -511,7 +518,7 @@ function render(now) {
   invVP = invert(VP);
   PL = planes(VP);
   const { r0, r1 } = radii();
-  const fogD = Math.max(3600, 4500 + cam.y * 5) * (0.75 + 0.25 * quality.s);
+  const fogD = Math.max(4800, 6000 + cam.y * 5) * (0.75 + 0.25 * quality.s);
 
   const half = isLow() && !halfBroken && !params.has('fullres') && PROBE !== 'geo' ? halfGround(W, H, T, time, fogD, r1) : null;
   gl.viewport(0, 0, W, H);
@@ -522,7 +529,7 @@ function render(now) {
   gl.enable(gl.CULL_FACE); gl.disable(gl.BLEND); gl.disable(gl.STENCIL_TEST);
 
   let tris = 0, draws = 0, sky = 0, bytes = 0;
-  const geo = isLow() ? P.geoLow : P.geo;                          // low preset: cheaper material shader
+  const geo = geoProg(isLow() ? 'geoLow' : 'geo');                  // low preset: cheaper material shader
   gl.useProgram(geo.p);
   setCommonU(geo.u, T, time, fogD);
   gl.uniformMatrix4fv(geo.u.uVP, false, VP);

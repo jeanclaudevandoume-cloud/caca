@@ -206,7 +206,7 @@ export class MB {
   // Ellipsoid (or upper half). Smooth normals.
   ell(x, y, z, rx, ry, rz, sides, rings, c, m = M.PLAIN, a = 0, half = false, under = 1) {
     const base = this.nv;
-    const r0 = half ? rings : 0, rows = half ? rings : rings * 2;
+    const rows = half ? rings : rings * 2;
     for (let j = 0; j <= rows; j++) {
       const phi = ((j + (half ? rings : 0)) / (rings * 2)) * Math.PI;   // 0 = bottom pole
       const sy = -rcos(phi), sr = rsin(phi);
@@ -216,7 +216,6 @@ export class MB {
         this.v(x + nx * rx, y + sy * ry, z + nz * rz, 0, 0, nx, sy, nz, m, under < 1 ? shade(c, under + (1 - under) * Math.min(1, (sy + 1) * 0.8)) : c, a);
       }
     }
-    void r0;
     const W = sides + 1;
     for (let j = 0; j < rows; j++) for (let i = 0; i < sides; i++) {
       const p = base + j * W + i;
@@ -359,6 +358,7 @@ function lamp(mb, x, z, a) {
 
 // ---------- custom shapes ----------
 export function shape(mb, name, x, y, z, s, c, a, lod) {
+  c = clampSV(c, 0.32, 0.75);                    // ART.md: custom homes stay inside the palette (no candy)
   const sd = lod ? 6 : 10;
   const white = 0xfaf7f0;
   switch (name) {
@@ -498,7 +498,7 @@ export function home(mb, bx, bz, f, r, lod) {
       else if (r.roofType === 0) mb.gable(x0 - 0.3, z0 - 0.3, x1 + 0.3, z1 + 0.3, top, 1.6, rc, r.wall, a, true, false);
     } else {
       // ground storey (two-tone on half the houses: darker, with a string course), upper storeys with baked eave shade
-      const g = r.twoTone ? shade(r.wall, 0.62) : r.wall;
+      const g = shade(r.wall, r.twoTone ? 0.62 : 0.78);           // the ground storey is always darker: value structure
       mb.box(x0, 0, z0, x1, FLOOR_H, z1, g, -1, M.WIN, wa);
       if (r.floors >= 3) {
         // stepped massing: the top storey sits 1.5 m back from the street, its roof terrace in front
@@ -517,7 +517,13 @@ export function home(mb, bx, bz, f, r, lod) {
       // built-in garage: dark opening with a light lintel
       if (r.garage) {
         const gx0 = r.side > 0 ? x1 - 3.2 : x0 + 0.4, gx1 = gx0 + 2.8;
-        mb.wq(gx0, gx1, 0, 2.5, wallZ + fs * 0.03, fs, (r.hash >>> 25) & 1 ? 0x24262a : 0x5f676c, M.METAL, a);   // open (dark) or a roller shutter
+        const open = (r.hash >>> 25) & 1;
+        mb.wq(gx0, gx1, 0, 2.5, wallZ + fs * 0.03, fs, open ? 0x1e1f22 : 0x5f676c, M.METAL, a);   // open bay (near black) or a roller shutter
+        if (open && !LITE && (r.hash >>> 27) % 5 < 3) {         // a kei car parked in the open bay
+          const cx = (gx0 + gx1) / 2, cz = wallZ + fs * 0.3, cc = CARS[(r.hash >>> 9) % CARS.length];
+          mb.cbox(cx, 0.2, cz, 1.45, 0.75, 1.4, cc, M.METAL, a);
+          mb.cbox(cx, 0.95, cz - fs * 0.15, 1.35, 0.6, 0.9, 0x2b3240, M.GLASS, a);
+        }
         if (!LITE) mb.wq(gx0 - 0.15, gx1 + 0.15, 2.5, 2.7, wallZ + fs * 0.04, fs, 0xd9d3c7, M.PLAIN, a);
       }
       // floor-2 balcony: slab + solid parapet across 60% of the front
@@ -547,6 +553,12 @@ export function home(mb, bx, bz, f, r, lod) {
           mb.cbox(sx + sxs * 0.06, 1.2, zm - 1.4, 0.1, 0.5, 0.4, 0xbfc3c6, M.METAL, a);
         }
         if (!LITE) mb.cbox(sx + sxs * 0.2, FLOOR_H + 0.4, zm - 2.2, 0.4, 0.55, 0.8, 0xd8d8d4, M.METAL, a);
+      }
+      // potted plants either side of the door (cheap: a pot box and a small 8-tri crown)
+      for (const px of LITE ? [] : [doorX - 0.95, doorX + 0.95]) {
+        const pz = wallZ + fs * 0.45;
+        mb.cbox(px, 0, pz, 0.45, 0.45, 0.45, 0x8a5a3c, M.PLAIN, a);
+        mb.ell(px, 0.85, pz, 0.38, 0.45, 0.38, 4, 1, LEAVES[(r.hash >>> 7) % LEAVES.length], M.LEAF, a);
       }
       mb.cast = true;
       door(mb, doorX, wallZ, fs, r, rc, a);

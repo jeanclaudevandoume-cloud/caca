@@ -42,13 +42,21 @@ const V = {
   for (const n of names) {
     const [q, w = 1100, h = 620] = V[n];
     const p = await b.newPage({ viewport: { width: w, height: h } });
-    p.on('pageerror', (e) => console.log(n, 'pageerror:', e.message.slice(0, 300)));
+    let bad = null;
+    p.on('pageerror', (e) => { bad = bad || 'pageerror: ' + e.message.slice(0, 200); console.log(n, 'pageerror:', e.message.slice(0, 300)); });
     let bytes = 0;
     p.on('response', async (r) => { try { const h = await r.allHeaders(); bytes += +(h['content-length'] || 0); } catch { /* ignore */ } });
     await p.goto(`http://localhost:${process.env.PORT || 8080}/?shot&${q}`);
     try {
       await p.waitForFunction(() => { const t = window.__town; if (!t || !t.ready || !t.idle()) { window.__s = 0; return false; } return ++window.__s >= 4; }, null, { timeout: 110000, polling: 400 });
-    } catch { console.log(n, 'timeout'); }
+    } catch { bad = bad || 'timeout'; console.log(n, 'timeout'); }
+    if (bad) {
+      // a failed capture must not be recorded as numbers (the previous good entry stays)
+      console.log(n, 'FAILED:', bad);
+      process.exitCode = 1;
+      await p.close();
+      continue;
+    }
     await p.waitForTimeout(800);
     await p.screenshot({ path: `shots/${tag}/${n}.png` });
     out[n] = await p.evaluate(() => { const s = window.__town.stats; return { tris: s.tris, draws: s.draws, sky: s.sky, mb: s.mb }; });

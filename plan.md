@@ -168,6 +168,16 @@ The meta-reviews agree that incremental detail on flat procedural boxes has hit 
 reaching 9 needs a structural art change (a real house kit with varied massing on every preset, or a deliberate
 stylization such as a miniature/diorama look), judged on the phone by the owner.
 
+## Four-reviewer rounds (code / design / optimization / overall looks)
+
+| Build | Code | Design | Optimization | Looks | Notes |
+|---|---|---|---|---|---|
+| r15 (phone build fixed) | 6.5 | 5.2 | 7.0 | 5.5 | Bundling bug broke the phone build since round 6; fixed; scoped bundler, phonetest, selftest. |
+| round A | — | 5.0 | — | 5.0 | Tokyo/Seoul kit + optimization tiers. Looks dipped: colour removed with nothing to replace it, opening view lost its story. (code/opt reviewers hit a usage limit) |
+| round B | 7.5 | 5.5 | 7.0 | 5.5 | Packed houses, roof mix, colour carriers, avenue opening view. Opt found 2.9x phone fill regression. |
+| round C | 7.5 | 6.0 | 8.0 | 5.5 | Neutral shade, concrete lots, side-wall services, cheap phone window path, zero-area tris removed, tested hysteresis. |
+| round D (this build) | | | | | Window language per house + centre mullion + lintel; baked value (darker ground storey, shade sides, near-black garages, jitter, stronger painted shadow); roof palette w/o green on jutaku; tategaki sign lettering (integer hash); height-weighted fog; one LOWQ switch (dead code removed, same window hash); no MSAA on phones; lazy shader compile; vantage capture fails loudly. |
+
 ### Next steps, in priority order
 1. Precompute the block order at build time (compact binary in `public/town/`), so clients don't run `buildLayout` (scaling to 10M on phones).
 2. Merge skyline regions per distance ring; reuse matrix/array buffers per frame.

@@ -146,7 +146,7 @@ export const districtAccent = (bx, bz) => hash3(fdiv(bx, 4), fdiv(bz, 4), 31) % 
 export const WALL = [0xf0ece2, 0xe2d8c4, 0xcdbfa5, 0x9a8f80, 0x5a544c, 0xc9b49a, 0x8a5a3c, 0x5c6870];   // ART.md: Tokyo/Seoul palette (round B: one house in ~4 is dark, for rhythm)
 // townhouses: three brick tones, then stucco
 export const TOWN = [0x9a5a43, 0xb07a5a, 0xc8b08e, 0x8e8a84, 0xe3dccf];
-export const ROOF = [0x3a3e45, 0x4b5663, 0x8c4a32, 0x6b3a2e, 0x3f6b62, 0x4f6b45, 0x7a4a32, 0x2b2d31];   // ART.md: charcoal kawara 3/8, terracotta/brown 3/8, green/teal 2/8 (round B)
+export const ROOF = [0x6e747a, 0x2f3d55, 0x5a4636, 0x8a4a34, 0x3a3e45, 0x7a4a32, 0x4b5663, 0x2b2d31];   // ART.md: jutaku roofs are galvalume/navy/brown/terracotta/kawara; green/blue paint only on Seoul villa flat roofs
 // ART.md city facades: S <= .30, V <= .85 (the palette is clamped to the table)
 export const CITY = [0xc9a27e, 0x8e9aa6, 0xd8c3a0, 0x5f6b78, 0xb5876a, 0xe0d6c4, 0x4a5560].map((c) => clampSV(c, 0.295, 0.845));
 export const ACCENT = [0xff6b6b, 0x1fb5ad, 0xffb627, 0x6c63ff, 0x2ec27e, 0xff8fb1];

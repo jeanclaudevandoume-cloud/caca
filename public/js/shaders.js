@@ -74,8 +74,8 @@ void main() {
   bool city = vMat == 5 || (vMat == 1 && (sa & 3u) == 3u);
   // canyon shade: city walls darken strongly toward the street (no building-on-building shadows otherwise)
   float ao = mix(1.0, city ? mix(0.45, 1.0, smoothstep(0.0, 30.0, vW.y)) : mix(0.8, 1.0, smoothstep(0.0, 4.0, vW.y)), wall);
-  float avert = mix(1.0, city ? 0.8 : 0.78, wall * step(dot(n, uSunDir), 0.0));             // faces turned from the sun
-  float jitter = city ? 0.85 + 0.15 * float((sa * 2654435761u) >> 24u) / 255.0 : 1.0;   // neighbours separate
+  float avert = mix(1.0, city ? 0.8 : 0.7, wall * step(dot(n, uSunDir), 0.0));             // faces turned from the sun
+  float jitter = (city ? 0.85 : 0.8) + (city ? 0.15 : 0.2) * float((sa * 2654435761u) >> 24u) / 255.0;   // neighbours separate   // neighbours separate
   vec3 col = base * jitter * (amb * ao * avert + key * sun);
   vec3 emis = vec3(0.0);
   uint seedAll = uint(vCol.a * 255.0 + 0.5);
@@ -98,12 +98,13 @@ void main() {
       float share0 = 18.0 + float(ih(seed * 31u + 7u) % 82u);
       emis = vec3(1.0, 0.78, 0.45) * (share0 / 512.0) * mix(0.22, 0.75, glass) * smoothstep(0.05, 0.6, uNight) * 0.7;
     } else {
-      // phone, near walls: one hash, hard-edged frame and pane (MSAA is off on low anyway), no mullions/sills/reveals
-      uint cell = ih(uint(int(floor(g.x)) + 4096) * 7919u + uint(int(floor(g.y)) + 64) * 104729u + seed * 2654435761u);
+      // phone, near walls: one hash, hard-edged frame and pane (MSAA is off on the low preset), no mullions/sills/reveals
+      uint face = uint(dot(step(0.5, abs(n)), vec3(1.0, 2.0, 3.0)) + 3.0 * step(0.0, n.x + n.z));
+      uint cell = ih(uint(int(floor(g.x)) + 4096) * 7919u + uint(int(floor(g.y)) + 64) * 104729u + seed * 2654435761u + face * 40503u);   // same hash as the high path
       float mx = mix(0.25, 0.06, glass), my0 = mix(0.3, 0.1, glass), my1 = mix(0.8, 0.94, glass), has = 1.0;
+      uint wt = (seed >> 1u) % 3u;                   // one window type per house: ordered rows, no random sizes
       if (glass < 0.5 && style != 3u) {
-        uint wt = (cell >> 20u) & 3u;
-        has = float(((cell >> 16u) & 7u) < 5u);
+        has = float(((cell >> 16u) & 7u) != 0u);      // a rare blank cell only
         if (wt <= 1u) { mx = 0.16; my0 = 0.36; my1 = 0.78; } else if (wt == 2u) { mx = 0.36; my0 = 0.56; my1 = 0.82; } else { mx = 0.14; my0 = 0.06; my1 = 0.80; }
       }
       if (glass < 0.5) col *= mix(0.7, 1.0, smoothstep(0.42, 0.48, vW.y)) * (1.0 - 0.06 * step(0.94, fract(vW.y / 0.45)) * k);   // plinth + cheap panel courses
@@ -115,7 +116,10 @@ void main() {
       vec3 refl = mix(vec3(0.15, 0.2, 0.25), mix(vec3(0.49, 0.59, 0.69), uSkyHor, 0.4), mix(0.5, fy, k));
       vec3 sash = glass > 0.5 ? vec3(0.75, 0.78, 0.8) : ((seed & 7u) < 5u ? vec3(0.42, 0.43, 0.44) : vec3(0.86, 0.85, 0.82));
       col = mix(col * mix(1.0, 0.45, glass * uNight), sash * (amb * 0.9 + uSunCol * max(dot(n, uSunDir), 0.0) * 0.8), max(frame - pane, 0.0));
-      col = mix(col, refl * (0.55 + 0.45 * (1.0 - uNight)), pane);
+      vec3 sashC = sash * 0.72 * (amb * 0.9 + uSunCol * max(dot(n, uSunDir), 0.0) * 0.8);
+      float mullC = (glass < 0.5 && wt <= 1u) ? step(abs(f.x - 0.5), 0.025 / sp) * k : 0.0;   // centre mullion on sliding sashes
+      col = mix(col, mix(refl * (0.55 + 0.45 * (1.0 - uNight)), sashC, mullC), pane);
+      col *= 1.0 - 0.35 * step(my1 + e.y, f.y) * step(f.y, my1 + 0.07) * has * k * step(0.3, v);   // lintel shadow
       float share = 18.0 + float(ih(seed * 31u + 7u) % 82u);
       float lit = mix(share / 512.0, float(float(cell & 255u) < share), k);
       emis = vec3(1.0, 0.75, 0.42) * lit * pane * smoothstep(0.05, 0.6, uNight);
@@ -124,7 +128,6 @@ void main() {
     // tower facade type: 0 ribbon glass, 1 vertical fins, 2 stone grid, 3 warm bronze
     uint facade = glass > 0.5 ? (seed & 3u) : 9u;
     // wall surface detail (residential): siding joints, brick courses, plinth, floor bands
-#ifndef LOWQ
     if (glass < 0.5) {
       float kd = clamp(1.2 - fwidth(vW.y) * 6.0, 0.0, 1.0);
       if (style == 1u) col *= 1.0 - 0.10 * step(fract(u / 0.91), 0.035) * clamp(1.2 - fwidth(u) * 6.0, 0.0, 1.0);   // ceramic siding joints
@@ -138,9 +141,6 @@ void main() {
       col *= mix(0.7, 1.0, smoothstep(0.42, 0.48, vW.y));                // darker plinth
       col *= 1.0 - 0.1 * smoothstep(0.93, 0.99, f.y) * k;                 // floor line / eave shadow
     }
-#else
-    if (glass < 0.5) col *= mix(0.7, 1.0, smoothstep(0.42, 0.48, vW.y));   // low preset: plinth only
-#endif
     if (glass < 0.5 && style != 3u && fwidth(vW.y) < 0.14) {
       // built material on every preset: ALC panel joints (0.45 m courses, 1.8 m panels), corner shade, faded with distance
       float kj = clamp(1.3 - fwidth(vW.y) * 9.0, 0.0, 1.0);
@@ -182,16 +182,12 @@ void main() {
     if (facade == 3u) refl *= vec3(1.05, 0.85, 0.62);                    // bronze glass
     if (facade == 1u) refl *= 0.7;
     refl = mix(refl, uSkyHor * 0.8, glass * 0.3 * (1.0 - abs(dir.y)));
-#ifndef LOWQ
     refl += uSunCol * pow(max(dot(reflect(dir, n), uSunDir), 0.0), 40.0) * mix(0.4, 0.8, glass);
-#endif
-#ifndef LOWQ
     if (glass < 0.5 && wt == 2u) refl = mix(refl, vec3(0.75, 0.77, 0.78) * (amb + uSunCol * 0.4), 0.8);   // frosted
     // fake reveal: the top and one side of each pane sit in shadow
     refl *= 1.0 - 0.45 * k * max(smoothstep(0.84, 0.9, fy), (1.0 - smoothstep(0.0, 0.14, (f.x - mx) / (1.0 - 2.0 * mx))) * step(0.0, dot(n, uSunDir)));
     if (glass < 0.5 && (cell >> 12u) % 8u == 0u) refl = mix(refl, vec3(0.91, 0.86, 0.78) * 0.8 * (amb + uSunCol * 0.3), step(fy, 0.55) * k);
     refl *= mix(1.0, 0.6, smoothstep(0.86, 0.9, fy) * k);
-#endif
     float share = 18.0 + float(ih(seed * 31u + 7u) % 82u);            // 7%..39% of windows lit
     float towerGlow = glass > 0.5 ? (0.25 + 0.75 * float(ih(seed * 77u + 3u) & 255u) / 255.0) * 0.6 : 1.0;
     // floor bands stay visible further than single windows, so far towers read striped, not flat
@@ -228,11 +224,11 @@ void main() {
     // pale lamps and lanterns look like frosted glass by day; coloured lights (pin, signs) keep their colour
     float sat = max(base.r, max(base.g, base.b)) - min(base.r, min(base.g, base.b));
     float pale = smoothstep(0.7, 0.8, dot(base, vec3(0.3, 0.5, 0.2))) * (1.0 - smoothstep(0.25, 0.4, sat));
-    if (sat > 0.3) {                                   // signs: bars of 'lettering'
-      float gx = fract(vUV.x / 8.0 / 0.42), gy = fract(vW.y / 0.55);
-      float glyph = step(0.25, gx) * step(gx, 0.8) * step(0.3, gy) * step(gy, 0.75) * step(0.5, fract(sin(floor(vUV.x / 8.0 / 0.42) * 91.7) * 43.1));
+    if (sat > 0.3) {                                   // signs: one vertical column of 'lettering' (tategaki)
+      float fx = fract(vUV.x / 8.0 / 1.0), gy = fract(vW.y / 0.7);
+      float glyph = step(0.3, fx) * step(fx, 0.7) * step(0.15, gy) * step(gy, 0.75) * step(2.5, float(ih(uint(int(floor(vW.y / 0.7)) + 4096) * 7919u + uint(vCol.a * 255.0) * 977u) & 7u));   // integer hash (sin() hashes speckle on GPUs)
       // half the signs: light board with coloured glyphs; the rest: coloured board with white glyphs
-      float kg = clamp(1.2 - fwidth(vW.y) * 2.0, 0.0, 1.0);
+      float kg = clamp(1.2 - max(fwidth(fx), fwidth(gy)) * 3.0, 0.0, 1.0);   // fade on both axes: no speckle
       bool rev = (uint(vCol.a * 255.0) & 1u) == 1u;
       vec3 board = rev ? vec3(0.95, 0.94, 0.9) : base, ink = rev ? base * 0.8 : vec3(1.0);
       base = mix(board, ink, glyph * 0.85 * kg);
@@ -252,7 +248,7 @@ void main() {
 #endif
   col += uSunCol * rim * 0.22;
   col = col * (1.0 - 0.5 * uNight) + emis;
-  o = vec4(tone(fogMix(col, dir, dist)), 1.0);
+  o = vec4(tone(fogMix(col, dir, dist * mix(1.0, 0.6, smoothstep(40.0, 200.0, vW.y)))), 1.0);   // tall towers keep contrast
 }`;
 
 export const SHADOW_VS = /* glsl */ `#version 300 es
@@ -450,7 +446,7 @@ vec3 blockCol(uvec4 c, int bx, int bz, vec2 l, vec2 p, float t, float w, vec3 gr
         lot *= 1.0 - 0.10 * max(step(0.96, fract(l.x / 1.8)), step(0.96, fract(l.y / 1.8))) * (1.0 - smoothstep(0.3, 0.9, w));   // expansion joints
         // planting strip along the open side line, and joints in the concrete forecourt
         float gx = abs(l.x - (fx - side * 5.0));
-        lot = mix(lot, vec3(0.15, 0.27, 0.12) * (0.8 + 0.4 * vnoise(p * 1.7)), step(gx, 1.2) * step(along, 0.0) * (1.0 - smoothstep(0.6, 1.5, w)));
+        lot = mix(lot, vec3(0.27, 0.36, 0.20) * (0.8 + 0.3 * vnoise(p * 1.7)), step(gx, 1.2) * step(along, 0.0) * (1.0 - smoothstep(0.6, 1.5, w)));
         if (along > 0.0) lot *= 1.0 - 0.06 * step(0.95, fract(l.x / 0.6)) * (1.0 - smoothstep(0.3, 0.9, w));
       }
       float dd = length(max(q, 0.0));
@@ -464,7 +460,7 @@ vec3 blockCol(uvec4 c, int bx, int bz, vec2 l, vec2 p, float t, float w, vec3 gr
           vec2 qs = abs(l - c0 - off * (float(i) * 0.25)) - vec2(hw, hd * 0.5);
           sh = max(sh, 1.0 - smoothstep(-0.2, 0.4, max(qs.x, qs.y)));
         }
-        lot *= 1.0 - 0.55 * sh * outside * (1.0 - uNight);
+        lot *= 1.0 - 0.7 * sh * outside * (1.0 - uNight);
       }
     }
     return edge ? mix(int(c.g & 3u) <= 1 ? vec3(0.56, 0.54, 0.51) : WALK, lot, smoothstep(0.5, 3.0, w)) : lot;
