@@ -1042,6 +1042,37 @@ const SHIPS = ships();
 // ---------- skyline: one mesh per data region, tall buildings as boxes ----------
 // Skyline tile = 2x2 data regions (32x32 blocks, ~1.5 km), stored at 1/32 m so it fits int16.
 export const SKY = 2 * REGION;
+// Mid-band tiles (round M): MID x MID blocks of low massing for the ring just beyond the house ring, so
+// rooftops run on to the towers instead of a flat painted band. Per row of homes two masses (left and right
+// half, heights by hash) with windows from the facade shader and the row's roof colour; ~40 tris a block.
+// Not TALL: GEO_VS (skyline mode) grows them in exactly as the real homes shrink away.
+export const MID = 8;
+export function buildMid(L, mx, mz) {
+  const ox = (mx * MID + MID / 2 - 0.5) * PITCH, oz = (mz * MID + MID / 2 - 0.5) * PITCH;
+  const mb = new MB(ox, oz, 4096);
+  mb.cast = false;
+  for (let j = 0; j < MID; j++) for (let i = 0; i < MID; i++) {
+    const bx = mx * MID + i, bz = mz * MID + j;
+    if (cellKind(bx, bz) !== K.HOMES) continue;
+    const zone = zoneLevel(bx, bz);
+    if (zone >= 2) continue;                                     // mid-rise and towers come from the skyline
+    const occ = occupied(L, bx, bz);
+    if (!occ) continue;
+    const X = bx * PITCH, Z = bz * PITCH;
+    for (let row = 0; row < 2; row++) for (let half = 0; half < 2; half++) {
+      const slot = row * 4 + half * 2;
+      if (slot >= occ) continue;
+      const r = recipe(bx, bz, slot, zone, null), h = hash3(bx, bz, 91 + slot);
+      const top = (zone === 1 ? 12.5 : 6.6) + (h % 6) * 0.7;
+      const x0 = half ? X + 1 : X - 19, x1 = half ? X + 19 : X - 1;
+      const z0 = row ? Z + 2 : Z - 18, z1 = row ? Z + 18 : Z - 2;
+      const roof = zone === 1 ? (r.roofMem || 0x4f8a6e) : ROOF[r.roof];
+      mb.box(x0, 0, z0, x1, top, z1, r.wall, roof, M.WIN, (h & 0xfc) | 1);
+    }
+  }
+  return mb.finish();
+}
+
 export function buildSkyline(L, sx, sz, lite = false) {
   const ox = (sx * SKY + SKY / 2 - 0.5) * PITCH, oz = (sz * SKY + SKY / 2 - 0.5) * PITCH;
   const mb = new MB(ox, oz, 4096);

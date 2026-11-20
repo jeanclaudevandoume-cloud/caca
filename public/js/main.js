@@ -3,8 +3,9 @@ import {
   PITCH, CHUNK, REGION, FLOOR_H, K, fdiv, finishLayout, plotOf, plotFrame, recipe, zoneLevel, cellKind, kindAt,
   occupied, slotAt, ROOF, chunkLod, chunkLite, skyLite, lowNext, plotIndex, homeRect, regionKey, regionOf, lineIndex, normName, shardFor, hash3,
 } from './town.js';
-import { MB, M, SKY } from './mesher.js';
+import { MB, M, SKY, MID } from './mesher.js';
 import { Supervisor } from './supervisor.js';
+import { uploadAtlas } from './atlas.js';
 import { GEO_VS, GEO_FS, SHADOW_VS, SHADOW_FS, FULL_VS, FULL_FS, COPY_FS } from './shaders.js';
 
 window.__ftBooted = true;
@@ -72,6 +73,8 @@ const GEO_SRC = { geo: GEO_FS, geoLow: GEO_FS.replace('#version 300 es', '#versi
 function geoProg(which) { if (!P[which]) P[which] = prog(GEO_VS, GEO_SRC[which]); return P[which]; }
 const P = { shadow: prog(SHADOW_VS, SHADOW_FS), full: prog(FULL_VS, FULL_FS), copy: prog(FULL_VS, COPY_FS) };
 const fullVao = gl.createVertexArray();
+let atlasTex = null;
+try { atlasTex = uploadAtlas(gl); } catch (e) { console.error('atlas', e); }   // windows fall back to flat colour without it
 const hasStencil = !!(gl.getContextAttributes() || {}).stencil;      // without it shadows would darken twice
 gl.useProgram(P.full.p);
 gl.uniform3fv(P.full.u.uRoof, new Float32Array(ROOF.flatMap((c) => [((c >> 16) & 255) / 255, ((c >> 8) & 255) / 255, (c & 255) / 255])));
@@ -178,13 +181,14 @@ const quality = { mode: qParam, ...(qParam === 'high' ? PRESETS.high : qParam ==
 quality.maxS = quality.s; quality.maxPr = quality.pr;
 const RAD = { r0: 0, r1: 0, rs: 0 };
 function radii() {          // fills one object (no per-frame allocation)
-  RAD.r0 = 320 * Math.max(0.6, quality.s); RAD.r1 = 1100 * quality.s * (isLow() ? 0.66 : 1); RAD.rs = Math.min(5000, 7000 * quality.s * quality.s);
+  RAD.r0 = 320 * Math.max(0.6, quality.s); RAD.r1 = 1100 * quality.s * (isLow() ? 0.6 : 1); RAD.rs = Math.min(5000, 7000 * quality.s * quality.s);
   return RAD;
 }
 const stats = { tris: 0, draws: 0, sky: 0, chunks: 0, mb: 0, fps: 0, ms: 0 };
 let manifest = null, L = null, ready = false, bootMs = 0;
 const chunks = new Map();     // key -> {cx,cz,lod,g,want,req,seen}
 const skies = new Map();      // key -> {rx,rz,g,req,seen}
+const mids = new Map();       // mid-band massing tiles beyond the house ring, same shape as skies
 const t0 = performance.now();
 const frozenT = params.has('t') ? parseFloat(params.get('t')) : null;
 let tod = params.has('tod') ? parseFloat(params.get('tod')) : 0.22;
@@ -324,6 +328,7 @@ function flushChanged(old, oldC) {
     if (far || changed.has(regionKey(regionOf(bx), regionOf(bz)))) c.stale = true;
   }
   for (const s of skies.values()) s.stale = true;
+  for (const s of mids.values()) s.stale = true;
   for (const k of changed) customCache.delete(k);
 }
 // custom-home files: fetched once here and handed to whichever worker meshes the chunk
@@ -334,8 +339,11 @@ function customFor(cx, cz) {
   const ck = key + '@' + manifest.c[key];           // versioned key: an old download can't overwrite new data
   const v = customCache.get(ck);
   if (v === undefined) {
-    const pr = fetch(`${TOWN_URL}c/${key}.json?v=${manifest.c[key]}`).then((r) => (r.ok ? r.json() : null)).catch(() => null)
-      .then((j) => { if (customCache.get(ck) === pr) customCache.set(ck, j); });
+    // a 404 is a real "no custom homes"; a network error is never cached (round M: one dropped request used to
+    // turn every custom home of the region into a default house until the cache evicted it)
+    const pr = fetch(`${TOWN_URL}c/${key}.json?v=${manifest.c[key]}`).then((r) => (r.ok ? r.json() : r.status === 404 ? null : Promise.reject(new Error(r.status))))
+      .then((j) => { if (customCache.get(ck) === pr) customCache.set(ck, j); })
+      .catch(() => { if (customCache.get(ck) === pr) setTimeout(() => { if (customCache.get(ck) === pr) customCache.delete(ck); }, 3000); });   // retry after 3 s
     capSet(customCache, ck, pr);
     return undefined;
   }
@@ -437,7 +445,26 @@ function stream(now) {
     if ((!s.loaded || s.stale || s.lite !== slite) && !s.req && budget > 0) { s.stale = false; s.lite = slite; send({ type: 'sky', rx, rz, lite: slite }, s, 0); budget--; }
   }
   for (const [key, s] of skies) if (!sseen.has(key) && now - s.seen > 5000) { if (s.req) { const r = reqs.get(s.req); if (r) r.dead = true; } release(s.g); s.gone = true; skies.delete(key); }
+  // mid-band tiles: the ring from where homes start to shrink out to MID_OUT x r1
+  const RM = MID * PITCH, mn = Math.ceil(r1 * MID_OUT / RM) + 1;
+  const cmx = Math.floor((cam.x + 24) / RM), cmz = Math.floor((cam.z + 24) / RM);
+  MSEEN.clear();
+  for (let dz = -mn; dz <= mn; dz++) for (let dx = -mn; dx <= mn; dx++) {
+    const mx = cmx + dx, mz = cmz + dz;
+    const ox = (mx * MID + MID / 2 - 0.5) * PITCH, oz = (mz * MID + MID / 2 - 0.5) * PITCH;
+    const dh = hyp2(ox - cam.x, oz - cam.z);
+    if (dh - RM * 0.71 > r1 * MID_OUT || dh + RM * 0.71 < r1 * 0.72) continue;
+    if ((mx * MID) ** 2 + (mz * MID) ** 2 > (L.rB + MID) ** 2) continue;
+    const key = mx * 65536 + mz;
+    MSEEN.add(key);
+    let s = mids.get(key);
+    if (!s) { s = { rx: mx, rz: mz, g: null, req: 0, loaded: false }; mids.set(key, s); }
+    s.seen = now; s.d = dh;
+    if ((!s.loaded || s.stale) && !s.req && budget > 0) { s.stale = false; send({ type: 'mid', rx: mx, rz: mz }, s, 0); budget--; }
+  }
+  for (const [key, s] of mids) if (!MSEEN.has(key) && now - s.seen > 5000) { if (s.req) { const r = reqs.get(s.req); if (r) r.dead = true; } release(s.g); s.gone = true; mids.delete(key); }
 }
+const MID_OUT = 1.9, MSEEN = new Set();
 
 // ---------------- time of day ----------------
 // keys: 0 noon, 1 sunset, 2 night, 3 dawn (cycle of 4)
@@ -611,6 +638,20 @@ function render(now) {
     tris += s.g.n / 3; draws++; sky++;
   }
 
+  // mid-band massing (skyline mode: hidden where chunks still draw homes, growing in as they shrink)
+  gl.uniform4f(geo.u.uLod, fadeA, fadeB, 1, 0);
+  const RMd = MID * PITCH * 0.75;
+  for (const s of (PROBE === 'full' ? NONE : mids.values())) {
+    if (!s.g) continue;
+    bytes += s.g.bytes;
+    const ox = (s.rx * MID + MID / 2 - 0.5) * PITCH, oz = (s.rz * MID + MID / 2 - 0.5) * PITCH;
+    if (!inFrustum(PL, ox, 8, oz, hyp2(RMd, 10))) continue;
+    gl.uniform3f(geo.u.uOrigin, ox, 0, oz);
+    gl.bindVertexArray(s.g.vao);
+    gl.drawElements(gl.TRIANGLES, s.g.n, s.g.it, s.g.so);
+    tris += s.g.n / 3; draws++;
+  }
+
   if (pin && L && PROBE !== 'full') {
     if (!pinMesh) {
       const mb = new MB(0, 0, 256);
@@ -681,6 +722,7 @@ function setCommonU(u, T, time, fogD) {
   gl.uniform1f(u.uFogD, fogD); gl.uniform1f(u.uNight, T.night); gl.uniform1f(u.uTime, time);
   gl.uniform3f(u.uCam, cam.x, cam.y, cam.z);
   if (u.uLowQ) gl.uniform1f(u.uLowQ, isLow() ? 1 : 0);
+  if (u.uAtlas) { gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, atlasTex); gl.uniform1i(u.uAtlas, 1); gl.activeTexture(gl.TEXTURE0); }
 }
 function setFull(u, T, time, fogD, r1) {
   setCommonU(u, T, time, fogD);
@@ -832,11 +874,17 @@ async function nameOf(bx, bz, slot) {
   const key = regionKey(regionOf(bx), regionOf(bz)) + '@' + ver;
   let lines = nameCache.get(key);
   if (!lines) {
-    const pr = fetch(`${TOWN_URL}n/${regionKey(regionOf(bx), regionOf(bz))}.txt?v=${ver}`).then((r) => (r.ok ? r.text() : '')).then((t) => t.split('\n')).catch(() => []);
+    const pr = fetch(`${TOWN_URL}n/${regionKey(regionOf(bx), regionOf(bz))}.txt?v=${ver}`)
+      .then((r) => (r.ok ? r.text() : r.status === 404 ? '' : Promise.reject(new Error(r.status)))).then((t) => t.split('\n')).catch(() => null);
     capSet(nameCache, key, pr);
     lines = pr;
   }
-  if (lines.then) { const pr = lines; lines = await lines; if (nameCache.get(key) === pr) nameCache.set(key, lines); }
+  if (lines.then) {
+    const pr = lines;
+    lines = await lines;
+    if (nameCache.get(key) === pr) { if (lines) nameCache.set(key, lines); else nameCache.delete(key); }   // failures are not cached
+  }
+  if (!lines) return null;                            // network error: callers retry later (never "unclaimed")
   return lines[lineIndex(bx, bz, slot)] || '';
 }
 
@@ -896,7 +944,11 @@ function tags(now) {
       const key = t.key;
       t.pending = key;
       const ep = nameEpoch;
-      nameOf(t.bx, t.bz, t.s).then((nm) => { if (ep !== nameEpoch) return; nameMemo.set(key, nm); if (t.key === key) t.name = nm; });
+      nameOf(t.bx, t.bz, t.s).then((nm) => {
+        if (ep !== nameEpoch) return;
+        if (nm === null) { if (t.key === key) t.pending = -1; tagCam[0] = NaN; return; }   // network error: retry at the next scan
+        nameMemo.set(key, nm); if (t.key === key) t.name = nm;
+      });
     }
     if (nameMemo.size > 5000) nameMemo.clear();
   }
@@ -1020,25 +1072,33 @@ function homeView(p) {
   // across the street and up: never inside the house opposite (its roof is checked around the camera too),
   // and high enough that the whole target home, roof included, is in view over anything in between
   // three-quarter view: 24 m out from the front, 25° off the axis, a storey or two above the roof
-  // street view: standing in the lane (Tokyo lanes are ~8 m, so any camera further out would be inside the
-  // house opposite), 5.5 m off the facade and 17 m along the street, eye at ~7 m: the facade, door and roof
-  // edge at a three-quarter angle. Pick the side where nothing tall stands between camera and home.
-  const q = plotInfo(bx, bz, slot, zone).q, hx = (q[0] + q[2]) / 2, hz = (q[1] + q[3]) / 2;
+  // portrait of the home (round M): fit its front to 45-60% of the screen width, 20-30° off the facade normal,
+  // eye 9-14 m up (above the house opposite when needed), the home a little above the screen centre so the
+  // bottom sheet never covers it. Both sides are tried; the one with a clear sight line wins.
+  const q = plotInfo(bx, bz, slot, zone).q, hx = (q[0] + q[2]) / 2, hz = (q[1] + q[3]) / 2, hw = q[2] - q[0];
   const front = face < 0 ? q[1] : q[3];
-  const z = front + face * 5.5;
+  const aspect = innerWidth / innerHeight, vfov = Math.PI / 3, hfov = 2 * Math.atan(Math.tan(vfov / 2) * aspect);
+  const dist = Math.max(16, Math.min(40, (hw / 0.52) / (2 * Math.tan(hfov / 2))));
   const pref = (hash3(bx, bz, slot) & 1) ? 1 : -1;
-  let x = hx + pref * 17, best = Infinity;
-  for (const sd of [pref, -pref]) for (const along of [17, 13, 21]) {
-    const cx = hx + sd * along;
-    if (heightAt(cx, z) > 0) continue;                 // never start inside a building
+  let best = null;
+  for (const sd of [pref, -pref]) for (const ang of [0.44, 0.36]) {
+    const x = hx + sd * Math.sin(ang) * dist, z = front + face * Math.cos(ang) * dist;
+    let y = Math.max(9, Math.min(14, top + 4));
+    y = Math.max(y, heightAt(x, z) + 2);                // above the house opposite, never inside it
     let block = 0;
-    for (let k = 0.15; k < 0.85; k += 0.1) block = Math.max(block, heightAt(cx + (hx - cx) * k, z + (front - z) * k));
-    if (block < best) { best = block; x = cx; }
+    for (let t = 0.1; t < 0.85; t += 0.05) {
+      const sx = x + (hx - x) * t, sz = z + (front - z) * t, sy = y + (top * 0.5 - y) * t;
+      block = Math.max(block, heightAt(sx, sz) - sy);
+    }
+    if (!best || block < best.block) best = { x, y, z, block };
   }
-  const y = Math.max(6.5, Math.min(top + 2, 7.5 + best * 0.3));
-  return { x, y, z, yaw: 0, pitch: -0.2, bx, bz, slot, zone, tx: hx, tz: front - face * 1.5, ty: top * 0.7, px: hx, py: top + 0.8, pz: hz };   // p*: the pin, on the roof
+  const { x, z } = best, y = best.y + Math.max(0, best.block + 1);
+  const dx = hx - x, dz = (front - face * 1) - z, dh = Math.hypot(dx, dz);
+  const yaw = Math.atan2(dx, -dz), pitch = -Math.atan2(y - top * 0.5, dh) - vfov * 0.12;   // home at ~38% from the top
+  return { x, y, z, yaw, pitch, fixed: true, bx, bz, slot, zone, tx: hx, tz: hz, ty: top, px: hx, py: top + 1.2, pz: hz };
 }
 function lookAtYaw(v) {
+  if (v.fixed) return v;                              // homeView already framed it
   const dx = v.tx - v.x, dz = v.tz - v.z;
   v.yaw = Math.atan2(dx, -dz);
   v.pitch = -Math.atan2(v.y - (v.ty * 0.6), Math.hypot(dx, dz));
@@ -1081,13 +1141,19 @@ function updateFly(now) {
 const shardCache = new Map();
 async function shard(norm) {
   const key = shardFor(norm, manifest.split);
-  if (!shardCache.has(key)) capSet(shardCache, key, fetch(`${TOWN_URL}s/${key}.json?v=${(manifest.sh && manifest.sh[key]) || manifest.built}`).then((r) => (r.ok ? r.json() : [])).catch(() => []));
+  if (!shardCache.has(key)) {
+    const pr = fetch(`${TOWN_URL}s/${key}.json?v=${(manifest.sh && manifest.sh[key]) || manifest.built}`)
+      .then((r) => (r.ok ? r.json() : r.status === 404 ? [] : Promise.reject(new Error(r.status))))
+      .catch(() => { if (shardCache.get(key) === pr) shardCache.delete(key); return null; });   // not cached: the next search retries
+    capSet(shardCache, key, pr);
+  }
   return shardCache.get(key);
 }
 async function findName(q) {
   const norm = normName(q);
   if (!norm) return [];
   const list = await shard(norm);
+  if (!list) return null;                             // network error (not "no such follower")
   const out = [];
   for (const e of list) { if (e[0].startsWith(norm)) { out.push(e); if (out.length > 60) break; } }
   out.sort((a, b) => (a[0] === norm ? -1 : b[0] === norm ? 1 : a[0].length - b[0].length || a[1] - b[1]));
@@ -1099,10 +1165,12 @@ async function flyToName(name, instant) {
   const my = ++uiSeq;
   const list = await findName(norm);
   if (my !== uiSeq) return false;                   // a later tap or search won
+  if (list === null) { toast('Network problem: try again'); return false; }
   const hit = list.find((e) => e[0] === norm) || list[0];
   if (!hit) { toast(`No home for “${name}” yet`); return false; }
   const v = flyTo(hit[1], instant);
   pin = { x: v.px !== undefined ? v.px : v.tx, y: v.py !== undefined ? v.py : v.ty * 0.6 + 9, z: v.pz !== undefined ? v.pz : v.tz, key: plotKey(v.bx, v.bz, v.slot) };
+  v.here = true;
   showCard(hit[0], hit[1], v);
   history.replaceState(null, '', '#u=' + encodeURIComponent(hit[0]));
   return true;
@@ -1113,7 +1181,7 @@ search.addEventListener('input', () => {
   clearTimeout(suggTimer);
   suggTimer = setTimeout(async () => {
     const my = ++suggSeq;
-    const list = await findName(search.value);
+    const list = (await findName(search.value)) || [];
     if (my !== suggSeq) return;              // a newer query answered first: never show stale suggestions
     suggSel = -1;
     sugg.innerHTML = '';
@@ -1142,14 +1210,38 @@ addEventListener('hashchange', () => { const u = hashParams().get('u'); if (u) f
 
 function showCard(name, p, v) {
   const c = $('#card');
-  const zoneName = ['Garden suburbs', 'Townhouse quarter', 'Mid-rise district', 'Downtown towers'][v.zone];
+  // a Tokyo-style address: ward from the district, chome-ban-go from the block and plot
+  const { bx, bz, slot } = plotOf(L, p);
+  const ward = ['Jutaku', 'Villa', 'Shotengai', 'Tower'][v.zone] + ' ' + (['Kita', 'Minami', 'Higashi', 'Nishi'][(bx > 0) + 2 * (bz > 0)]);
   $('#card-name').textContent = name || 'Unclaimed home';
-  $('#card-meta').textContent = `Home #${(p + 1).toLocaleString()} · ${zoneName}`;
+  $('#card-meta').textContent = `${ward} ${Math.abs(bx) % 9 + 1}-${Math.abs(bz) % 30 + 1}-${slot + 1} · home #${(p + 1).toLocaleString()}`;
   c.hidden = false;
   c.dataset.p = p;
+  c.dataset.name = name || '';
+  $('#card-go').hidden = !!v.here;                    // already there: no "Fly there"
+  // neighbours: the two plots either side in follower order
+  const nb = $('#card-nb');
+  nb.textContent = '';
+  for (const q of [p - 1, p + 1]) if (q >= 0 && q < L.n) nameOf(...Object.values(plotOf(L, q)).slice(0, 3)).then((n) => {
+    if (c.dataset.p !== String(p) || !n) return;
+    const b = document.createElement('button'); b.className = 'nb'; b.textContent = (q < p ? '‹ ' : '') + n + (q > p ? ' ›' : '');
+    b.onclick = () => { uiSeq++; flyToIndex(q, n); };
+    if (q < p) nb.prepend(b); else nb.appendChild(b);
+  });
 }
 $('#card-close').onclick = () => { uiSeq++; $('#card').hidden = true; pin = null; };
-$('#card-go').onclick = () => { uiSeq++; const p = +$('#card').dataset.p; if (p >= 0) flyTo(p); };
+$('#card-go').onclick = () => { uiSeq++; const p = +$('#card').dataset.p; if (p >= 0) flyToIndex(p, $('#card').dataset.name); };
+$('#card-share').onclick = async () => {
+  const n = $('#card').dataset.name, url = location.href.split('#')[0].split('?')[0] + '#u=' + encodeURIComponent(n);
+  try { if (navigator.share) await navigator.share({ title: n + ' · Follower Town', url }); else { await navigator.clipboard.writeText(url); toast('Link copied'); } } catch { /* cancelled */ }
+};
+function flyToIndex(p, name) {
+  const v = flyTo(p);
+  pin = { x: v.px !== undefined ? v.px : v.tx, y: v.py !== undefined ? v.py : v.ty * 0.6 + 9, z: v.pz !== undefined ? v.pz : v.tz, key: plotKey(v.bx, v.bz, v.slot) };
+  v.here = true;
+  showCard(name, p, v);
+  if (name) history.replaceState(null, '', '#u=' + encodeURIComponent(name));
+}
 let uiSeq = 0;                                       // only the latest tap / search may set the card, pin and flight
 async function onTap(x, y) {
   if (!L || !invVP) return;
@@ -1158,6 +1250,7 @@ async function onTap(x, y) {
   const my = ++uiSeq;
   const name = await nameOf(hit.bx, hit.bz, hit.slot);
   if (my !== uiSeq) return;                         // a later tap or search won
+  if (name === null) { toast('Network problem: try again'); return; }
   const q = plotInfo(hit.bx, hit.bz, hit.slot, hit.zone).q;
   pin = { x: (q[0] + q[2]) / 2, y: homeTop(hit.bx, hit.bz, hit.slot, hit.zone) + 0.8, z: (q[1] + q[3]) / 2, key: plotKey(hit.bx, hit.bz, hit.slot) };
   showCard(name, hit.p, { zone: hit.zone });
@@ -1181,6 +1274,7 @@ window.__town = {
     if (!ready || reqs.size || UPQ.length) return false;
     for (const c of chunks.values()) if (c.lod !== c.want || c.stale) return false;
     for (const s of skies.values()) if (!s.loaded) return false;
+    for (const s of mids.values()) if (!s.loaded) return false;
     return true;
   },
 };

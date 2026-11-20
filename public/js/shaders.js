@@ -50,6 +50,8 @@ void main() {
     if (tall) { if (dc > uLod.x) { gl_Position = vec4(0.0, 0.0, 2.0, 1.0); return; } }
     else p.y *= 1.0 - smoothstep(uLod.x, uLod.y, d);
   } else if (dc <= uLod.x) { gl_Position = vec4(0.0, 0.0, 2.0, 1.0); return; }
+  else if (!tall) p.y *= smoothstep(uLod.x, uLod.y, d);     // mid-band massing grows in as the homes shrink
+  else if (!tall) p.y *= smoothstep(uLod.x, uLod.y, d);     // skyline mid-band massing grows in as the homes shrink
   if (mat == 2 && p.y > 2.0) p.xz += sin(uTime * 1.3 + p.x * 0.11 + p.z * 0.07) * 0.06 * (p.y - 2.0) / 6.0;
   vW = p; vN = aN; vUV = aUV; vCol = aCol; vMat = mat;
   gl_Position = uVP * vec4(p, 1.0);
@@ -76,6 +78,31 @@ void winLayout(uint seed, uint cell, float glass, uint style, vec2 g, vec3 n, ou
     else if (wt == 2u) { mx = 0.36; my0 = 0.56; my1 = 0.82; }   // small (frosted) window
     else { mx = 0.14; my0 = 0.04; my1 = 0.80; }                 // full-height balcony door
   }
+}
+// Facade atlas (atlas.js): 4x4 tiles, row 0 sliding sashes, row 1 frosted (0-1) and balcony doors (2-3).
+// The whole window opening (frame, reveal, glass, curtains, sill) comes from one mipmapped fetch, so far
+// windows average out instead of shimmering, and the phone gets the same windows as the desktop.
+uniform sampler2D uAtlas;
+vec4 winTex(uint wt, uint cell, vec2 uvw, vec2 gx, vec2 gy) {
+  vec2 t = wt == 2u ? vec2(float((cell >> 6u) & 1u), 1.0) : wt == 3u ? vec2(2.0 + float((cell >> 7u) & 1u), 1.0) : vec2(float((cell >> 4u) & 3u), 0.0);
+  const float P = 6.0 / 256.0;
+  vec2 uv = (t + P + clamp(vec2(uvw.x, 1.0 - uvw.y), 0.0, 1.0) * (1.0 - 2.0 * P)) * 0.25;
+  return textureGrad(uAtlas, uv, gx, gy);
+}
+// paint the window opening [r0, r1] (cell units) of a residential cell from the atlas
+void atlasWindow(inout vec3 col, inout vec3 emis, vec2 f, vec2 g, vec2 r0, vec2 r1, float has, uint wt, uint cell, vec3 n, vec3 amb, vec3 key, vec3 refl, float lit, vec3 warm) {
+  vec2 sz = r1 - r0, sc = (1.0 - 2.0 * 6.0 / 256.0) * 0.25 / sz;
+  vec2 dgx = dFdx(g) * sc * vec2(1.0, -1.0), dgy = dFdy(g) * sc * vec2(1.0, -1.0);
+  vec4 at = winTex(wt, cell, (f - r0) / sz, dgx, dgy);
+  vec2 w = fwidth(g);
+  vec2 inr = smoothstep(r0 - w, r0 + w, f) * (1.0 - smoothstep(r1 - w, r1 + w, f));
+  float inW = inr.x * inr.y * has;
+  vec3 lightW = amb * 0.95 + key * max(dot(n, uSunDir), 0.0) * 0.85;
+  vec3 wc = at.rgb * lightW;
+  wc = mix(wc, wc * 0.55 + refl * 0.55, at.a * 0.4 * (1.0 - uNight));      // the sky in the glass
+  wc *= mix(1.0, 0.35, at.a * uNight);                                        // dark glass at night
+  col = mix(col, wc, inW);
+  emis = warm * lit * at.a * inW * smoothstep(0.05, 0.6, uNight);
 }
 void main() {
   vec3 n = normalize(vN);
@@ -148,6 +175,7 @@ void main() {
       float share = 18.0 + float(ih(seed * 31u + 7u) % 82u);
       float lit = mix(share / 512.0, float(float(cell & 255u) < share), k);
       emis = vec3(1.0, 0.75, 0.42) * lit * pane * smoothstep(0.05, 0.6, uNight);
+      if (glass < 0.5 && step(0.3, v) > 0.0) atlasWindow(col, emis, f, g, vec2(mx, my0) - e, vec2(1.0 - mx, my1) + e, has, wt, cell, n, amb * ao, key, refl, lit, vec3(1.0, 0.75, 0.42));
 #else
 
     // tower facade type: 0 ribbon glass, 1 vertical fins, 2 stone grid, 3 warm bronze
@@ -226,6 +254,7 @@ void main() {
     if (glass > 0.5) col *= 1.0 - 0.35 * step(fract((v + float((seed >> 3) % 8u) + 3.0) / 8.0), 0.125) * clamp(1.4 - fwidth(v) * 0.6, 0.0, 1.0);   // mechanical floor every 8 storeys, offset per tower (no city-wide line)
     // far away the windows merge, so the glow stays a little brighter and whiter to stay readable
     emis = mix(vec3(1.0, 0.78, 0.45), warm, k) * lit * pane * (1.0 - mull * k) * smoothstep(0.05, 0.6, uNight) * mix(0.7 * towerGlow, 1.05, k) * mix(1.0, 1.25 - 0.45 * fy, k);
+    if (glass < 0.5 && facade == 9u && step(0.3, v) > 0.0) atlasWindow(col, emis, f, g, glo - fw, ghi + fw, has, wt, cell, n, amb * ao, key, refl, lit, warm);
 #endif
 #ifdef LOWQ
     }

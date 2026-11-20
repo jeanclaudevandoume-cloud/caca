@@ -1,7 +1,7 @@
 // Builds the layout, the ground data texture and chunk/skyline meshes off the main thread.
 // Custom-home files are fetched once by the main thread and arrive with each chunk request.
 import { buildLayout, layoutFromOrder, buildGround, finishLayout, layoutTransfer, regionKey, fdiv, CHUNK, REGION } from './town.js';
-import { buildChunk, buildSkyline } from './mesher.js';
+import { buildChunk, buildSkyline, buildMid } from './mesher.js';
 
 let L = null;
 const customs = new Map();          // regionKey -> {line: spec} | null
@@ -31,7 +31,8 @@ onmessage = (e) => {
     if (m.type === 'chunk') {
       customs.set(regionKey(fdiv(m.cx * CHUNK, REGION), fdiv(m.cz * CHUNK, REGION)), m.custom || null);
       r = buildChunk(L, m.cx, m.cz, m.lod, customs, !!m.lite);
-    } else r = buildSkyline(L, m.rx, m.rz, !!m.lite);
+    } else if (m.type === 'mid') r = buildMid(L, m.rx, m.rz);
+    else r = buildSkyline(L, m.rx, m.rz, !!m.lite);
     postMessage({ type: 'mesh', id: m.id, vb: r.vb, ib: r.ib, so: r.so, ns: r.ns, ymax: r.ymax }, [r.vb, r.ib.buffer]);
   } catch (err) {
     postMessage({ type: 'error', id: m.id, message: String((err && err.stack) || err) });

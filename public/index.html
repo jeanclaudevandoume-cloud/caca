@@ -50,6 +50,12 @@
   #card-name { font-weight: 700; font-size: 18px; word-break: break-all; padding-right: 22px; }
   #card-meta { font-size: 13px; opacity: .7; margin: 2px 0 8px; }
   #card-go { border: 0; border-radius: 10px; padding: 7px 12px; background: var(--accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+  #card-acts { display: flex; gap: 8px; }
+  #card-share { border: 0; border-radius: 10px; padding: 7px 12px; background: rgba(40,50,70,.08); color: inherit; font: inherit; font-weight: 600; cursor: pointer; }
+  #card-nb { display: flex; justify-content: space-between; gap: 8px; margin-top: 8px; }
+  #card-nb:empty { display: none; }
+  #card-nb .nb { border: 0; background: none; font: inherit; font-size: 13px; color: var(--accent); cursor: pointer; padding: 4px 0; max-width: 48%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #card-go[hidden] { display: none; }
   #card-close { position: absolute; top: 6px; right: 8px; border: 0; background: none; font-size: 20px; cursor: pointer; opacity: .55; }
   #tags { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 2; }
   .tag { position: absolute; left: 0; top: 0; padding: 2px 8px; border-radius: 10px; background: rgba(255,255,255,.88); font-size: 12px; font-weight: 600; white-space: nowrap; box-shadow: 0 2px 6px rgba(0,0,0,.15); will-change: transform; }
@@ -74,6 +80,11 @@
     #tools button { width: 40px; height: 40px; font-size: 17px; }
     #card { left: 8px; bottom: calc(max(8px, env(safe-area-inset-bottom)) + 50px); max-width: calc(100vw - 16px); }
   }
+  @media (max-width: 600px) and (min-aspect-ratio: 1/3) and (orientation: portrait) {
+    #card { left: 0; right: 0; bottom: 0; max-width: none; border-radius: 20px 20px 0 0; padding: 14px 18px calc(14px + env(safe-area-inset-bottom)); }
+    #card-go, #card-share { padding: 11px 16px; min-height: 44px; }
+    body:has(#card:not([hidden])) #tools { bottom: calc(150px + env(safe-area-inset-bottom)); }
+  }
   @media (max-height: 460px) { #card { bottom: max(8px, env(safe-area-inset-bottom)); max-width: calc(100vw - 180px); } #tools { flex-direction: column; } }
 </style>
 </head>
@@ -96,7 +107,8 @@
   <button id="card-close" aria-label="Close">×</button>
   <div id="card-name"></div>
   <div id="card-meta"></div>
-  <button id="card-go">Fly there</button>
+  <div id="card-acts"><button id="card-go">Fly there</button><button id="card-share">Share</button></div>
+  <div id="card-nb"></div>
 </div>
 <div id="toast" hidden></div>
 <div id="help" hidden><div>
