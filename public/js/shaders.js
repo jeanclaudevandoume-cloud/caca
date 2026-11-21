@@ -486,14 +486,17 @@ vec3 blockCol(uvec4 c, int bx, int bz, vec2 l, vec2 p, float t, float w, vec3 gr
     if (zone <= 1) edge = al.x > 19.4 || al.y > 19.4;                         // narrow kerb, no wide sidewalk
     if ((c.g & 4u) != 0u && t > uFar.x * 0.95) {
       // painted roofs far away (the meshes have sunk into the ground by now)
-      int col = int(clamp(floor((l.x + 20.0) / 10.0), 0.0, 3.0));
+      bool laneB = (c.g & 32u) != 0u;                  // lane-split block: 2 x 5 plots fronting the roji
+      int col = laneB ? int(clamp(floor((l.x + 20.0) / 8.0), 0.0, 4.0)) : int(clamp(floor((l.x + 20.0) / 10.0), 0.0, 3.0));
       int row = zone == 2 ? int(clamp(floor((l.y + 20.0) / 10.0), 0.0, 3.0)) : (l.y < 0.0 ? 0 : 1);
-      int slot = row * 4 + col;
-      vec2 c0 = vec2(-15.0 + float(col) * 10.0, zone == 2 ? -15.0 + float(row) * 10.0 : -10.0 + float(row) * 20.0);
-      vec2 hs = zone == 0 ? vec2(4.2, 6.0) : (zone == 1 ? vec2(4.7, 6.7) : (zone == 2 ? vec2(4.3) : vec2(4.3, 7.0)));
-      float face = (zone == 2 ? (row < 2 ? -1.0 : 1.0) : (row == 0 ? -1.0 : 1.0));
-      if (zone == 0) c0.y -= face * (10.0 - 0.8 - hs.y);
-      if (zone == 1) c0.y -= face * (10.0 - 1.5 - hs.y);
+      int slot = laneB ? row * 5 + col : row * 4 + col;
+      vec2 c0 = laneB ? vec2(-16.0 + float(col) * 8.0, row == 0 ? -11.0 : 11.0)
+                      : vec2(-15.0 + float(col) * 10.0, zone == 2 ? -15.0 + float(row) * 10.0 : -10.0 + float(row) * 20.0);
+      vec2 hs = zone == 0 ? vec2(laneB ? 3.3 : 4.2, 6.0) : (zone == 1 ? vec2(laneB ? 3.6 : 4.7, 6.7) : (zone == 2 ? vec2(4.3) : vec2(4.3, 7.0)));
+      float face = laneB ? (row == 0 ? 1.0 : -1.0) : (zone == 2 ? (row < 2 ? -1.0 : 1.0) : (row == 0 ? -1.0 : 1.0));
+      float hd0 = laneB ? 9.0 : 10.0;
+      if (zone == 0) c0.y -= face * (hd0 - 0.8 - hs.y);
+      if (zone == 1) c0.y -= face * (hd0 - 1.5 - hs.y);
       vec2 cv = cover(l - c0, hs, max(w, 0.8));
       float inside = cv.x * cv.y;
       uint rh = hash3(bx, bz, slot * 7 + 100), rv = rh % 100u;
@@ -504,7 +507,7 @@ vec3 blockCol(uvec4 c, int bx, int bz, vec2 l, vec2 p, float t, float w, vec3 gr
       vec2 sv = cover(l - c0 + uFar.w * vec2(0.6, 0.4), hs + 0.8, max(w, 0.8));
       lot = mix(lot, lot * 0.68, max(sv.x * sv.y - inside, 0.0) * fadeIn);
       lot = mix(lot, roof, inside * fadeIn);
-      if ((c.g & 32u) != 0u && abs(l.y) < 1.7) lot = mix(lot, vec3(0.64, 0.63, 0.60), 1.0 - inside);   // roji, far
+      if ((c.g & 32u) != 0u && abs(l.y) < 2.0) lot = mix(lot, vec3(0.64, 0.63, 0.60), 1.0 - inside);   // roji, far
       if (uNight > 0.3) {
         float on = float(rv < 40u);
         vec2 wc = cover(l - c0, vec2(1.6), max(w, 0.8));
@@ -512,33 +515,35 @@ vec3 blockCol(uvec4 c, int bx, int bz, vec2 l, vec2 p, float t, float w, vec3 gr
       }
     } else if (zone <= 1 && w < 1.5 && (c.g & 4u) != 0u) {
       // near the camera: the lot plan of each home (mirrors town.js homeRect / recipe)
-      int col = int(clamp(floor((l.x + 20.0) / 10.0), 0.0, 3.0)), row = l.y < 0.0 ? 0 : 1;
-      int slot = row * 4 + col;
+      bool laneB = (c.g & 32u) != 0u;                  // lane-split block (town.js laneBlock): plots front the roji
+      int col = laneB ? int(clamp(floor((l.x + 20.0) / 8.0), 0.0, 4.0)) : int(clamp(floor((l.x + 20.0) / 10.0), 0.0, 3.0)), row = l.y < 0.0 ? 0 : 1;
+      int slot = laneB ? row * 5 + col : row * 4 + col;
       uint h = hash3(bx * 16 + slot, bz, 21);
-      float fx = -15.0 + float(col) * 10.0, face = row == 0 ? -1.0 : 1.0;
-      float front = face * 20.0, set = zone == 0 ? 0.8 : 1.5;
-      float hw = zone == 0 ? (8.0 + float((h >> 1u) % 4u) * 0.3) * 0.5 : 4.7;
+      float pw = laneB ? 8.0 : 10.0;
+      float fx = laneB ? -16.0 + float(col) * 8.0 : -15.0 + float(col) * 10.0, face = laneB ? (row == 0 ? 1.0 : -1.0) : (row == 0 ? -1.0 : 1.0);
+      float front = laneB ? -face * 2.0 : face * 20.0, set = zone == 0 ? 0.8 : 1.5;
+      float hw = zone == 0 ? (laneB ? 6.4 + float((h >> 1u) % 4u) * 0.2 : 8.0 + float((h >> 1u) % 4u) * 0.3) * 0.5 : (laneB ? 3.6 : 4.7);
       float hd = zone == 0 ? 11.0 + float((h >> 4u) % 4u) * 0.75 : 12.0 + float((h >> 4u) % 7u) * 0.5;
       float side = (h & 8u) != 0u ? 1.0 : -1.0;
-      float cx = zone == 0 ? fx + side * (5.0 - 0.4 - hw) : fx;
+      float cx = zone == 0 ? fx + side * (pw * 0.5 - 0.4 - hw) : fx;
       float zf = front - face * set, zb = zf - face * hd;            // house front and back wall z
       vec2 c0 = vec2(cx, (zf + zb) * 0.5);
       vec2 q = abs(l - c0) - vec2(hw, hd * 0.5);
       float outside = step(0.0, max(q.x, q.y));
       if (zone == 0) {
         float along = (l.y - zf) * face;                                  // > 0 between the house and the street
-        float back = (abs(l.y) > 17.5) ? 1.0 : 0.0;                              // rear 2 m of the plot: dark gravel
+        float back = laneB ? step(abs(l.y), 2.0) * 0.0 + step(17.5, abs(l.y)) : ((abs(l.y) > 17.5) ? 1.0 : 0.0);   // rear 2 m of the plot: dark gravel
         lot = along > 0.0 ? vec3(0.60, 0.59, 0.56) : mix(vec3(0.52, 0.51, 0.48), vec3(0.30, 0.29, 0.28), back) * (0.96 + 0.06 * vnoise(p * 3.0));
         lot *= 1.0 - 0.10 * max(step(0.96, fract(l.x / 1.8)), step(0.96, fract(l.y / 1.8))) * (1.0 - smoothstep(0.3, 0.9, w));   // expansion joints
         // planting strip along the open side line, and joints in the concrete forecourt
-        float gx = abs(l.x - (fx - side * 5.0));
+        float gx = abs(l.x - (fx - side * pw * 0.5));
         lot = mix(lot, vec3(0.27, 0.36, 0.20) * (0.8 + 0.3 * vnoise(p * 1.7)), step(gx, 1.2) * step(along, 0.0) * (1.0 - smoothstep(0.6, 1.5, w)));
         if (along > 0.0) lot *= 1.0 - 0.06 * step(0.95, fract(l.x / 0.6)) * (1.0 - smoothstep(0.3, 0.9, w));
       }
-      if ((c.g & 32u) != 0u && abs(l.y) < 1.7) {
+      if ((c.g & 32u) != 0u && abs(l.y) < 2.0) {
         // roji: a narrow paved lane between the two rows, with white edge lines and a centre gutter
         lot = vec3(0.64, 0.63, 0.60) * (0.97 + 0.05 * vnoise(p * 2.0));
-        lot = mix(lot, vec3(0.9), step(abs(abs(l.y) - 1.45), 0.06) * (1.0 - smoothstep(0.5, 1.2, w)));
+        lot = mix(lot, vec3(0.9), step(abs(abs(l.y) - 1.75), 0.06) * (1.0 - smoothstep(0.5, 1.2, w)));
         lot *= 1.0 - 0.18 * step(abs(l.y), 0.12) * (1.0 - smoothstep(0.5, 1.2, w));
       }
       float dd = length(max(q, 0.0));

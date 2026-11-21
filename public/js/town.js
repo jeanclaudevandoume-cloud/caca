@@ -114,9 +114,13 @@ export function zoneLevel(bx, bz) {
   return 0;
 }
 
+// Lane-split blocks (round Q): a residential block with a roji is cut into 2 rows of 5 plots (8 x 18 m) that
+// FRONT the 4 m lane through its middle, instead of 2 rows of 4 backing onto it. The ground shader mirrors this.
+export const laneBlock = (bx, bz, zone) => zone <= 1 && rojiAt(bx, bz);
 export function plotsIn(bx, bz) {
   if (cellKind(bx, bz) !== K.HOMES) return 0;
-  return zoneLevel(bx, bz) === 2 ? 16 : 8;
+  const z = zoneLevel(bx, bz);
+  return z === 2 ? 16 : laneBlock(bx, bz, z) ? 10 : 8;
 }
 
 // Kind including the follower-count dependent outskirts (country, highways, port, sea).
@@ -133,6 +137,12 @@ export function kindAt(L, bx, bz) {
 // Plot frame in world metres: centre, size, and which way the front faces (+1 = +z street, -1 = -z).
 export function plotFrame(bx, bz, slot, zone, out = {}) {
   const x0 = bx * PITCH, z0 = bz * PITCH;
+  if (laneBlock(bx, bz, zone)) {
+    const col = slot % 5, row = slot < 5 ? 0 : 1;
+    out.x = x0 - 16 + col * 8; out.w = 8;
+    out.z = z0 + (row ? 11 : -11); out.d = 18; out.face = row ? -1 : 1;   // fronts on the lane at z0 -+ 2
+    return out;
+  }
   const col = slot & 3, row = slot >> 2;
   out.x = x0 - 15 + col * 10;
   out.w = 10;
@@ -142,8 +152,9 @@ export function plotFrame(bx, bz, slot, zone, out = {}) {
 }
 
 // Which plot of a block is at a local position (lx, lz relative to block centre)?
-export function slotAt(zone, lx, lz) {
+export function slotAt(zone, lx, lz, lane = false) {
   if (lx < -20 || lx >= 20 || lz < -20 || lz >= 20) return -1;
+  if (lane) { if (Math.abs(lz) < 2) return -1; return (lz < 0 ? 0 : 5) + Math.min(4, Math.floor((lx + 20) / 8)); }
   const col = Math.min(3, Math.floor((lx + 20) / 10));
   const row = zone === 2 ? Math.min(3, Math.floor((lz + 20) / 10)) : (lz < 0 ? 0 : 1);
   return row * 4 + col;
@@ -176,8 +187,8 @@ export function recipe(bx, bz, slot, zone, custom) {
   const h = hash3(bx * 16 + slot, bz, 21), h2 = hash3(bx, bz * 16 + slot, 22);
   const r = { zone, slot, hash: h, roof: roofIdx(bx, bz, slot), wall: 0, floors: 1, w: 7, d: 9,
     roofType: 0, mat: 1, style: 0, sig: false, ox: 0, garden: [], tree: false, shape: null, color: -1, top: false, crown: 0 };
-  const col = slot & 3;
-  if (zone <= 1 && !custom && ((col === 3 && shopLaneX(bx)) || (col === 0 && shopLaneX(bx - 1)))) {
+  const col = slot & 3, lane = laneBlock(bx, bz, zone);
+  if (zone <= 1 && !custom && !lane && ((col === 3 && shopLaneX(bx)) || (col === 0 && shopLaneX(bx - 1)))) {
     // shop house on a shotengai: shop on the ground floor facing the lane, 2-4 storeys of flats above
     r.shop = col === 3 ? 1 : -1;
     r.floors = (zone === 1 ? 3 : 2) + (h % 3);
@@ -190,7 +201,7 @@ export function recipe(bx, bz, slot, zone, custom) {
   if (zone === 0) {
     // Tokyo jutaku: narrow 2-3 storey house close to the street, hugging one side line
     r.floors = 2 + (h & 1);                   // half are 3 storeys
-    r.w = 8.0 + ((h >>> 1) % 4) * 0.3;        // packed: side gaps 0.7-1.6 m
+    r.w = lane ? 6.4 + ((h >>> 1) % 4) * 0.2 : 8.0 + ((h >>> 1) % 4) * 0.3;   // packed: side gaps 0.7-1.6 m (narrower on 8 m lane plots)
     r.d = 11 + ((h >>> 4) % 4) * 0.75;
     const rt = (h >>> 8) % 20;
     r.roofType = rt < 9 ? 3 : rt < 15 ? 0 : 2;  // 3 mono-pitch, 0 low gable, 2 flat with parapet
@@ -206,7 +217,7 @@ export function recipe(bx, bz, slot, zone, custom) {
   } else if (zone === 1) {
     // Seoul villa: 4-5 storeys of brick over an open parking storey (pilotis), flat roof
     r.floors = 4 + (h & 1);
-    r.w = 9.4; r.d = 12 + ((h >>> 4) % 7) * 0.5;
+    r.w = lane ? 7.2 : 9.4; r.d = 12 + ((h >>> 4) % 7) * 0.5;
     r.roofType = 2;
     r.mansard = (h >>> 8) % 10 < 3;
     const mr = (h >>> 20) % 20;
@@ -294,7 +305,7 @@ export function buildLayout(n) {
       for (let bx = -w; bx <= w; bx++) {
         if (cellKind(bx, bz) !== K.HOMES) continue;
         const d2 = bx * bx + dz, z = zoneLevel(bx, bz);
-        cnt[d2] += z === 2 ? 16 : 8;                              // = plotsIn
+        cnt[d2] += z === 2 ? 16 : laneBlock(bx, bz, z) ? 10 : 8;   // = plotsIn
         if (z >= 2) { const rk = regionKey(fdiv(bx, 16), fdiv(bz, 16)), o = tallD.get(rk); if (o === undefined || d2 < o) tallD.set(rk, d2); }
       }
     }
@@ -455,7 +466,7 @@ export function homeRect(f, r) {
   const front = f.face < 0 ? f.z - f.d / 2 : f.z + f.d / 2, setback = r.zone === 0 ? 0.8 : 1.5;
   const z0 = f.face < 0 ? front + setback : front - setback - r.d;
   if (r.zone === 0) {                         // hugs one side line (mirrored in the ground shader)
-    const x0 = r.side > 0 ? f.x + 5 - 0.4 - r.w : f.x - 5 + 0.4;
+    const x0 = r.side > 0 ? f.x + f.w / 2 - 0.4 - r.w : f.x - f.w / 2 + 0.4;
     return [x0, z0, x0 + r.w, z0 + r.d];
   }
   return [f.x - r.w / 2, z0, f.x + r.w / 2, z0 + r.d];

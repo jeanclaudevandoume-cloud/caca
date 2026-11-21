@@ -1,6 +1,6 @@
 // Where things are and where the camera goes: per-plot footprints and heights, picking, the home-arrival
 // camera and the fly-to arc. No DOM; the layout is read live from `app.L` (tools/apptest.mjs drives this).
-import { PITCH, FLOOR_H, K, plotOf, plotFrame, recipe, zoneLevel, kindAt, slotAt, plotIndex, homeRect, hash3 } from './town.js';
+import { PITCH, FLOOR_H, K, plotOf, plotFrame, recipe, zoneLevel, kindAt, slotAt, plotIndex, homeRect, hash3, laneBlock } from './town.js';
 import { mulv } from './gfx.js';
 
 export const plotKey = (bx, bz, slot) => ((bx + 32768) * 65536 + (bz + 32768)) * 16 + slot;
@@ -30,7 +30,7 @@ export function createView(app) {
     if (bx === 0 && bz === 0 && Math.abs(x) < 7 && Math.abs(z) < 7) return 220;
     if (kindAt(L, bx, bz) !== K.HOMES) return 0;
     const zone = zoneLevel(bx, bz);
-    const s = slotAt(zone, x - bx * PITCH, z - bz * PITCH);
+    const s = slotAt(zone, x - bx * PITCH, z - bz * PITCH, laneBlock(bx, bz, zone));
     if (s < 0 || plotIndex(L, bx, bz, s) < 0) return 0;
     const e = plotInfo(bx, bz, s, zone), q = e.q;
     if (x < q[0] - 0.5 || x > q[2] + 0.5 || z < q[1] - 0.5 || z > q[3] + 0.5) return 0;
@@ -41,7 +41,7 @@ export function createView(app) {
     const bx = Math.floor((x + 24) / PITCH), bz = Math.floor((z + 24) / PITCH);
     if (kindAt(L, bx, bz) !== K.HOMES) return null;
     const zone = zoneLevel(bx, bz);
-    const s = slotAt(zone, x - bx * PITCH, z - bz * PITCH);
+    const s = slotAt(zone, x - bx * PITCH, z - bz * PITCH, laneBlock(bx, bz, zone));
     const p = s < 0 ? -1 : plotIndex(L, bx, bz, s);
     return p < 0 ? null : { p, bx, bz, slot: s, zone };
   }
@@ -107,7 +107,7 @@ export function createView(app) {
     const midY = (safe.top + safe.bottom) / 2;
     let best = null, bestOk = null;
     const wLo = aspect > 1 ? 0.15 : 0.45, wHi = aspect > 1 ? 0.4 : 0.68, wMid = (wLo + wHi) / 2;
-    for (const sd of [pref, -pref]) for (const ang of [0.15, 0.3, 0.45, 0.6]) for (const dk of [0.8, 1, 1.25, 1.55, 1.9, 2.4, 3.0]) for (const lift of [3, 7, 12, 18, 26]) {
+    for (const sd of [pref, -pref]) for (const ang of [0.15, 0.3, 0.45, 0.6]) for (const dk of [0.6, 0.8, 1, 1.25, 1.55, 1.9, 2.4, 3.0]) for (const lift of [3, 7, 12, 18, 26]) {
       const d = dist * dk;
       const x = hx + sd * Math.sin(ang) * d, z = front + face * Math.cos(ang) * d;
       let y = Math.max(top + lift, heightAt(x, z) + 2);
