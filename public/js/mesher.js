@@ -781,6 +781,7 @@ export function home(mb, bx, bz, f, r, lod) {
     let base = 0;
     const fz = f.face < 0 ? z0 : z1, fs = f.face < 0 ? -1 : 1;     // street-facing wall
     const sign = ACCENT_SIGN[(r.hash >>> 13) % ACCENT_SIGN.length];
+    if (tower && !r.sig) { towerMass(mb, f, r, bx, bz, r.slot, LITE || !!lod, !lod && !LITE); mb.flag = 0; mb.cast = true; return; }
     if (tower) {
       const pod = CITY[(r.hash >>> 5) % CITY.length];
       mb.box(f.x - w / 2 - 0.4, 0, f.z - 9.4, f.x + w / 2 + 0.4, 2 * FLOOR_H, f.z + 9.4, pod, shade(pod, 0.85), M.WIN, a & 0xfc);
@@ -1051,6 +1052,57 @@ function bridge(mb, X, Z, lod) {
   mb.cast = true;
 }
 
+// Tower massing (round P), shared by near chunks and skyline tiles so the handover never changes a building:
+// a warm-stone podium (4-6 floors, the whole plot pair), a shaft set back 2-3 m, an optional second setback
+// at 60-75% of the height, and one of four crowns. Facade family by position, so neighbours rarely match:
+// 0 dark glass ribbons, 1 warm stone with punched windows, 2 light concrete with ribbon windows, 3 bronze.
+const STONE = [0xc9a27e, 0xd8c3a0, 0xb5876a, 0xcdb89a];
+const FAMILY = [0, 1, 0, 2, 0, 1, 3, 2, 0, 1];          // 40% glass, 30% stone, 20% light, 10% bronze
+export function towerMass(mb, f, r, bx, bz, slot, lite, near) {
+  const h = r.hash, top = r.floors * FLOOR_H;
+  const fam = FAMILY[(bx * 3 + bz * 7 + (slot >> 1) * 5 + ((h >>> 29) & 1)) % FAMILY.length];
+  const facade = [0, 2, 0, 3][fam];
+  const wall = fam === 0 ? GLASS_DARK[(h >>> 9) % GLASS_DARK.length] : fam === 1 ? STONE[(h >>> 9) & 3] : fam === 2 ? 0xdcd8cf : 0x6b5a45;
+  const aw = (h & 0xf0) | (facade << 2);              // shader: seed & 3 = facade
+  const podF = 4 + (h % 3), pod = Math.min(top - 6 * FLOOR_H, podF * FLOOR_H);
+  const hw = r.w / 2 + 0.4, hd = r.d / 2 + 0.4;
+  const stone = STONE[(h >>> 13) & 3];
+  if (pod > 0 && !lite) mb.box(f.x - hw, 0, f.z - hd, f.x + hw, pod, f.z + hd, stone, shade(stone, 0.8), M.WIN, (h & 0xf0) | 3);   // lite (far skyline): the mid-band hides podiums
+  const sb = 2 + ((h >>> 3) & 1);                       // shaft setback
+  const x0 = f.x - r.w / 2 + sb, x1 = f.x + r.w / 2 - sb, z0 = f.z - r.d / 2 + sb * 0.7, z1 = f.z + r.d / 2 - sb * 0.7;
+  const second = (h >>> 5) % 3 !== 0 && top > 24 * FLOOR_H;
+  const y2 = second ? Math.round(top * (0.6 + ((h >>> 7) % 4) * 0.05) / FLOOR_H) * FLOOR_H : top;
+  const roof = 0x5e615f;
+  const y0 = lite ? 0 : Math.max(pod, 0);
+  mb.box(x0, y0, z0, x1, y2, z1, wall, roof, M.GLASS, aw, y0 / FLOOR_H);
+  let cx0 = x0, cx1 = x1, cz0 = z0, cz1 = z1;
+  if (second) {
+    cx0 += 1.8; cx1 -= 1.8; cz0 += 1.4; cz1 -= 1.4;
+    mb.box(cx0, y2, cz0, cx1, top, cz1, wall, roof, M.GLASS, aw, y2 / FLOOR_H);
+  }
+  // crown
+  const crown = lite ? ((h >>> 11) & 1) : (h >>> 11) & 3, mx = (cx0 + cx1) / 2, mz = (cz0 + cz1) / 2;   // lite: penthouse or sloped cut only
+  if (crown === 0) {                                     // mechanical penthouse with louvre bands
+    mb.box(cx0 + 1.5, top, cz0 + 1.5, cx1 - 1.5, top + 2 * FLOOR_H, cz1 - 1.5, 0x8a8f94, 0x5e615f, M.METAL, aw);
+  } else if (crown === 1) {                              // a sloped cut across the top
+    mb.mono(cx0, cz0, cx1, cz1, 0, top, 3 * FLOOR_H, (h & 1) ? 1 : -1, shade(wall, 0.9), wall, aw, 0, false);
+  } else if (crown === 2) {                              // an exposed frame of roof fins
+    for (const fx of lite ? [cx0 + 0.3, cx1 - 0.3] : [cx0 + 0.3, mx, cx1 - 0.3]) mb.box(fx - 0.25, top, cz0, fx + 0.25, top + 2.6 * FLOOR_H, cz1, shade(wall, 1.1), shade(wall, 1.1), M.PLAIN, aw);
+  } else {                                               // helipad with a red / white rim
+    mb.cyl(mx, top, mz, Math.min(cx1 - cx0, cz1 - cz0) * 0.45, top + 0.9, Math.min(cx1 - cx0, cz1 - cz0) * 0.45, lite ? 6 : 10, 0x4a4d52, M.PLAIN, aw);
+    if (!lite) mb.cyl(mx, top + 0.9, mz, Math.min(cx1 - cx0, cz1 - cz0) * 0.46, top + 1.05, Math.min(cx1 - cx0, cz1 - cz0) * 0.46, 10, 0xd8342c, M.LIGHT, aw);
+  }
+  if (top >= 30 * FLOOR_H && !lite) mb.cbox(cx0 + 0.4, top, cz0 + 0.4, 0.9, 0.9, 0.9, 0xff3030, M.LIGHT, h & 255);   // aviation light
+  if (near) {                                            // lobby glass and a lit sign over the entrance
+    const fs = f.face < 0 ? -1 : 1, pz = f.z + fs * hd, sign = ACCENT_SIGN[(h >>> 13) % ACCENT_SIGN.length];
+    const cast = mb.cast; mb.cast = false;
+    mb.cbox(f.x, 0, pz + fs * 0.05, 7, 3.4, 0.3, 0x9fc4dd, M.GLASS, aw);
+    mb.cbox(f.x, 4.2, pz + fs * 0.25, 5, 0.9, 0.3, sign, M.LIGHT, h & 255);
+    mb.cast = cast;
+  }
+}
+const GLASS_DARK = [0x2f4a72, 0x2a4a63, 0x1f2a3a, 0x2c3f4f, 0x355f8f, 0x3b5a4f];
+
 function plaza(mb, X, Z, lod) {
   // the central beacon: a slender 220 m spire
   const a = 7;
@@ -1209,6 +1261,7 @@ export function buildSkyline(L, sx, sz, lite = false) {
       plotFrame(bx, bz, s, zone, f);
       f.x += r.ox;                                                  // paired-plot towers
       const top = r.floors * FLOOR_H;
+      if (zone === 3 && !r.sig) { towerMass(mb, f, r, bx, bz, s, lite, false); continue; }
       mb.box(f.x - r.w / 2, 0, f.z - r.d / 2, f.x + r.w / 2, top, f.z + r.d / 2, r.wall, 0x8d9199, r.mat, (r.hash & 0xfc) | (zone === 3 ? 0 : 3));
       if (lite) continue;                                          // lite: plain boxes, no crowns
       const sig = zone === 3 && r.sig;
