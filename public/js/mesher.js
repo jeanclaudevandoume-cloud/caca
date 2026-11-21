@@ -626,9 +626,10 @@ export function home(mb, bx, bz, f, r, lod) {
     const wallZ = f.face < 0 ? z0 : z1;
     const doorX = r.side > 0 ? x0 + 1.3 : x1 - 1.3;              // door on the open side, garage on the side line
     const top = r.floors * FLOOR_H, rc = ROOF[r.roof];
-    if (r.shape) {
-      shape(mb, r.shape, (x0 + x1) / 2, 0, (z0 + z1) / 2, 0.95, r.color, a & 0xfc, lod);
-    } else if (lod) {
+    // a custom home is a normal jutaku with its shape as a rooftop ornament (round Q: a whole house replaced by
+    // a giant dome or castle broke the street and the art direction)
+    if (r.shape) shape(mb, r.shape, (x0 + x1) / 2, top + (r.roofType === 2 ? 0.6 : r.roofType === 3 ? 2.2 : 1.6), (z0 + z1) / 2, 0.3, r.color, a & 0xfc, lod);
+    if (lod) {
       mb.box(x0, 0, z0, x1, top, z1, r.wall, r.roofType === 2 ? flatMem(r) : -1, M.WIN, wa);
       if (r.roofType === 3) mb.mono(x0, z0, x1, z1, 0.2, top, 2.2, fs, rc, r.wall, a, 0, false);
       else if (r.roofType === 0) mb.gable(x0 - 0.3, z0 - 0.3, x1 + 0.3, z1 + 0.3, top, 1.6, rc, r.wall, a, true, false);
@@ -748,9 +749,8 @@ export function home(mb, bx, bz, f, r, lod) {
     const z0 = f.face < 0 ? front + setback : front - setback - r.d, z1 = z0 + r.d;
     const x0 = f.x - r.w / 2, x1 = f.x + r.w / 2, wallZ = f.face < 0 ? z0 : z1;
     const top = r.floors * FLOOR_H;
-    if (r.shape) {
-      shape(mb, r.shape, f.x, 0, (z0 + z1) / 2, 0.95, r.color, a & 0xfc, lod);
-    } else if (lod) {
+    if (r.shape) shape(mb, r.shape, f.x, top + (r.mansard ? 1.4 : 0.6), (z0 + z1) / 2, 0.3, r.color, a & 0xfc, lod);   // ornament on the roof
+    if (lod) {
       mb.box(x0, 0, z0, x1, top, z1, r.wall, r.roofMem, M.WIN, wa);
     } else {
       mb.shadowBox(x0, 0, z0, x1, top + (r.mansard ? 1.0 : 0.6), z1);

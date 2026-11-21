@@ -261,7 +261,7 @@ export function recipe(bx, bz, slot, zone, custom) {
     r.color = soften(parseColor(custom.color, ACCENT[h % ACCENT.length]));
     if (Array.isArray(custom.garden)) r.garden = custom.garden.filter((g) => GARDEN.includes(g)).slice(0, 4);
   }
-  r.height = zone >= 2 || !r.shape || r.top ? r.floors * FLOOR_H : 0;
+  r.height = r.floors * FLOOR_H;   // custom homes keep their house (the shape is an ornament on top)
   return r;
 }
 
