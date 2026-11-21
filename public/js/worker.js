@@ -12,8 +12,8 @@ onmessage = (e) => {
   if (m.type === 'atlas') {                                    // paint the facade atlas off the main thread
     let img = null;
     try { if (typeof OffscreenCanvas !== 'undefined') img = buildAtlas(); } catch { img = null; }
-    if (img) postMessage({ type: 'atlas', data: img.data.buffer }, [img.data.buffer]);
-    else postMessage({ type: 'atlas', data: null });
+    if (img) postMessage({ type: 'atlas', id: m.id, data: img.data.buffer }, [img.data.buffer]);
+    else postMessage({ type: 'atlas', id: m.id, data: null });
     return;
   }
   if (m.type === 'init') {

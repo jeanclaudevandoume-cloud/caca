@@ -118,12 +118,7 @@ const sup = new Supervisor({
   onFatal: (t) => fail(t),
   spawn: (s) => {
     const w = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
-    w.onmessage = (e) => {
-      if (e.data.type !== 'atlas') { session.onWorker(e); return; }
-      const aniso = !PHONE && qParam !== 'low';
-      try { if (e.data.data) fillAtlas(gl, atlasTex, new Uint8Array(e.data.data), aniso); else fillAtlas(gl, atlasTex, buildAtlas().data, aniso); }   // no OffscreenCanvas in workers: paint here
-      catch (err) { console.error('atlas', err); }
-    };
+    w.onmessage = (e) => session.onWorker(e);
     w.onerror = (e) => { if (e.preventDefault) e.preventDefault(); console.error('worker died:', e.message); s.died(w, e.message || 'failed to start'); };
     return w;
   },
@@ -133,7 +128,7 @@ const groundWin = createGroundWin();
 const streamer = createStreamer({
   sup, customFor: (cx, cz) => data.customFor(cx, cz), upload: gfx.upload, release: gfx.release, isLow, radii,
   groundWin,
-  onTick: () => { if (!document.hidden) sup.sweep(); },
+  onTick: () => { if (!document.hidden) sup.sweep(); session.ensureAtlas(); },
 });
 const renderer = createRenderer({ gl, gfx, P, geoProg, app, streamer, quality, isLow, radii, hasStencil, atlasTex, canvas, groundWin, fullres: params.has('fullres'), frozenT, t0 });
 function flyTo(p, instant) {
@@ -149,6 +144,11 @@ const fetchLayout = (mf) => fetch(`${TOWN_URL}layout.bin?v=${mf.layout}`).then((
 const session = createSession({
   fetchLayout,
   sup, renderer, streamer, data, app, groundWin, tagState, resetTags, view, fail,
+  onAtlas: (buf) => {
+    const aniso = !PHONE && qParam !== 'low';
+    try { fillAtlas(gl, atlasTex, buf ? new Uint8Array(buf) : buildAtlas().data, aniso); }   // null: no OffscreenCanvas in workers, paint here
+    catch (err) { console.error('atlas', err); }
+  },
   onCount: (n) => ui.setCount(n),
   onReady: () => {
     window.__ftReady = true;
@@ -162,7 +162,7 @@ const session = createSession({
 });
 document.addEventListener('visibilitychange', () => sup.resetClocks());
 sup.start();
-sup.workers[sup.workers.length - 1].postMessage({ type: 'atlas' });   // painted off the main thread, uploaded on arrival
+session.ensureAtlas();                                // painted off the main thread (tracked: re-asked if its worker dies)
 async function loadManifest() {
   const r = await fetch(TOWN_URL + 'manifest.json', { cache: 'no-cache' });
   if (!r.ok) throw new Error('manifest ' + r.status);

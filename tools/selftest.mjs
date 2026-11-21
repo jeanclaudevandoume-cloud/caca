@@ -201,6 +201,13 @@ else for (const [name, src] of [...Object.entries(S), ['GEO_FS (LOWQ)', S.GEO_FS
   catch (e) { ok = false; why = String(e.stdout || e.message).split('\n').filter((l) => l.startsWith('FAIL')).join(' | ').slice(0, 400); }
   check('app modules (tools/apptest.mjs)', ok, why);
 }
+// seeded property / fuzz tests of the layout and every mesh kind: tools/proptest.mjs
+{
+  let ok = true, why = '';
+  try { execFileSync(process.execPath, ['tools/proptest.mjs'], { stdio: 'pipe', cwd: path.resolve(path.dirname(new URL(import.meta.url).pathname), '..') }); }
+  catch (e) { ok = false; why = String(e.stdout || e.message).split('\n').filter((l) => l.startsWith('FAIL')).join(' | ').slice(0, 400); }
+  check('layout and mesh properties (tools/proptest.mjs)', ok, why);
+}
 if (update) { fs.writeFileSync(GOLD, JSON.stringify(got, null, 1) + '\n'); console.log('golden file updated'); }
 console.log(fails ? `\n${fails} check(s) failed` : '\nall checks passed');
 process.exit(fails ? 1 : 0);

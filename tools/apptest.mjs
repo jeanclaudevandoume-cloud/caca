@@ -227,7 +227,7 @@ function fakeFetch() {
 function sessionHarness({ maxTex = 1e9 } = {}) {
   const sup = new Supervisor({ size: 1, now: () => 0, later: () => 0, spawn: () => ({ sent: [], postMessage(m) { this.sent.push(m); }, terminate() {} }) });
   sup.start();
-  const grounds = [], flushed = [];
+  const grounds = [], flushed = [], atlases = [];
   const renderer = { setGround: (g) => { if (g.size > maxTex) return false; grounds.push(g); return true; } };
   const streamer = { flushChanged: (old, changed) => flushed.push({ old, changed: [...changed].sort() }), onMesh() {}, onError() {} };
   const ff = fakeFetch();
@@ -236,12 +236,32 @@ function sessionHarness({ maxTex = 1e9 } = {}) {
   const tagState = createTagState();
   const view = { cleared: 0, clear() { this.cleared++; } };
   const groundWin = createGroundWin();
-  const s = createSession({ sup, renderer, streamer, data, app, groundWin, tagState, resetTags, view });
+  const s = createSession({ sup, renderer, streamer, data, app, groundWin, tagState, resetTags, view, onAtlas: (d) => atlases.push(d) });
   const finish = (n, size = 9) => {
     const b = sup.build;
     s.onWorker({ data: { type: 'layout', build: b.id, layout: T.layoutTransfer(T.buildLayout(n)), ground: { size, ox: 0, oz: 0, cx: 0, cz: 0, full: true } } });
   };
-  return { s, sup, data, app, grounds, flushed, finish, tagState, view, groundWin };
+  return { s, sup, data, app, grounds, flushed, finish, tagState, view, groundWin, atlases };
+}
+{
+  // the facade atlas is a tracked job: its worker dying before the reply re-asks, and only the live reply lands
+  const h = sessionHarness();
+  h.s.boot({ built: 1, n: 5000, split: [], c: {} });
+  h.finish(5000);
+  h.s.ensureAtlas();
+  const id1 = h.s.atlas.req, w1 = h.sup.reqs.get(id1).w;
+  h.sup.died(w1, 'killed before the atlas arrived');
+  const released = h.s.atlas.req === 0;
+  h.s.ensureAtlas();
+  const id2 = h.s.atlas.req;
+  const posted = h.sup.workers.some((w) => w.sent.some((m) => m.type === 'atlas' && m.id === id2));
+  h.s.onWorker({ data: { type: 'atlas', id: id1, data: new ArrayBuffer(4) } });   // the dead worker's late reply
+  const staleIgnored = h.atlases.length === 0;
+  h.s.onWorker({ data: { type: 'atlas', id: id2, data: null } });                  // no OffscreenCanvas: painted on the main thread
+  h.s.ensureAtlas();
+  check('session: the atlas is re-asked after its worker dies, a stale reply is ignored, the live one lands once',
+    released && id2 && id2 !== id1 && posted && staleIgnored && h.atlases.length === 1 && h.atlases[0] === null && h.s.atlas.loaded && h.s.atlas.req === 0,
+    `released=${released} posted=${posted} stale=${staleIgnored} n=${h.atlases.length}`);
 }
 {
   // a ground window requested before a layout commit is never applied after it
@@ -254,6 +274,8 @@ function sessionHarness({ maxTex = 1e9 } = {}) {
   h.s.poll({ built: 2, n: 5100, split: [], c: {} });
   h.finish(5100);
   const n0 = h.grounds.length;
+  // bypass the req reset done at commit: only the layout generation may stop this reply
+  h.groundWin.req = id;
   h.s.onWorker({ data: { type: 'ground', id, ground: { size: 7, ox: 0, oz: 0, cx: 0, cz: 0, full: false } } });
   check('session: a stale ground window (asked before a commit) is ignored', h.grounds.length === n0 && h.app.L.n === 5100, `applied=${h.grounds.length - n0}`);
   // a window asked after the commit does land
