@@ -14,8 +14,15 @@ import { finishLayout } from './town.js';
 // moves far, recording the generation it asked under); the session owns its lifecycle.
 export const createGroundWin = () => ({ ox: 0, oz: 0, cx: 0, cz: 0, full: true, req: 0, gen: 0, reqGen: -1 });
 
-export function createSession({ sup, renderer, streamer, data, app, groundWin, tagState, resetTags, view, onReady = () => {}, onCount = () => {}, fail = () => {}, fetchLayout = null }) {
+export function createSession({ sup, renderer, streamer, data, app, groundWin, tagState, resetTags, view, onReady = () => {}, onCount = () => {}, fail = () => {}, fetchLayout = null, onAtlas = () => {} }) {
   const s = { groundWin, tallRegions: new Set(), layoutStage: null, badBuilt: null, ready: false };
+  // The facade atlas is a tracked supervisor job (round Q): a worker that dies before replying releases it
+  // (atlas.req = 0) and ensureAtlas() asks again, like any mesh request.
+  const atlas = { req: 0, loaded: false };
+  s.atlas = atlas;
+  function ensureAtlas() {
+    if (!atlas.loaded && !atlas.req) sup.request({ type: 'atlas' }, atlas, 0);
+  }
 
   function onWorker(e) {
     const m = e.data;
@@ -25,6 +32,11 @@ export function createSession({ sup, renderer, streamer, data, app, groundWin, t
         groundWin.req = 0;
         if (groundWin.reqGen === groundWin.gen) renderer.setGround(m.ground);   // never a window of an older layout
       }
+      return;
+    }
+    if (m.type === 'atlas') {
+      sup.reply(m.id);
+      if (atlas.req === m.id) { atlas.req = 0; atlas.loaded = true; onAtlas(m.data); }   // data null: paint on this thread
       return;
     }
     if (m.type === 'layout') { if (sup.finishBuild(m.build)) onLayout(m.layout, m.ground); return; }   // stale builds are ignored
@@ -91,5 +103,5 @@ export function createSession({ sup, renderer, streamer, data, app, groundWin, t
     return true;
   }
 
-  return Object.assign(s, { onWorker, onLayout, initLayout, boot, poll });
+  return Object.assign(s, { onWorker, onLayout, initLayout, boot, poll, ensureAtlas });
 }
