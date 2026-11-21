@@ -325,8 +325,9 @@ function treeBody(mb, x, z, s, h, lod) {
   const kind = h % 7;
   if (LITE) {
     const c = kind === 6 ? BLOSSOM[(h >>> 3) % 3] : LEAVES[(h >>> 3) % LEAVES.length];
+    mb.cyl(x, 0, z, 0.25 * s, 1.6 * s, 0.25 * s, 3, TRUNK, M.PLAIN, h & 255, false);   // the trunk stays: a crown without one floats
     if (kind < 2) mb.cyl(x, 1.0 * s, z, 2.2 * s, 6 * s, 0, 4, shade(c, 0.85), M.LEAF, h & 255);
-    else mb.ell(x, 3.0 * s, z, 2.2 * s, 2.3 * s, 2.2 * s, 4, 2, c, M.LEAF, h & 255, false, 0.62);   // 24 tris; lite: no trunk, the crown reaches down to hide it
+    else mb.ell(x, 3.4 * s, z, 2.2 * s, 1.9 * s, 2.2 * s, 4, 2, c, M.LEAF, h & 255, false, 0.62);   // 24 tris, rounder than a diamond
     return;
   }
   const c = kind === 6 ? BLOSSOM[(h >>> 3) % 3] : LEAVES[(h >>> 3) % LEAVES.length];
@@ -500,7 +501,7 @@ const F = {};
 function roofClutter(mb, x0, z0, x1, z1, top, wall, h, a) {
   const cast = mb.cast; mb.cast = false;
   const w = x1 - x0, d = z1 - z0, hx = (h & 1) ? x0 + 1.5 : x1 - 1.5, hz = (h & 2) ? z0 + 1.6 : z1 - 1.6;
-  if (!LITE || (h & 16)) mb.box(hx - 1.1, top, hz - 1.2, hx + 1.1, top + 2.5, hz + 1.2, shade(wall, 0.92), 0x6e7378, M.PLAIN, a);   // stair hut (lite: every second roof)
+  mb.box(hx - 1.1, top, hz - 1.2, hx + 1.1, top + 2.5, hz + 1.2, shade(wall, 0.92), 0x6e7378, M.PLAIN, a);   // stair hut
   if (!LITE) mb.wq(hx - 0.45, hx + 0.45, top + 0.05, top + 2.0, (h & 2) ? hz + 1.21 : hz - 1.21, (h & 2) ? 1 : -1, 0x5a5f66, M.METAL, a);
   if (!LITE) {
     mb.cbox(x0 + w * 0.5, top, z0 + d * ((h & 4) ? 0.3 : 0.7), 0.9, 0.65, 0.4, 0xe9e9e6, M.METAL, a);       // AC condenser
@@ -552,7 +553,7 @@ function shopHouse(mb, f, r, lod, a) {
       const bc = ACCENT_SIGN[(r.sign + 1) % ACCENT_SIGN.length], ba = a & 0xfe;
       // a solid board with one bold text band (procedural lettering turned to speckle at drone distance)
       mb.xq(bx, bz0, bz1, top + 0.8, top + 3.2, fs, bc, M.LIGHT, ba);
-      mb.xq(bx + fs * 0.03, bz0 + 1.2, bz1 - 1.2, top + 1.6, top + 2.4, fs, 0xf6f4ee, M.LIGHT, ba);
+      mb.xq(bx + fs * 0.18, bz0 + 1.2, bz1 - 1.2, top + 1.6, top + 2.4, fs, 0xf6f4ee, M.LIGHT, ba);   // 18 cm proud: no depth fight at distance
       if (!LITE) mb.xq(bx - fs * 0.05, bz0, bz1, top + 0.8, top + 3.2, -fs, 0x3a3e45, M.PLAIN, a);
     }
   }
@@ -1082,9 +1083,9 @@ export function towerMass(mb, f, r, bx, bz, slot, lite, near) {
   const hw = r.w / 2 + 0.4, hd = r.d / 2 + 0.4;
   const stone = STONE[(h >>> 13) & 3];
   if (pod > 0 && !lite) mb.box(f.x - hw, 0, f.z - hd, f.x + hw, pod, f.z + hd, stone, shade(stone, 0.8), M.WIN, (h & 0xf0) | 3);   // lite (far skyline): the mid-band hides podiums
-  const sb = 2 + ((h >>> 3) & 1);                       // shaft setback
+  const sb = lite ? 0 : 2 + ((h >>> 3) & 1);            // shaft setback (none on far lite tiles: no 'pencils' through the fog)
   const x0 = f.x - r.w / 2 + sb, x1 = f.x + r.w / 2 - sb, z0 = f.z - r.d / 2 + sb * 0.7, z1 = f.z + r.d / 2 - sb * 0.7;
-  const second = (h >>> 5) % 3 !== 0 && top > 24 * FLOOR_H;
+  const second = (h >>> 5) % 3 !== 0 && top > 24 * FLOOR_H && !lite;
   const y2 = second ? Math.round(top * (0.6 + ((h >>> 7) % 4) * 0.05) / FLOOR_H) * FLOOR_H : top;
   const roof = 0x5e615f;
   const y0 = lite ? 0 : Math.max(pod, 0);
