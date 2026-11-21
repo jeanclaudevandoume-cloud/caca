@@ -76,7 +76,7 @@ export function createTownData({ fetch, base = 'town/', later = (fn, ms) => setT
     get manifest() { return manifest; },
     // a new manifest becomes current: names and search shards may have changed (custom files are versioned)
     commit(m) { manifest = m; nameCache.clear(); shardCache.clear(); },
-    dropCustom(k) { customCache.delete(k); },
+    dropCustom(k) { for (const ck of [...customCache.keys()]) if (ck.startsWith(k + '@')) customCache.delete(ck); },   // every version of region k
     customFor, nameOf, shard, findName,
   };
 }

@@ -95,7 +95,7 @@ window.fetch = (u, o) => {
   return Promise.resolve(p in TOWN_FILES ? new Response(TOWN_FILES[p], { status: 200 }) : new Response('', { status: 404 }));
 };
 `;
-const mainSrc = '"use strict";\n' + RUNTIME + prelude + ['town.js', 'mesher.js', 'shaders.js', 'supervisor.js', 'atlas.js', 'gfx.js', 'view.js', 'data.js', 'streaming.js', 'tags.js', 'render.js', 'ui.js', 'main.js'].map(wrap).join('') + "__req('./main.js');\n";
+const mainSrc = '"use strict";\n' + RUNTIME + prelude + ['town.js', 'mesher.js', 'shaders.js', 'supervisor.js', 'session.js', 'governor.js', 'atlas.js', 'gfx.js', 'view.js', 'data.js', 'streaming.js', 'tags.js', 'render.js', 'ui.js', 'main.js'].map(wrap).join('') + "__req('./main.js');\n";
 
 // ---- checks ----
 for (const [label, src] of [['main bundle', mainSrc], ['worker bundle', workerSrc]]) {

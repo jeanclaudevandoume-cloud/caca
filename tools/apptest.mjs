@@ -8,7 +8,8 @@ import { Supervisor } from '../public/js/supervisor.js';
 import { createStreamer } from '../public/js/streaming.js';
 import { createTownData, createLatest, searchHome } from '../public/js/data.js';
 import { createView, plotKey } from '../public/js/view.js';
-import { createTagState, scanTags, placeTags, MAX_TAGS } from '../public/js/tags.js';
+import { createTagState, scanTags, placeTags, resetTags, MAX_TAGS } from '../public/js/tags.js';
+import { createSession, createGroundWin } from '../public/js/session.js';
 import { persp, lookDir, mul } from '../public/js/gfx.js';
 
 const t0 = Date.now();
@@ -19,8 +20,8 @@ async function settle(n = 6) { for (let i = 0; i < n; i++) await tick(); }
 
 let L = T.buildLayout(100000);
 if (L.rB === undefined) L = T.finishLayout(L);
-const tall = new Set(['0_0']);
-for (let i = 0; i < L.count; i++) { const bx = L.blocks[2 * i], bz = L.blocks[2 * i + 1]; if (T.zoneLevel(bx, bz) >= 2) tall.add(T.regionKey(T.fdiv(bx, SKY), T.fdiv(bz, SKY))); }
+const tall = new Set(L.tall);                         // regions with skyline buildings (the formula layout lists them)
+void SKY;
 const HOME = { x: -176, y: 36, z: 1190, yaw: 0.12, pitch: -0.27 };
 
 // ---------------- streaming ----------------
@@ -202,6 +203,119 @@ function fakeFetch() {
   const p = searchHome(slow, seq2, 'ccc');
   seq2.bump();                                         // a manual move / close in the meantime
   check('search: a manual move outranks a pending search', (await p).stale === true);
+}
+
+{
+  // custom-home files: a network error is retried (without the retry the chunk would wait forever: a hole)
+  const ff = fakeFetch();
+  const d = createTownData({ fetch: ff.f, later: (fn) => fn() });
+  d.commit({ built: 1, split: [], c: { '0_0': 'v1' } });
+  ff.mode = 'net';
+  const a = d.customFor(0, 0);
+  await settle();
+  ff.mode = 'ok';
+  const b = d.customFor(0, 0);
+  await settle();
+  const c = d.customFor(0, 0);
+  check('data: a failed custom-home file is fetched again and then arrives', a === undefined && b === undefined && c !== undefined && c !== null && ff.calls.length === 2, `fetches=${ff.calls.length} last=${JSON.stringify(c)}`);
+  d.dropCustom('0_0');
+  d.customFor(0, 0);
+  check('data: dropCustom drops every version of a region', ff.calls.length === 3, `fetches=${ff.calls.length}`);
+}
+
+// ---------------- session: worker routing and the layout lifecycle ----------------
+function sessionHarness({ maxTex = 1e9 } = {}) {
+  const sup = new Supervisor({ size: 1, now: () => 0, later: () => 0, spawn: () => ({ sent: [], postMessage(m) { this.sent.push(m); }, terminate() {} }) });
+  sup.start();
+  const grounds = [], flushed = [];
+  const renderer = { setGround: (g) => { if (g.size > maxTex) return false; grounds.push(g); return true; } };
+  const streamer = { flushChanged: (old, changed) => flushed.push({ old, changed: [...changed].sort() }), onMesh() {}, onError() {} };
+  const ff = fakeFetch();
+  const data = createTownData({ fetch: ff.f });
+  const app = { L: null };
+  const tagState = createTagState();
+  const view = { cleared: 0, clear() { this.cleared++; } };
+  const groundWin = createGroundWin();
+  const s = createSession({ sup, renderer, streamer, data, app, groundWin, tagState, resetTags, view });
+  const finish = (n, size = 9) => {
+    const b = sup.build;
+    s.onWorker({ data: { type: 'layout', build: b.id, layout: T.layoutTransfer(T.buildLayout(n)), ground: { size, ox: 0, oz: 0, cx: 0, cz: 0, full: true } } });
+  };
+  return { s, sup, data, app, grounds, flushed, finish, tagState, view, groundWin };
+}
+{
+  // a ground window requested before a layout commit is never applied after it
+  const h = sessionHarness();
+  h.s.boot({ built: 1, n: 5000, split: [], c: {} });
+  h.finish(5000);
+  h.groundWin.full = false;
+  h.groundWin.reqGen = h.groundWin.gen;
+  const id = h.sup.request({ type: 'ground', cx: 0, cz: 0 }, h.groundWin, 0);
+  h.s.poll({ built: 2, n: 5100, split: [], c: {} });
+  h.finish(5100);
+  const n0 = h.grounds.length;
+  h.s.onWorker({ data: { type: 'ground', id, ground: { size: 7, ox: 0, oz: 0, cx: 0, cz: 0, full: false } } });
+  check('session: a stale ground window (asked before a commit) is ignored', h.grounds.length === n0 && h.app.L.n === 5100, `applied=${h.grounds.length - n0}`);
+  // a window asked after the commit does land
+  h.groundWin.reqGen = h.groundWin.gen;
+  const id2 = h.sup.request({ type: 'ground', cx: 0, cz: 0 }, h.groundWin, 0);
+  h.s.onWorker({ data: { type: 'ground', id: id2, ground: { size: 7, ox: 0, oz: 0, cx: 0, cz: 0, full: false } } });
+  check('session: a current ground window lands', h.grounds.length === n0 + 1);
+}
+{
+  // a fatal build error keeps the old manifest and layout; the next poll retries the same manifest
+  const h = sessionHarness();
+  h.s.boot({ built: 1, n: 5000, split: [], c: {} });
+  h.finish(5000);
+  const L1 = h.app.L;
+  h.s.poll({ built: 2, n: 5100, split: [], c: {} });
+  const b = h.sup.build.id;
+  h.s.onWorker({ data: { type: 'error', fatal: true, build: b, message: 'out of memory' } });
+  const kept = h.app.L === L1 && h.data.manifest.built === 1 && !h.sup.build;
+  const retried = h.s.poll({ built: 2, n: 5100, split: [], c: {} });
+  check('session: a fatal build keeps the old manifest and layout, the next poll retries', kept && retried, `kept=${kept} retried=${retried}`);
+}
+{
+  // a layout whose ground texture is too large for the GPU is rejected and never retried
+  const h = sessionHarness({ maxTex: 100 });
+  h.s.boot({ built: 1, n: 5000, split: [], c: {} });
+  h.finish(5000);
+  const L1 = h.app.L;
+  h.s.poll({ built: 3, n: 5100, split: [], c: {} });
+  h.finish(5100, 400);
+  const again = h.s.poll({ built: 3, n: 5100, split: [], c: {} });
+  check('session: an oversize layout is rejected and not retried', h.app.L === L1 && h.data.manifest.built === 1 && !again, `again=${again}`);
+}
+{
+  // a live update commits: manifest, name epoch, tag candidates, and flushes only what changed
+  const h = sessionHarness();
+  h.s.boot({ built: 1, n: 5000, split: [], c: { a: 1, b: 1, d: 1 } });
+  h.finish(5000);
+  h.tagState.cand.push({ key: 5, name: 'x', pending: 5 });
+  const ep = h.tagState.epoch;
+  h.s.poll({ built: 2, n: 5100, split: [], c: { a: 1, b: 2, c: 1 } });
+  h.finish(5100);
+  const f = h.flushed[0];
+  const cand = h.tagState.cand[h.tagState.cand.length - 1];
+  check('session: an update commits the manifest and name caches, resets tag candidates', h.data.manifest.built === 2 && h.tagState.epoch === ep + 1 && cand.key === -1 && cand.name === null && cand.pending === -1 && h.view.cleared === 1);
+  check('session: an update flushes only the changed custom regions (+ the outer ring)', f && f.old.n === 5000 && JSON.stringify(f.changed) === '["b","c","d"]', JSON.stringify(f && f.changed));
+}
+{
+  // streaming.flushChanged marks only the outer ring and the changed regions stale
+  const h = harness();
+  h.cycle(200);
+  const ring = Math.max(0, Math.floor(Math.sqrt(L.maxD2)) - 1);
+  const c0 = [...h.st.chunks.values()][0];
+  const rk = T.regionKey(T.regionOf(c0.cx * T.CHUNK), T.regionOf(c0.cz * T.CHUNK));   // a region with loaded chunks
+  h.st.flushChanged(L, new Set([rk]));
+  let wrong = 0, marked = 0;
+  for (const c of h.st.chunks.values()) {
+    const bx = c.cx * T.CHUNK, bz = c.cz * T.CHUNK;
+    const should = Math.max(Math.abs(bx + 2), Math.abs(bz + 2)) + 3 >= ring || T.regionKey(T.regionOf(bx), T.regionOf(bz)) === rk;
+    if (!!c.stale !== should) wrong++;
+    if (c.stale) marked++;
+  }
+  check('streaming: flushChanged re-requests only the outer ring and changed regions', wrong === 0 && marked > 0 && marked < h.st.chunks.size, `marked=${marked}/${h.st.chunks.size} wrong=${wrong}`);
 }
 
 // ---------------- tags ----------------
