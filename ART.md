@@ -81,6 +81,7 @@ perf.json is measured in this container (software GL): use it for **ratios betwe
 |---|---|---|---|---|
 | phoneauto = the opening view (auto preset, Pixel 7, incl. the near shadow pass) | ≤ 60k portrait, ≤ 75k landscape | ≤ 22 | ≤ 6 | Round H: cast shadows come from one 12-tri shadow-only proxy per home. Round J: low-preset house ring r1 × 0.66 (≈ 400 m, was 0.62) — the round I 0.72 and its special 80k landscape row were dropped (optimization review). |
 | Round M low tiers | as the rows above | ≤ 22 | ≤ 6 | Low preset: full (lite) houses to 1.12 r0, then 16x16-block massing tiles (one 30 m mass per row of homes, ~20 tris a block) out to ~700 m: tiles replace the simplified-house ring instead of adding to it; lite houses drop the eave band, lite poles carry one wire. |
+| Every low vantage (round N) | | | | **Frame time: geoMs and allMs <= 1.10 x the last graded build** (median of 3 probes; compare two runs when a number moves > 20%, SwiftShader swings that much). The phone path takes no anisotropic filtering and fetches the atlas only inside window openings. |
 | phone (low, 844x390) | ≤ 60k | ≤ 20 | ≤ 6 | ground pass ≤ 0.45× of `phonefull`. (Round 13 tried 75k for cast shadows on low; reverted: done correctly they cost 25–45% more tris.) Any low-preset camera, incl. chunk corners, ≤ 75k. |
 | portrait (low, 390x844) | ≤ 75k | ≤ 20 | ≤ 6 | ground pass ≤ 0.45× of `portraitfull` |
 | downtownlow (low) | ≤ 110k | ≤ 30 | ≤ 8 | |

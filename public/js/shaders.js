@@ -83,28 +83,35 @@ void winLayout(uint seed, uint cell, float glass, uint style, vec2 g, vec3 n, ou
 // The whole window opening (frame, reveal, glass, curtains, sill) comes from one mipmapped fetch, so far
 // windows average out instead of shimmering, and the phone gets the same windows as the desktop.
 uniform sampler2D uAtlas;
-vec4 winTex(uint wt, uint cell, vec2 uvw, vec2 gx, vec2 gy) {
+vec4 winTex(uint wt, uint cell, vec2 uvw, vec2 gx, vec2 gy, bool plain) {
   vec2 t = wt == 2u ? vec2(float((cell >> 6u) & 1u), 1.0) : wt == 3u ? vec2(2.0 + float((cell >> 7u) & 1u), 1.0) : vec2(float((cell >> 4u) & 3u), 0.0);
   const float P = 6.0 / 256.0;
   vec2 uv = (t + P + clamp(vec2(uvw.x, 1.0 - uvw.y), 0.0, 1.0) * (1.0 - 2.0 * P)) * vec2(0.25, 0.125);   // 4 x 8 tiles
-  return textureGrad(uAtlas, uv, gx, gy);
+  return plain ? texture(uAtlas, uv) : textureGrad(uAtlas, uv, gx, gy);
 }
 // paint the window opening [r0, r1] (cell units) of a residential cell from the atlas
 void atlasWindow(inout vec3 col, inout vec3 emis, vec2 f, vec2 g, vec2 r0, vec2 r1, float has, uint wt, uint cell, vec3 n, vec3 amb, vec3 key, vec3 refl, float lit, vec3 warm) {
-  vec2 sz = r1 - r0, sc = (1.0 - 2.0 * 6.0 / 256.0) * vec2(0.25, 0.125) / sz;
-  vec2 dgx = dFdx(g) * sc * vec2(1.0, -1.0), dgy = dFdy(g) * sc * vec2(1.0, -1.0);
-  vec4 at = winTex(wt, cell, (f - r0) / sz, dgx, dgy);
   vec2 w = fwidth(g);
+  // rain streaks: grime washed down from each sill, fading over a storey (round M)
+  float sx = smoothstep(r0.x - w.x, r0.x + 0.1, f.x) * (1.0 - smoothstep(r1.x - 0.1, r1.x + w.x, f.x));
+  if (f.y < r0.y) {
+    float streak = sx * (1.0 - smoothstep(0.0, r0.y + 0.3, r0.y - f.y)) * has * (0.55 + 0.45 * fract(sin(floor(f.x * 9.0) * 12.9 + float(cell & 63u)) * 437.5));
+    col *= 1.0 - 0.16 * streak * (1.0 - uNight);
+  }
   vec2 inr = smoothstep(r0 - w, r0 + w, f) * (1.0 - smoothstep(r1 - w, r1 + w, f));
   float inW = inr.x * inr.y * has;
+  if (inW <= 0.0) { emis = vec3(0.0); return; }        // wall between windows: no fetch (round N: most of the atlas cost)
+  vec2 sz = r1 - r0;
+#ifdef LOWQ
+  vec4 at = winTex(wt, cell, (f - r0) / sz, vec2(0.0), vec2(0.0), true);   // phone: plain lookup, hardware derivatives
+#else
+  vec2 sc = (1.0 - 2.0 * 6.0 / 256.0) * vec2(0.25, 0.125) / sz;
+  vec4 at = winTex(wt, cell, (f - r0) / sz, dFdx(g) * sc * vec2(1.0, -1.0), dFdy(g) * sc * vec2(1.0, -1.0), false);
+#endif
   vec3 lightW = amb * 0.95 + key * max(dot(n, uSunDir), 0.0) * 0.85;
   vec3 wc = at.rgb * lightW;
   wc = mix(wc, wc * 0.55 + refl * 0.55, at.a * 0.4 * (1.0 - uNight));      // the sky in the glass
   wc *= mix(1.0, 0.35, at.a * uNight);                                        // dark glass at night
-  // rain streaks: grime washed down from each sill, fading over a storey (round M)
-  float sx = smoothstep(r0.x - w.x, r0.x + 0.1, f.x) * (1.0 - smoothstep(r1.x - 0.1, r1.x + w.x, f.x));
-  float streak = sx * (1.0 - smoothstep(0.0, r0.y + 0.3, r0.y - f.y)) * step(f.y, r0.y) * has * (0.55 + 0.45 * fract(sin(floor(f.x * 9.0) * 12.9 + float(cell & 63u)) * 437.5));
-  col *= 1.0 - 0.16 * streak * (1.0 - uNight);
   col = mix(col, wc, inW);
   emis = warm * lit * at.a * inW * smoothstep(0.05, 0.6, uNight);
 }
@@ -277,8 +284,9 @@ void main() {
     const float P = 6.0 / 256.0;
     vec2 uv = (vec2(float(t), 4.0) + P + fract(q) * (1.0 - 2.0 * P)) * vec2(0.25, 0.125);
     vec2 sc = (1.0 - 2.0 * P) * vec2(0.25, 0.125);
-    vec4 rt = textureGrad(uAtlas, uv, dFdx(q) * sc, dFdy(q) * sc);
-    col *= rt.rgb * 1.75;
+    vec2 fq = fwidth(q);
+    // far roofs: the tile has averaged out, skip the fetch (its mean x 1.75 ~ 0.96)
+    col *= max(fq.x, fq.y) < 0.2 ? textureGrad(uAtlas, uv, dFdx(q) * sc, dFdy(q) * sc).rgb * 1.75 : vec3(0.96);
   } else if (vMat == 7) {
     // roof tiles: courses along the slope, darker eaves, faded with distance
     float kt = clamp(1.2 - fwidth(vW.y) * 5.0, 0.0, 1.0);

@@ -207,7 +207,8 @@ export function buildAtlas() {
   return img;
 }
 
-export function uploadAtlas(gl) {
+// aniso: desktops only (round N: on the phone preset anisotropic filtering was most of the atlas's fill cost)
+export function uploadAtlas(gl, aniso = true) {
   const img = buildAtlas();
   const tex = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, tex);
@@ -219,6 +220,6 @@ export function uploadAtlas(gl) {
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   const an = gl.getExtension('EXT_texture_filter_anisotropic');
-  if (an) gl.texParameterf(gl.TEXTURE_2D, an.TEXTURE_MAX_ANISOTROPY_EXT, Math.min(4, gl.getParameter(an.MAX_TEXTURE_MAX_ANISOTROPY_EXT)));
+  if (an && aniso) gl.texParameterf(gl.TEXTURE_2D, an.TEXTURE_MAX_ANISOTROPY_EXT, Math.min(4, gl.getParameter(an.MAX_TEXTURE_MAX_ANISOTROPY_EXT)));
   return tex;
 }

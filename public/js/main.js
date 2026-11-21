@@ -65,7 +65,7 @@ const GEO_SRC = { geo: GEO_FS, geoLow: GEO_FS.replace('#version 300 es', '#versi
 function geoProg(which) { if (!P[which]) P[which] = gfx.prog(GEO_VS, GEO_SRC[which]); return P[which]; }
 const P = { shadow: gfx.prog(SHADOW_VS, SHADOW_FS), full: gfx.prog(FULL_VS, FULL_FS), copy: gfx.prog(FULL_VS, COPY_FS) };
 let atlasTex = null;
-try { atlasTex = uploadAtlas(gl); } catch (e) { console.error('atlas', e); }   // windows fall back to flat colour without it
+try { atlasTex = uploadAtlas(gl, !PHONE && qParam !== 'low'); } catch (e) { console.error('atlas', e); }   // windows fall back to flat colour without it
 const hasStencil = !!(gl.getContextAttributes() || {}).stencil;      // without it shadows would darken twice
 gl.useProgram(P.full.p);
 gl.uniform3fv(P.full.u.uRoof, new Float32Array(ROOF.flatMap((c) => [((c >> 16) & 255) / 255, ((c >> 8) & 255) / 255, (c & 255) / 255])));
