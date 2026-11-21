@@ -65,7 +65,7 @@ function __req(name) {
   return __cache[name];
 }
 `;
-const workerSrc = '"use strict";\n' + RUNTIME + ['town.js', 'mesher.js', 'worker.js'].map(wrap).join('') + "__req('./worker.js');\n";
+const workerSrc = '"use strict";\n' + RUNTIME + ['town.js', 'mesher.js', 'atlas.js', 'worker.js'].map(wrap).join('') + "__req('./worker.js');\n";
 
 // ---- data ----
 const files = {};
@@ -76,7 +76,7 @@ for (const sub of ['n', 'c', 's']) {
 }
 files['manifest.json'] = fs.readFileSync(path.join(townDir, 'manifest.json'), 'utf8');
 const bins = {};
-if (fs.existsSync(path.join(townDir, 'order.bin'))) bins['order.bin'] = fs.readFileSync(path.join(townDir, 'order.bin')).toString('base64');
+for (const b of ['layout.bin']) if (fs.existsSync(path.join(townDir, b))) bins[b] = fs.readFileSync(path.join(townDir, b)).toString('base64');
 const manifest = JSON.parse(files['manifest.json']);
 
 let stamp = new Date().toISOString().slice(0, 16).replace('T', ' ');

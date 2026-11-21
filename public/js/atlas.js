@@ -147,8 +147,6 @@ export function buildAtlas() {
   tile(g, 0, 4, (s) => {                                                            // urethane membrane
     g.fillStyle = grey(140); g.fillRect(0, 0, s, s);
     g.fillStyle = grey(118); for (let k = 1; k < 4; k++) { g.fillRect(k * s / 4 - 2, 0, 4, s); }
-    g.fillStyle = grey(105); g.beginPath(); g.arc(s * 0.7, s * 0.3, s * 0.07, 0, 7); g.fill();
-    g.fillStyle = grey(60); g.beginPath(); g.arc(s * 0.7, s * 0.3, s * 0.025, 0, 7); g.fill();
     for (let k = 0; k < 40; k++) { g.fillStyle = grey(125 + R() * 30); g.fillRect(R() * s, R() * s, 6, 6); }
   });
   tile(g, 1, 4, (s) => {                                                            // asphalt sheet, tar patches
@@ -163,7 +161,7 @@ export function buildAtlas() {
   tile(g, 3, 4, (s) => {                                                            // membrane with rust stains under the clutter
     g.fillStyle = grey(138); g.fillRect(0, 0, s, s);
     g.fillStyle = grey(116); for (let k = 1; k < 4; k++) g.fillRect(0, k * s / 4 - 2, s, 4);
-    for (let k = 0; k < 4; k++) { const x = R() * s, y = R() * s; const gr = g.createRadialGradient(x, y, 2, x, y, 40); gr.addColorStop(0, 'rgba(70,60,50,0.6)'); gr.addColorStop(1, 'rgba(70,60,50,0)'); g.fillStyle = gr; g.fillRect(x - 40, y - 40, 80, 80); }
+    for (let k = 0; k < 6; k++) { const x = R() * s; g.fillStyle = 'rgba(90,80,70,0.18)'; g.fillRect(x, 0, 3 + R() * 4, s); }   // faint weathering lines, no blotches that repeat as a grid
   });
 
   // ---- row 5: shopfronts (full colour; v = 0 at the pavement) ----
@@ -208,6 +206,28 @@ export function buildAtlas() {
 }
 
 // aniso: desktops only (round N: on the phone preset anisotropic filtering was most of the atlas's fill cost)
+// Boot (round P): the texture starts as a 1x1 neutral texel and the atlas is painted in a worker
+// (OffscreenCanvas), off the main thread; fillAtlas uploads it when it arrives (61 ms saved at boot).
+export function atlasTexture(gl) {
+  const tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([140, 146, 152, 90]));
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  return tex;
+}
+export function fillAtlas(gl, tex, data, aniso = true) {
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, ATLAS_SIZE, ATLAS_H, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
+  gl.generateMipmap(gl.TEXTURE_2D);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  const an = gl.getExtension('EXT_texture_filter_anisotropic');
+  if (an && aniso) gl.texParameterf(gl.TEXTURE_2D, an.TEXTURE_MAX_ANISOTROPY_EXT, Math.min(4, gl.getParameter(an.MAX_TEXTURE_MAX_ANISOTROPY_EXT)));
+}
 export function uploadAtlas(gl, aniso = true) {
   const img = buildAtlas();
   const tex = gl.createTexture();

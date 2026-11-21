@@ -7,7 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { buildLayout, plotOf, regionOf, regionKey, lineIndex, normName, cleanName, shardKey, SHAPES, GARDEN, REGION, SLOTS } from '../public/js/town.js';
+import { buildLayout, layoutToBin, plotOf, regionOf, regionKey, lineIndex, normName, cleanName, shardKey, SHAPES, GARDEN, REGION, SLOTS } from '../public/js/town.js';
 
 const src = process.argv[2] || 'data/live';
 const out = process.argv[3] || 'public/town';
@@ -116,7 +116,15 @@ for (const sub of ['n', 'c', 's']) {
 
 // the block order is computed from a formula on every client now (town.js buildLayout): no order.bin
 try { fs.unlinkSync(path.join(out, 'order.bin')); written++; } catch { /* none */ }
-const manifestBody = { v: 4, n, c: cman, split, nh, sh };
+// the layout tables themselves (~82 KB at 1M): clients skip the counting pass at boot
+const layBuf = Buffer.from(layoutToBin(L));
+{
+  const f = path.join(out, 'layout.bin');
+  let same = false;
+  try { same = fs.readFileSync(f).equals(layBuf); } catch { /* new */ }
+  if (!same) { fs.mkdirSync(out, { recursive: true }); fs.writeFileSync(f + '.tmp', layBuf); fs.renameSync(f + '.tmp', f); written++; } else kept++;
+}
+const manifestBody = { v: 5, n, c: cman, split, nh, sh, layout: hash(layBuf) };
 const built = hash(JSON.stringify(manifestBody) + JSON.stringify([...regions.keys()].sort()) + written);
 let prev = null;
 try { prev = JSON.parse(fs.readFileSync(path.join(out, 'manifest.json'), 'utf8')); } catch { /* first build */ }

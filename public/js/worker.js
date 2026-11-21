@@ -1,20 +1,28 @@
 // Builds the layout, the ground data texture and chunk/skyline meshes off the main thread.
 // Custom-home files are fetched once by the main thread and arrive with each chunk request.
-import { buildLayout, buildGround, finishLayout, layoutTransfer, regionKey, fdiv, CHUNK, REGION } from './town.js';
+import { buildLayout, layoutFromBin, buildGround, finishLayout, layoutTransfer, regionKey, fdiv, CHUNK, REGION } from './town.js';
 import { buildChunk, buildSkyline, buildMid } from './mesher.js';
+import { buildAtlas } from './atlas.js';
 
 let L = null;
 const customs = new Map();          // regionKey -> {line: spec} | null
 
 onmessage = (e) => {
   const m = e.data;
+  if (m.type === 'atlas') {                                    // paint the facade atlas off the main thread
+    let img = null;
+    try { if (typeof OffscreenCanvas !== 'undefined') img = buildAtlas(); } catch { img = null; }
+    if (img) postMessage({ type: 'atlas', data: img.data.buffer }, [img.data.buffer]);
+    else postMessage({ type: 'atlas', data: null });
+    return;
+  }
   if (m.type === 'init') {
     try {
     if (m.layout) { L = finishLayout(m.layout); customs.clear(); }   // the main thread committed this layout
     else {
       // build a new layout into a local: this worker keeps meshing the current one until the main thread
       // commits the new one (it may reject it), and a failed build changes nothing here
-      const nl = buildLayout(m.n);                              // a few small tables: no per-block arrays
+      const nl = layoutFromBin(m.n, m.order) || buildLayout(m.n);   // prebuilt tables (layout.bin) or the counting pass
       const g = buildGround(nl);
       postMessage({ type: 'layout', build: m.build, layout: layoutTransfer(nl), ground: g }, [g.data.buffer]);
     }

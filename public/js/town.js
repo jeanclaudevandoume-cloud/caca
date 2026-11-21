@@ -309,6 +309,28 @@ export function buildLayout(n) {
   }
 }
 
+// The layout tables as a small binary file (tools/build.mjs writes it; ~82 KB at 1M followers), so clients
+// skip the 50-400 ms counting pass at boot. Int32: n, rings, maxD2, tall count, dv[rings], cs[rings + 1],
+// then tall regions as (rx, rz) pairs. layoutFromBin returns null if the file does not match n.
+export function layoutToBin(L) {
+  const nd = L.dv.length, tall = L.tall.map((k) => k.split('_').map(Number));
+  const a = new Int32Array(4 + nd + nd + 1 + tall.length * 2);
+  a[0] = L.n; a[1] = nd; a[2] = L.maxD2; a[3] = tall.length;
+  a.set(L.dv, 4); a.set(L.cs, 4 + nd);
+  tall.forEach(([x, z], i) => { a[5 + 2 * nd + 2 * i] = x; a[6 + 2 * nd + 2 * i] = z; });
+  return a.buffer;
+}
+export function layoutFromBin(n, buf) {
+  if (!buf || buf.byteLength < 16 || buf.byteLength % 4) return null;
+  const a = new Int32Array(buf), nd = a[1], nt = a[3];
+  if (a[0] !== n || nd <= 0 || a.length !== 5 + 2 * nd + 2 * nt) return null;
+  const dv = a.slice(4, 4 + nd), cs = a.slice(4 + nd, 5 + 2 * nd);
+  if (cs[nd] < n) return null;
+  const tall = [];
+  for (let i = 0; i < nt; i++) tall.push(regionKey(a[5 + 2 * nd + 2 * i], a[6 + 2 * nd + 2 * i]));
+  return finishLayout({ n, dv, cs, maxD2: a[2], tall });
+}
+
 // Blocks with homes on the ring bx^2+bz^2 = d, in layout order. Cached (rings are re-read a lot).
 const RINGS = new Map();
 function ring(d) {

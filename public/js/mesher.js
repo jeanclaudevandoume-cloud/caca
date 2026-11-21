@@ -325,9 +325,8 @@ function treeBody(mb, x, z, s, h, lod) {
   const kind = h % 7;
   if (LITE) {
     const c = kind === 6 ? BLOSSOM[(h >>> 3) % 3] : LEAVES[(h >>> 3) % LEAVES.length];
-    mb.cyl(x, 0, z, 0.25 * s, 1.6 * s, 0.25 * s, 3, TRUNK, M.PLAIN, h & 255, false);
     if (kind < 2) mb.cyl(x, 1.0 * s, z, 2.2 * s, 6 * s, 0, 4, shade(c, 0.85), M.LEAF, h & 255);
-    else mb.ell(x, 3.4 * s, z, 2.2 * s, 1.9 * s, 2.2 * s, 4, 2, c, M.LEAF, h & 255, false, 0.62);   // 24 tris, rounder than a diamond
+    else mb.ell(x, 3.0 * s, z, 2.2 * s, 2.3 * s, 2.2 * s, 4, 2, c, M.LEAF, h & 255, false, 0.62);   // 24 tris; lite: no trunk, the crown reaches down to hide it
     return;
   }
   const c = kind === 6 ? BLOSSOM[(h >>> 3) % 3] : LEAVES[(h >>> 3) % LEAVES.length];
@@ -551,8 +550,9 @@ function shopHouse(mb, f, r, lod, a) {
     if ((r.hash >>> 13) % 3 === 0) {
       const bz0 = z0 + 4, bz1 = z1 - 4, bx = fx - fs * 1.2;
       const bc = ACCENT_SIGN[(r.sign + 1) % ACCENT_SIGN.length], ba = a & 0xfe;
-      if (fs > 0) mb.q(bx, top + 0.8, bz1, bx, top + 0.8, bz0, bx, top + 3.2, bz0, bx, top + 3.2, bz1, 1, 0, 0, 0, 0, 3, 1, M.LIGHT, bc, ba);
-      else mb.q(bx, top + 0.8, bz0, bx, top + 0.8, bz1, bx, top + 3.2, bz1, bx, top + 3.2, bz0, -1, 0, 0, 0, 0, 3, 1, M.LIGHT, bc, ba);
+      // a solid board with one bold text band (procedural lettering turned to speckle at drone distance)
+      mb.xq(bx, bz0, bz1, top + 0.8, top + 3.2, fs, bc, M.LIGHT, ba);
+      mb.xq(bx + fs * 0.03, bz0 + 1.2, bz1 - 1.2, top + 1.6, top + 2.4, fs, 0xf6f4ee, M.LIGHT, ba);
       if (!LITE) mb.xq(bx - fs * 0.05, bz0, bz1, top + 0.8, top + 3.2, -fs, 0x3a3e45, M.PLAIN, a);
     }
   }
@@ -630,9 +630,14 @@ export function home(mb, bx, bz, f, r, lod) {
       mb.noCast = true;                                  // the detailed house below casts through its proxy only
       // ground storey (two-tone on half the houses: darker, with a string course), upper storeys with baked eave shade
       const g = shade(r.wall, r.twoTone ? 0.62 : 0.78);           // the ground storey is always darker: value structure
+      // upper storeys cantilever 0.6 m over the garage toward the street (not on lite meshes)
+      const cz0 = r.garage && f.face < 0 && !LITE ? z0 - 0.6 : z0, cz1 = r.garage && f.face > 0 && !LITE ? z1 + 0.6 : z1;
+      if (LITE && r.floors < 3) {
+        // lite (round P): one wall box for the whole house; the shader's contact ramp darkens the ground storey
+        mb.box(x0, 0, z0, x1, top, z1, shade(r.wall, 0.94), r.roofType === 2 ? flatMem(r) : -1, M.WIN, wa);
+        var rz0 = z0, rz1 = z1;
+      } else {
       mb.box(x0, 0, z0, x1, FLOOR_H, z1, g, -1, M.WIN, wa);
-      // upper storeys cantilever 0.6 m over the garage toward the street
-      const cz0 = r.garage && f.face < 0 ? z0 - 0.6 : z0, cz1 = r.garage && f.face > 0 ? z1 + 0.6 : z1;
       if (r.floors >= 3) {
         // stepped massing: the top storey sits back from the street (0 / 1.5 / 2.2 m), its roof terrace in front
         const sb = [0, 1.5, 2.2][(r.hash >>> 28) % 3];
@@ -641,6 +646,7 @@ export function home(mb, bx, bz, f, r, lod) {
         mb.boxEave(x0, 2 * FLOOR_H, zs0, x1, top, zs1, r.wall, r.roofType === 2 ? flatMem(r) : -1, M.WIN, wa, 0.4);
         var rz0 = zs0, rz1 = zs1;
       } else { mb.boxEave(x0, FLOOR_H, cz0, x1, top, cz1, r.wall, r.roofType === 2 ? flatMem(r) : -1, M.WIN, wa, 0.4); var rz0 = cz0, rz1 = cz1; }
+      }
       if (r.twoTone && !LITE) { mb.cast = false; mb.box(x0 - 0.03, FLOOR_H - 0.05, z0 - 0.03, x1 + 0.03, FLOOR_H + 0.02, z1 + 0.03, 0x3a3836, -1, M.PLAIN, a); mb.cast = true; }
       // roof: mono-pitch / low gable with thin eaves and a dark fascia / flat with a parapet ring
       const o = 0.65;
@@ -719,7 +725,8 @@ export function home(mb, bx, bz, f, r, lod) {
       if (r.vending) {
         mb.cast = false;
         const vx = r.side > 0 ? f.x - 4.3 : f.x + 4.3, vz = front - fs * 0.6;
-        mb.cbox(vx, 0, vz, 0.9, 1.8, 0.7, VEND[(r.hash >>> 11) % VEND.length], M.LIGHT, a);
+        if (LITE) mb.wq(vx - 0.45, vx + 0.45, 0, 1.8, vz + fs * 0.35, fs, VEND[(r.hash >>> 11) % VEND.length], M.LIGHT, a);   // lite: the lit front only
+        else mb.cbox(vx, 0, vz, 0.9, 1.8, 0.7, VEND[(r.hash >>> 11) % VEND.length], M.LIGHT, a);
         mb.cast = true;
       }
       if (!LITE) {
@@ -1225,7 +1232,8 @@ export function buildMid(L, mx, mz) {
       const slot = row * 4;
       if (slot >= occ) continue;
       const r = recipe(bx, bz, slot, zone, null), h = hash3(bx, bz, 91 + slot);
-      const top = (zone === 1 ? 12.5 : 6.6) + (h % 6) * 0.7;
+      const near = zoneLevel(bx + 1, bz) >= 2 || zoneLevel(bx - 1, bz) >= 2 || zoneLevel(bx, bz + 1) >= 2 || zoneLevel(bx, bz - 1) >= 2;
+      const top = (zone === 1 ? 12.5 : 6.6) + (near ? 6.4 : 0) + (h % 6) * 0.7;   // blocks next to mid-rise step up: the skyline ramps
       const x0 = X - 15, x1 = X + 15;
       const z0 = row ? Z + 2 : Z - 18, z1 = row ? Z + 18 : Z - 2;
       const roof = zone === 1 ? (r.roofMem || 0x4f8a6e) : ROOF[r.roof];
@@ -1257,7 +1265,7 @@ export function buildSkyline(L, sx, sz, lite = false) {
     const occ = occupied(L, bx, bz);
     for (let s = 0; s < occ; s++) {
       const r = recipe(bx, bz, s, zone, null);
-      if (r.height < (lite ? 12 : 6) * FLOOR_H) continue;      // lite (low quality): only the real skyline
+      if (r.height < (lite ? 16 : 6) * FLOOR_H) continue;      // lite (low quality): only the real skyline
       plotFrame(bx, bz, s, zone, f);
       f.x += r.ox;                                                  // paired-plot towers
       const top = r.floors * FLOOR_H;

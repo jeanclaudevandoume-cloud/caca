@@ -37,6 +37,12 @@ const L = T.buildLayout(100000);
   for (let p = 0; p < 100000; p += 97) { const a = T.plotOf(L, p), b = T.plotOf(L2, p); if (a.bx !== b.bx || a.bz !== b.bz || a.slot !== b.slot) { prefix = false; break; } }
   check('layout is append-only (1e5 is a prefix of 1e5+500)', prefix);
 }
+{
+  const B = T.layoutFromBin(100000, T.layoutToBin(L));
+  let same = !!B && B.maxD2 === L.maxD2 && B.tall.length === L.tall.length;
+  for (let p = 0; same && p < 100000; p += 131) { const a = T.plotOf(L, p), b = T.plotOf(B, p); if (a.bx !== b.bx || a.bz !== b.bz || a.slot !== b.slot) same = false; }
+  check('layout.bin round-trips and is rejected for another follower count', same && T.layoutFromBin(100001, T.layoutToBin(L)) === null);
+}
 
 // shadow-only proxies come first and the colour range never starts inside them
 {

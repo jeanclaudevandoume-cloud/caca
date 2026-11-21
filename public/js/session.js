@@ -14,7 +14,7 @@ import { finishLayout } from './town.js';
 // moves far, recording the generation it asked under); the session owns its lifecycle.
 export const createGroundWin = () => ({ ox: 0, oz: 0, cx: 0, cz: 0, full: true, req: 0, gen: 0, reqGen: -1 });
 
-export function createSession({ sup, renderer, streamer, data, app, groundWin, tagState, resetTags, view, onReady = () => {}, onCount = () => {}, fail = () => {} }) {
+export function createSession({ sup, renderer, streamer, data, app, groundWin, tagState, resetTags, view, onReady = () => {}, onCount = () => {}, fail = () => {}, fetchLayout = null }) {
   const s = { groundWin, tallRegions: new Set(), layoutStage: null, badBuilt: null, ready: false };
 
   function onWorker(e) {
@@ -77,7 +77,9 @@ export function createSession({ sup, renderer, streamer, data, app, groundWin, t
 
   function initLayout() {
     const mf = s.layoutStage ? s.layoutStage.manifest : data.manifest;
-    sup.startBuild(mf.n, null);
+    // prebuilt layout tables (layout.bin) when the town ships them; the worker falls back to computing them
+    if (!fetchLayout || !mf.layout) { sup.startBuild(mf.n, null); return; }
+    fetchLayout(mf).then((buf) => sup.startBuild(mf.n, buf || null), () => sup.startBuild(mf.n, null));
   }
   // first manifest: becomes current at once
   function boot(manifest) { data.commit(manifest); initLayout(); }
