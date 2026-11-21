@@ -325,26 +325,45 @@ export function buildLayout(n) {
   }
 }
 
-// The layout tables as a small binary file (tools/build.mjs writes it; ~82 KB at 1M followers), so clients
-// skip the 50-400 ms counting pass at boot. Int32: n, rings, maxD2, tall count, dv[rings], cs[rings + 1],
-// then tall regions as (rx, rz) pairs. layoutFromBin returns null if the file does not match n.
+// The layout tables as a small binary file (tools/build.mjs writes it), so clients skip the 50-400 ms counting
+// pass at boot. Round Q: the tables are delta + varint packed (dv rises by 1-3 a ring, a ring holds < 2^14 homes),
+// ~2.3 bytes a ring instead of 8: 1M followers 26 KB (was 95), 10M 230 KB (was 825); parse 1-6 ms.
+// Layout: magic 'FTL2', then varints: n, rings, maxD2, tall count, dv deltas, homes per ring (cs deltas),
+// tall regions as zigzag (rx, rz). layoutFromBin returns null if the file does not match n.
+const LMAGIC = 0x324c5446;   // 'FTL2' little-endian
 export function layoutToBin(L) {
+  const out = [];
+  const vu = (v) => { while (v >= 128) { out.push((v & 127) | 128); v = Math.floor(v / 128); } out.push(v); };
+  const zz = (v) => vu(v < 0 ? -2 * v - 1 : 2 * v);
   const nd = L.dv.length, tall = L.tall.map((k) => k.split('_').map(Number));
-  const a = new Int32Array(4 + nd + nd + 1 + tall.length * 2);
-  a[0] = L.n; a[1] = nd; a[2] = L.maxD2; a[3] = tall.length;
-  a.set(L.dv, 4); a.set(L.cs, 4 + nd);
-  tall.forEach(([x, z], i) => { a[5 + 2 * nd + 2 * i] = x; a[6 + 2 * nd + 2 * i] = z; });
+  vu(L.n); vu(nd); vu(L.maxD2); vu(tall.length);
+  for (let k = 0; k < nd; k++) vu(L.dv[k] - (k ? L.dv[k - 1] : 0));
+  for (let k = 0; k < nd; k++) vu(L.cs[k + 1] - L.cs[k]);
+  for (const [x, z] of tall) { zz(x); zz(z); }
+  const a = new Uint8Array(4 + out.length);
+  new DataView(a.buffer).setUint32(0, LMAGIC, true);
+  a.set(out, 4);
   return a.buffer;
 }
 export function layoutFromBin(n, buf) {
-  if (!buf || buf.byteLength < 16 || buf.byteLength % 4) return null;
-  const a = new Int32Array(buf), nd = a[1], nt = a[3];
-  if (a[0] !== n || nd <= 0 || a.length !== 5 + 2 * nd + 2 * nt) return null;
-  const dv = a.slice(4, 4 + nd), cs = a.slice(4 + nd, 5 + 2 * nd);
-  if (cs[nd] < n) return null;
+  if (!buf || buf.byteLength < 8) return null;
+  const b = new Uint8Array(buf);
+  if (new DataView(buf).getUint32(0, true) !== LMAGIC) return null;
+  let p = 4, bad = false;
+  const vu = () => {
+    let v = 0, m = 1;
+    for (;;) { if (p >= b.length) { bad = true; return 0; } const c = b[p++]; v += (c & 127) * m; if (c < 128) return v; m *= 128; }
+  };
+  const zz = () => { const v = vu(); return v & 1 ? -(v + 1) / 2 : v / 2; };
+  const fn = vu(), nd = vu(), maxD2 = vu(), nt = vu();
+  if (bad || fn !== n || nd <= 0 || nd > b.length) return null;
+  const dv = new Int32Array(nd), cs = new Int32Array(nd + 1);
+  for (let k = 0, d = 0; k < nd; k++) { d += vu(); dv[k] = d; }
+  for (let k = 0; k < nd; k++) cs[k + 1] = cs[k] + vu();
   const tall = [];
-  for (let i = 0; i < nt; i++) tall.push(regionKey(a[5 + 2 * nd + 2 * i], a[6 + 2 * nd + 2 * i]));
-  return finishLayout({ n, dv, cs, maxD2: a[2], tall });
+  for (let i = 0; i < nt; i++) { const x = zz(), z = zz(); tall.push(regionKey(x, z)); }
+  if (bad || p !== b.length || cs[nd] < n) return null;
+  return finishLayout({ n, dv, cs, maxD2, tall });
 }
 
 // Blocks with homes on the ring bx^2+bz^2 = d, in layout order. Cached (rings are re-read a lot).

@@ -51,7 +51,6 @@ void main() {
     else p.y *= 1.0 - smoothstep(uLod.x, uLod.y, d);
   } else if (dc <= uLod.x) { gl_Position = vec4(0.0, 0.0, 2.0, 1.0); return; }
   else if (!tall) p.y *= smoothstep(uLod.x, uLod.y, d);     // mid-band massing grows in as the homes shrink
-  else if (!tall) p.y *= smoothstep(uLod.x, uLod.y, d);     // skyline mid-band massing grows in as the homes shrink
   if (mat == 2 && p.y > 2.0) p.xz += sin(uTime * 1.3 + p.x * 0.11 + p.z * 0.07) * 0.06 * (p.y - 2.0) / 6.0;
   vW = p; vN = aN; vUV = aUV; vCol = aCol; vMat = mat;
   gl_Position = uVP * vec4(p, 1.0);

@@ -206,6 +206,7 @@ function resize() {
 function frame(now) {
   requestAnimationFrame(frame);
   if (gl.isContextLost()) return;          // the context-lost handler reloads; draw nothing meanwhile
+  if (simClock) return;                    // tools/poptest.cjs drives frames itself (__town.sim)
   step(now);
 }
 function step(now) {
@@ -237,6 +238,12 @@ function tags(now) {
   if (placeTags(tagState, renderer.VP, innerWidth, innerHeight, ui.rects, pinKey, ui.measure)) ui.drawTags(tagState);
 }
 // Run the whole frame loop body n times without waiting for vsync (allocation measurements).
+// Simulated frames on a virtual 60 fps clock (poptest.cjs): the rAF loop stops, every call draws n frames 16 ms apart.
+let simClock = 0;
+function sim(n = 4) {
+  if (!simClock) simClock = lastFrame || performance.now();
+  for (let i = 0; i < n; i++) { simClock += 16; step(simClock); }
+}
 function spin(n = 30) {
   const yaw = cam.yaw;
   for (let i = 0; i < n; i++) { cam.yaw = yaw + i * 0.001; step(performance.now() + i * 16); }
@@ -248,7 +255,7 @@ window.__town = {
   cam, stats: renderer.stats, quality, chunks: streamer.chunks, skies: streamer.skies, flyToName: (n, i) => ui.flyToName(n, i), setTod: (t) => { app.tod = t; },
   get tagCount() { return tagState.used; },
   killWorker: (i) => sup.died(sup.workers[i], 'killed by test'),
-  probe: (n) => renderer.probe(n), spin,
+  probe: (n) => renderer.probe(n), spin, sim,
   get dbg() { return { reqs: reqs.size, upq: streamer.UPQ.length, budget: sup.workers.length * 3 - reqs.size, loads: sup.workers.map((w) => w.load) }; },
   get layout() { return app.L; }, get ready() { return session.ready; }, get VP() { return renderer.VP; },
   idle() { return session.ready && streamer.idle(); },
