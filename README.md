@@ -54,7 +54,11 @@ follower, add `instant` to jump · `debug` shows a stats line.
 | File | Role |
 |---|---|
 | `public/js/town.js` | All rules: hash, block kinds, zones, layout order, plots, home recipes, data file keys. |
-| `public/js/mesher.js` | Mesh builder (16 bytes/vertex) and every shape. |
+| `public/js/mesher.js` | Chunk, mid-band and skyline meshes (the worker's entry points). |
+| `public/js/mb.js` | Mesh builder (16 bytes/vertex) and the shared palettes. |
+| `public/js/props.js` | Trees, wires, lamps, kanban, billboards, custom shapes, doors, rooftop clutter. |
+| `public/js/homes.js` | Homes on their plots, shop houses, civic cells, tower massing. |
+| `tools/poptest.cjs` | Flythrough pop metric (fixed-pose frame pairs on a virtual 60 fps clock). |
 | `public/js/worker.js` | Builds layout and meshes off the main thread. |
 | `public/js/shaders.js` | Geometry, planar shadows, full-screen sky/ground (mirrors `town.js`). |
 | `public/js/main.js` | GL, camera, streaming, time of day, search, fly-to, tags, adaptive quality. |
