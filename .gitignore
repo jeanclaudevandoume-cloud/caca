@@ -6,3 +6,5 @@ shots/
 dist/
 data/small/
 .claude/worktrees/
+public/_rp/
+tools/_vrp.cjs

@@ -307,8 +307,9 @@ export function buildMid(L, mx, mz) {
       const z0 = row ? Z + 2 : Z - 18, z1 = row ? Z + 18 : Z - 2;
       const roof = zone === 1 ? (r.roofMem || 0x4f8a6e) : ROOF[r.roof];
       mb.box(x0, 0, z0, x1, top, z1, r.wall, -1, M_.WIN, (h & 0xfc) | 1, 0, row ? 2 : 1);
-      // the roof: M_.ROOF with alpha 250 (jutaku: per-house colours and a fake ridge) or 246 (villa membranes), see shaders.js
-      mb.q(x0, top, z1, x1, top, z1, x1, top, z0, x0, top, z0, 0, 1, 0, 0, 0, 0, 0, M_.ROOF, roof, zone === 1 ? 246 : 250);   // the faces across the 4 m lane are never seen from the mid band
+      // the roof: plain, alpha 250 (jutaku: per-house colours and a fake ridge on the high preset) or 246 (villa
+      // membranes), see shaders.js. Plain, not M.ROOF: the roof-tile hash on every far pixel cost the phone geo pass.
+      mb.q(x0, top, z1, x1, top, z1, x1, top, z0, x0, top, z0, 0, 1, 0, 0, 0, 0, 0, M_.PLAIN, roof, zone === 1 ? 246 : 250);   // the faces across the 4 m lane are never seen from the mid band
     }
   }
   return mb.finish();

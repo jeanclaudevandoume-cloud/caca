@@ -277,7 +277,7 @@ void main() {
     }
 #endif
 #ifndef LOWQ
-  } else if (vMat == 7 && (uint(vCol.a * 255.0 + 0.5) == 250u || uint(vCol.a * 255.0 + 0.5) == 246u)) {
+  } else if (vMat == 0 && vN.y > 0.9 && (uint(vCol.a * 255.0 + 0.5) == 250u || uint(vCol.a * 255.0 + 0.5) == 246u)) {
     // mid-band roofs (round Q): one 30 m mass per row of homes reads as four houses: per-house colour from a
     // roof palette, dark party gaps, and (jutaku, 250) a fake ridge lit from the sun side. No extra triangles.
     vec2 bq = mod(vW.xz + 24.0, 48.0) - 24.0;                  // position in the block: rows centred on z = -10 / +10
