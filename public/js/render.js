@@ -83,7 +83,7 @@ export function createRenderer(d) {
     gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LESS); gl.depthMask(true);
     gl.enable(gl.CULL_FACE); gl.disable(gl.BLEND); gl.disable(gl.STENCIL_TEST);
 
-    let tris = 0, draws = 0, sky = 0, bytes = 0;
+    let tris = 0, draws = 0, sky = 0, bytes = 0; const tier = stats.tier || (stats.tier = {});
     const geo = geoProg(isLow() ? 'geoLow' : 'geo');                  // low preset: cheaper material shader
     gl.useProgram(geo.p);
     setCommonU(geo.u, T, time, fogD);
@@ -108,6 +108,7 @@ export function createRenderer(d) {
       // shadows: distance to the chunk's bounding square, not its centre (no corner gaps, no chunk-sized pops)
       if (hyp2(Math.max(0, Math.abs(ox - cam.x) - CHUNK * PITCH / 2), Math.max(0, Math.abs(oz - cam.z) - CHUNK * PITCH / 2)) < shadowR) drawn.push(c);
     }
+    tier.chunk = Math.round(tris);
     gl.uniform4f(geo.u.uLod, fadeA, fadeB, 1, 2);    // skyline tiles are stored at 1/32 m
     const RS = SKY * PITCH * 0.75;
     SKYORD.length = 0;
@@ -125,6 +126,7 @@ export function createRenderer(d) {
       tris += s.g.n / 3; draws++; sky++;
     }
 
+    tier.sky = Math.round(tris) - tier.chunk;
     // mid-band massing (skyline mode: hidden where chunks still draw homes, growing in as they shrink)
     gl.uniform4f(geo.u.uLod, fadeA, fadeB, 1, 0);
     const RMd = MID * PITCH * 0.75;
@@ -140,6 +142,7 @@ export function createRenderer(d) {
       tris += s.g.n / 3; draws++;
     }
 
+    tier.mid = Math.round(tris) - tier.chunk - tier.sky;
     const pin = app.pin;
     if (pin && app.L && PROBE !== 'full') {
       if (!pinMesh) {
@@ -201,6 +204,7 @@ export function createRenderer(d) {
       }
       gl.disable(gl.STENCIL_TEST); gl.disable(gl.BLEND);
     }
+    tier.rest = Math.round(tris) - tier.chunk - tier.sky - tier.mid;
     gl.depthMask(true);
     gl.bindVertexArray(null);
     stats.tris = Math.round(tris); stats.draws = draws; stats.sky = sky; stats.chunks = chunks.size; stats.mb = Math.round((bytes + groundBytes + (halfRT ? halfRT.w * halfRT.h * 4 : 0)) / 1048576);   // meshes + ground texture + half-res target

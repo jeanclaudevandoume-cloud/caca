@@ -140,7 +140,9 @@ export class MB {
     this.wq(x0, x1, y, yt, z1, 1, sideC, M.PLAIN, a); this.wq(x0, x1, y, yt, z0, -1, sideC, M.PLAIN, a);
     this.xq(x1, z0, z1, y, yt, 1, sideC, M.PLAIN, a); this.xq(x0, z0, z1, y, yt, -1, sideC, M.PLAIN, a);
     const top = (ax0, az0, ax1, az1) => this.q(ax0, yt, az1, ax1, yt, az1, ax1, yt, az0, ax0, yt, az0, 0, 1, 0, 0, 0, 0, 0, M.PLAIN, capC, a);
-    top(x0, z0, x1, z0 + t); top(x0, z1 - t, x1, z1); top(x0, z0 + t, x0 + t, z1 - t); top(x1 - t, z0 + t, x1, z1 - t);
+    if (!LITE) {                                 // lite: no coping (sub-pixel at lite range; the wall band carries the rim)
+      top(x0, z0, x1, z0 + t); top(x0, z1 - t, x1, z1); top(x0, z0 + t, x0 + t, z1 - t); top(x1 - t, z0 + t, x1, z1 - t);
+    }
     if (!LITE) {
       const ic = shade(sideC, 0.8);
       this.wq(x0 + t, x1 - t, y, yt, z1 - t, -1, ic, M.PLAIN, a); this.wq(x0 + t, x1 - t, y, yt, z0 + t, 1, ic, M.PLAIN, a);
@@ -156,14 +158,14 @@ export class MB {
     this.fq(x0, y, z0, x0, y, z1, x0 + i, yt, z1 - i, x0 + i, yt, z0 + i, M.ROOF, c, a);
     this.q(x0 + i, yt, z1 - i, x1 - i, yt, z1 - i, x1 - i, yt, z0 + i, x0 + i, yt, z0 + i, 0, 1, 0, 0, 0, 0, 0, M.PLAIN, memC, a);
   }
-  box(x0, y0, z0, x1, y1, z1, c, top, m, a, vb = 0) {
+  box(x0, y0, z0, x1, y1, z1, c, top, m, a, vb = 0, skip = 0) {   // skip: 1 drops the +z face, 2 the -z face
     const v0 = vb, v1 = vb + (y1 - y0) / FLOOR_H, w = x1 - x0, d = z1 - z0;
     // centre the window grid on each wall so no window is cut at a corner
     const sp = m === M.GLASS ? 1.7 : 2.6, win = m === M.WIN || m === M.GLASS;
     // every wall holds a whole number of window cells (stretched to fit), so no window wraps a corner
     const uw = win ? Math.max(1, Math.round(w / sp)) * sp : 0, ud = win ? Math.max(1, Math.round(d / sp)) * sp : 0;   // non-window materials never read u
-    this.q(x0, y0, z1, x1, y0, z1, x1, y1, z1, x0, y1, z1, 0, 0, 1, 0, v0, uw, v1, m, c, a);
-    this.q(x1, y0, z0, x0, y0, z0, x0, y1, z0, x1, y1, z0, 0, 0, -1, 0, v0, uw, v1, m, c, a);
+    if (!(skip & 1)) this.q(x0, y0, z1, x1, y0, z1, x1, y1, z1, x0, y1, z1, 0, 0, 1, 0, v0, uw, v1, m, c, a);
+    if (!(skip & 2)) this.q(x1, y0, z0, x0, y0, z0, x0, y1, z0, x1, y1, z0, 0, 0, -1, 0, v0, uw, v1, m, c, a);
     this.q(x1, y0, z1, x1, y0, z0, x1, y1, z0, x1, y1, z1, 1, 0, 0, 0, v0, ud, v1, m, c, a);
     this.q(x0, y0, z0, x0, y0, z1, x0, y1, z1, x0, y1, z0, -1, 0, 0, 0, v0, ud, v1, m, c, a);
     if (top >= 0) this.q(x0, y1, z1, x1, y1, z1, x1, y1, z0, x0, y1, z0, 0, 1, 0, 0, 0, 0, 0, M.PLAIN, top, a);
@@ -370,8 +372,10 @@ function wires(mb, x0, x1, z, n, alongZ = false) {
 
 function lamp(mb, x, z, a) {
   const cast = mb.cast; mb.cast = false;
-  mb.cbox(x, 0, z, 0.25, 5.2, 0.25, 0x3a3f4a, M.METAL, a);
-  mb.cbox(x, 5.0, z, 0.7, 0.35, 0.7, 0xfff1c1, M.LIGHT, a);
+  if (LITE) mb.cyl(x, 0, z, 0.14, 5.2, 0.14, 3, 0x3a3f4a, M.METAL, a, false);   // lite: a 3-sided post (6 tris, not 10)
+  else mb.cbox(x, 0, z, 0.25, 5.2, 0.25, 0x3a3f4a, M.METAL, a);
+  if (LITE) mb.cyl(x, 5.0, z, 0.45, 5.35, 0.45, 3, 0xfff1c1, M.LIGHT, a);   // lite: a 3-sided lantern (7 tris)
+  else mb.cbox(x, 5.0, z, 0.7, 0.35, 0.7, 0xfff1c1, M.LIGHT, a);
   mb.cast = cast;
 }
 
@@ -758,10 +762,15 @@ export function home(mb, bx, bz, f, r, lod) {
       // pilotis: dark parking void at the front half, columns, upper mass from floor 2
       const pz0 = f.face < 0 ? z0 : z0 + r.d * 0.5, pz1 = f.face < 0 ? z0 + r.d * 0.5 : z1;
       const bz0 = f.face < 0 ? pz1 : z0, bz1 = f.face < 0 ? z1 : pz0;
-      mb.box(x0 + 0.3, 0, bz0, x1 - 0.3, FLOOR_H, bz1, 0x4a4744, -1, M.PLAIN, a);          // back of the parking storey
+      if (LITE) mb.wq(x0 + 0.3, x1 - 0.3, 0, FLOOR_H, f.face < 0 ? bz0 : bz1, fs, 0x4a4744, M.PLAIN, a);   // lite: the face seen through the void
+      else mb.box(x0 + 0.3, 0, bz0, x1 - 0.3, FLOOR_H, bz1, 0x4a4744, -1, M.PLAIN, a);          // back of the parking storey
       mb.q(x0, FLOOR_H - 0.01, pz0, x1, FLOOR_H - 0.01, pz0, x1, FLOOR_H - 0.01, pz1, x0, FLOOR_H - 0.01, pz1, 0, -1, 0, 0, 0, 0, 0, M.PLAIN, 0x2a2c30, a);
       const cz = f.face < 0 ? z0 + 0.25 : z1 - 0.25;
-      for (const cx of LITE ? [x0 + 0.25, x1 - 0.25] : [x0 + 0.25, x1 - 0.25, (x0 + x1) / 2]) mb.cbox(cx, 0, cz, 0.45, FLOOR_H, 0.45, 0xbdb6aa, M.PLAIN, a);
+      if (LITE) {                                  // lite: each corner column is its street face and its outer side (4 tris, not 10)
+        const zf = cz + fs * 0.225, za = Math.min(cz - 0.225, cz + 0.225), zb = za + 0.45;
+        mb.wq(x0 + 0.025, x0 + 0.475, 0, FLOOR_H, zf, fs, 0xbdb6aa, M.PLAIN, a); mb.xq(x0 + 0.025, za, zb, 0, FLOOR_H, -1, 0xbdb6aa, M.PLAIN, a);
+        mb.wq(x1 - 0.475, x1 - 0.025, 0, FLOOR_H, zf, fs, 0xbdb6aa, M.PLAIN, a); mb.xq(x1 - 0.025, za, zb, 0, FLOOR_H, 1, 0xbdb6aa, M.PLAIN, a);
+      } else for (const cx of [x0 + 0.25, x1 - 0.25, (x0 + x1) / 2]) mb.cbox(cx, 0, cz, 0.45, FLOOR_H, 0.45, 0xbdb6aa, M.PLAIN, a);
       mb.boxEave(x0, FLOOR_H, z0, x1, top, z1, r.wall, -1, M.WIN, wa, 0.4);
       // glass stair strip on the street face
       mb.cast = false;
@@ -810,7 +819,9 @@ export function home(mb, bx, bz, f, r, lod) {
     } else if (!lod) {
       // shopfront: glass ground floor, a coloured awning fixed to the wall and a lit sign
       mb.cast = false;
-      mb.cbox(f.x, 0, fz + fs * 0.06, w - 1.2, 2.8, 0.25, shade(0x9fc4dd, 0.9 + ((r.hash >>> 3) & 3) * 0.05), M.GLASS, a);
+      const gc = shade(0x9fc4dd, 0.9 + ((r.hash >>> 3) & 3) * 0.05);
+      if (LITE) mb.wq(f.x - w / 2 + 0.6, f.x + w / 2 - 0.6, 0, 2.8, fz + fs * 0.12, fs, gc, M.GLASS, a);   // lite: the street face only
+      else mb.cbox(f.x, 0, fz + fs * 0.06, w - 1.2, 2.8, 0.25, gc, M.GLASS, a);
       {   // sloped awning: thin, fixed to the wall, front edge dropped
         const zw = fz, zf = fz + fs * 1.3, ac = ROOF[r.roof];
         if (fs < 0) {
@@ -822,7 +833,11 @@ export function home(mb, bx, bz, f, r, lod) {
         }
         mb.wq(x0 + 0.3, x1 - 0.3, 2.45, 2.7, zf, fs, ac, M.PLAIN, a);
       }
-      if ((r.hash >>> 17) % 3) mb.cbox(f.x, 3.3, fz + fs * 0.15, Math.min(5, w - 2), 0.8, 0.25, sign, M.LIGHT, a);
+      if ((r.hash >>> 17) % 3) {
+        const sw = Math.min(5, w - 2) / 2;
+        if (LITE) mb.wq(f.x - sw, f.x + sw, 3.3, 4.1, fz + fs * 0.2, fs, sign, M.LIGHT, a);
+        else mb.cbox(f.x, 3.3, fz + fs * 0.15, sw * 2, 0.8, 0.25, sign, M.LIGHT, a);
+      }
       mb.cast = true;
     }
     if (top > base) mb.box(x0, base, z0, x1, top, z1, r.wall, roofC, r.mat, aw, base / FLOOR_H);
@@ -873,7 +888,13 @@ export function home(mb, bx, bz, f, r, lod) {
       mb.cast = false;
       {                                          // vertical kanban on every street face, plus stacked signs on some
         const kx = r.hash & 1 ? x0 + 0.5 : x1 - 0.5, kh = 6 + ((r.hash >>> 6) % 4);
-        mb.cbox(kx, 4.0, fz + fs * 0.75, 0.3, kh, 1.2, ACCENT[(r.hash >>> 9) % ACCENT.length], M.LIGHT, a);
+        const kc = ACCENT[(r.hash >>> 9) % ACCENT.length];
+        if (LITE) {                              // lite: the blade's two faces and its street edge (6 tris, not 10)
+          const ka = Math.min(fz + fs * 0.15, fz + fs * 1.35), kb = Math.max(fz + fs * 0.15, fz + fs * 1.35);
+          mb.xq(kx + 0.15, ka, kb, 4.0, 4.0 + kh, 1, kc, M.LIGHT, a);
+          mb.xq(kx - 0.15, ka, kb, 4.0, 4.0 + kh, -1, kc, M.LIGHT, a);
+          mb.wq(kx - 0.15, kx + 0.15, 4.0, 4.0 + kh, fz + fs * 1.35, fs, kc, M.LIGHT, a);
+        } else mb.cbox(kx, 4.0, fz + fs * 0.75, 0.3, kh, 1.2, kc, M.LIGHT, a);
         if (r.hash & 2 && !LITE) {
           const n = 1 + ((r.hash >>> 5) % 2);
           for (let i = 0; i < n; i++) mb.cbox(r.hash & 1 ? x1 - 0.4 : x0 + 0.4, 4.2 + i * 4.0, fz + fs * 0.45, 0.25, 3.5, 0.6, ACCENT_SIGN[((r.hash >>> 9) + i * 3) % ACCENT_SIGN.length], M.LIGHT, a);
@@ -952,7 +973,7 @@ export function buildChunk(L, cx, cz, lod, customs, lite = false) {
             // concrete utility poles on the north kerb (every 24 m) with three sagging wires to the next pole
             const pz = Z - 19.6;
             const pole = (px, pzz) => {
-              mb.cyl(px, 0, pzz, 0.17, 9.0, 0.12, LITE ? 4 : 6, 0xa7a49c, M.PLAIN, hb & 255, false);
+              mb.cyl(px, 0, pzz, 0.17, 9.0, 0.12, LITE ? 3 : 6, 0xa7a49c, M.PLAIN, hb & 255, false);   // lite: 3 sides (6 tris)
               if (!LITE) { mb.cbox(px, 8.2, pzz, 1.4, 0.12, 0.12, 0x8a877f, M.PLAIN, 0); mb.cbox(px + 0.3, 6.6, pzz, 0.35, 0.5, 0.35, 0x7f8a8a, M.METAL, 0); }
             };
             for (const px of [X - 18, X + 6]) { pole(px, pz); wires(mb, px, X + (px === X - 18 ? 6 : 30), pz, LITE ? 1 : 3, false); }
@@ -1245,7 +1266,7 @@ export function buildMid(L, mx, mz) {
       const x0 = X - 15, x1 = X + 15;
       const z0 = row ? Z + 2 : Z - 18, z1 = row ? Z + 18 : Z - 2;
       const roof = zone === 1 ? (r.roofMem || 0x4f8a6e) : ROOF[r.roof];
-      mb.box(x0, 0, z0, x1, top, z1, r.wall, roof, M.WIN, (h & 0xfc) | 1);
+      mb.box(x0, 0, z0, x1, top, z1, r.wall, roof, M.WIN, (h & 0xfc) | 1, 0, row ? 2 : 1);   // the faces across the 4 m lane are never seen from the mid band
     }
   }
   return mb.finish();

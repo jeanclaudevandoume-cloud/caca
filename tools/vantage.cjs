@@ -68,7 +68,7 @@ const V = {
     await p.waitForTimeout(800);
     if (!q.includes('notags')) await p.waitForFunction(() => window.__town.tagCount >= 4, null, { timeout: 8000 }).catch(() => console.log(n, 'fewer than 4 name tags'));
     await p.screenshot({ path: `shots/${tag}/${n}.png` });
-    out[n] = await p.evaluate(() => { const s = window.__town.stats; return { tris: s.tris, draws: s.draws, sky: s.sky, mb: s.mb }; });
+    out[n] = await p.evaluate(() => { const s = window.__town.stats; return { tris: s.tris, draws: s.draws, sky: s.sky, mb: s.mb, tier: s.tier }; });
     if (probeAll || q.includes('q=low') || dev) {
       // pass timings (relative, this machine) + allocated bytes per frame from Chrome's sampling heap profiler
       // median of 3 probes per pass (one probe was noisy enough to flip a budget verdict)
