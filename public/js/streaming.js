@@ -34,7 +34,7 @@ export function createStreamer({ sup, customFor, upload, release, isLow, radii, 
     // a big town: keep the ground window around the camera
     if (!groundWin.full && !groundWin.req) {
       const bx = Math.floor((cam.x + 24) / PITCH), bz = Math.floor((cam.z + 24) / PITCH);
-      if (Math.max(Math.abs(bx - groundWin.cx), Math.abs(bz - groundWin.cz)) > 96) sup.request({ type: 'ground', cx: bx, cz: bz }, groundWin, 0);
+      if (Math.max(Math.abs(bx - groundWin.cx), Math.abs(bz - groundWin.cz)) > 96) { groundWin.reqGen = groundWin.gen; sup.request({ type: 'ground', cx: bx, cz: bz }, groundWin, 0); }   // the session drops it if a commit lands first
     }
     // allocation-free (round M): pooled wants, numeric keys, reused sets
     const want = WANT;
