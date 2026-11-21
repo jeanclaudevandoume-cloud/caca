@@ -277,6 +277,34 @@ void main() {
 #ifdef LOWQ
     }
 #endif
+  } else if (vMat == 7 && (uint(vCol.a * 255.0 + 0.5) == 250u || uint(vCol.a * 255.0 + 0.5) == 246u)) {
+    // mid-band roofs (round Q): one 30 m mass per row of homes reads as four houses: per-house colour from a
+    // roof palette, dark party gaps, and (jutaku, 250) a fake ridge lit from the sun side. No extra triangles.
+    vec2 bq = mod(vW.xz + 24.0, 48.0) - 24.0;                  // position in the block: rows centred on z = -10 / +10
+    float cell = floor((bq.x + 15.0) / 7.5);
+    uint hc = ih(uint(int(floor((vW.x + 24.0) / 48.0)) * 73 + int(floor((vW.z + 24.0) / 48.0)) * 9157 + int(cell) * 31 + (bq.y > 0.0 ? 7 : 0)) + 911u);
+    const vec3 RP[4] = vec3[4](vec3(0.55, 0.27, 0.2), vec3(0.3, 0.38, 0.5), vec3(0.32, 0.33, 0.36), vec3(0.3, 0.45, 0.36));
+    bool jt = uint(vCol.a * 255.0 + 0.5) == 250u;
+    float lf = dot(col, vec3(0.333)) / max(dot(base, vec3(0.333)), 0.02);   // this pixel's lighting, reused for the palette colour
+    col = mix(col, RP[hc & 3u] * lf, jt ? 0.55 : 0.0) * (0.86 + 0.24 * float((hc >> 4) & 15u) / 15.0);
+    float gx = abs(fract((bq.x + 15.0) / 7.5 + 0.5) - 0.5) * 7.5;  // metres to the nearest party line
+    float fwx = max(fwidth(bq.x), 0.02);
+    col *= 1.0 - (jt ? 0.4 : 0.25) * (1.0 - smoothstep(0.15, 0.15 + fwx * 1.5, gx));
+    if (!jt) {                                                     // villa roofs: a stair hut and a tank block per house
+      vec2 lc = vec2(fract((bq.x + 15.0) / 7.5) * 7.5, abs(bq.y) - 2.0);   // metres inside the house's roof
+      vec2 hp = vec2(1.2 + float((hc >> 8) & 3u) * 1.1, 3.0 + float((hc >> 10) & 7u) * 1.3);
+      vec2 dh = abs(lc - hp) - vec2(1.1, 1.2);
+      float fw2 = max(fwx, 0.02) * 1.5;
+      float hut = 1.0 - smoothstep(0.0, fw2, max(dh.x, dh.y));
+      col = mix(col, vec3(0.78, 0.77, 0.74) * lf, hut * 0.85);
+      col *= 1.0 - 0.35 * (1.0 - smoothstep(0.0, fw2 + 0.25, abs(max(dh.x, dh.y)))) * (1.0 - hut * 0.5);   // its shadowed rim
+    }
+    if (jt) {                                                      // fake ridge along x: the sunward slope is lighter
+      float side = bq.y - (bq.y > 0.0 ? 10.0 : -10.0);
+      vec3 sn = normalize(vec3(0.0, 1.0, sign(side) * 0.55));
+      col *= 0.78 + 0.4 * max(dot(sn, uSunDir), 0.0);
+      col *= 1.0 - 0.3 * (1.0 - smoothstep(0.0, 0.15 + fwidth(side) * 1.5, abs(side)));   // ridge line
+    }
   } else if (vMat == 7 && (uint(vCol.a * 255.0 + 0.5) & 3u) == 3u) {
     // flat roofs (round M): membrane / asphalt / pavers / stained membrane from atlas row 4, 4 m a tile
     uint t = (uint(vCol.a * 255.0 + 0.5) >> 2u) & 3u;

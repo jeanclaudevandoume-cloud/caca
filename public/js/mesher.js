@@ -1294,7 +1294,9 @@ export function buildMid(L, mx, mz) {
       const x0 = X - 15, x1 = X + 15;
       const z0 = row ? Z + 2 : Z - 18, z1 = row ? Z + 18 : Z - 2;
       const roof = zone === 1 ? (r.roofMem || 0x4f8a6e) : ROOF[r.roof];
-      mb.box(x0, 0, z0, x1, top, z1, r.wall, roof, M.WIN, (h & 0xfc) | 1, 0, row ? 2 : 1);   // the faces across the 4 m lane are never seen from the mid band
+      mb.box(x0, 0, z0, x1, top, z1, r.wall, -1, M.WIN, (h & 0xfc) | 1, 0, row ? 2 : 1);
+      // the roof: M.ROOF with alpha 250 (jutaku: per-house colours and a fake ridge) or 246 (villa membranes), see shaders.js
+      mb.q(x0, top, z1, x1, top, z1, x1, top, z0, x0, top, z0, 0, 1, 0, 0, 0, 0, 0, M.ROOF, roof, zone === 1 ? 246 : 250);   // the faces across the 4 m lane are never seen from the mid band
     }
   }
   return mb.finish();
