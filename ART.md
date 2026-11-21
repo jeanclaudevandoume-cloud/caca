@@ -87,6 +87,9 @@ perf.json is measured in this container (software GL): use it for **ratios betwe
 | downtownlow (low) | ≤ 110k | ≤ 30 | ≤ 8 | |
 | suburb / drone (high) | ≤ 490k | ≤ 50 | ≤ 35 | a Looks change adding > 5% tris needs a trade-off note |
 | downtown / core / hub (high) | ≤ 520k | ≤ 85 | ≤ 35 | |
+| Round Q pops (tools/poptest.cjs) | | | | 90-step drone flythrough, fixed-pose frame pairs on a virtual 60 fps clock. High: 0.04 % of the screen changes > 3 levels per step on average, worst step 3.4 %, peak tile change 9/255, 0 steps > 20. Low: 0 / 0 / 0.5. A screen-door cross-fade was built and measured: it did not lower the peak (9.8) and spread each swap over more steps (popped steps 1 → 5), so it was removed. Budget from here: peak ≤ 20, worst step ≤ 5 %. |
+| Round Q trade-off (high preset) | | | | vs round P: suburb +7 % (285k → 305k), drone +6 %, house +7 %, all ≤ 490k. Cause: lane-split blocks hold 10 homes instead of 8, so the same view has more houses (design ask). Offsets: custom −23 % and 70 → 27 draws (shape ornaments, not whole shapes), arrive −26 %, downtown −4 %. |
+| Round Q shader rule | | | | No dynamically indexed `const` arrays and no new fragment branches on the LOWQ variant without a phone probe: the mid-band roof branch cost +47 ms geo (SwiftShader runs masked branches for every pixel), so it is high-preset only. |
 
 All vantages: allocations ≤ 8 KB/frame after warm-up (sampling heap profiler; `phoneauto`, the only vantage with name tags on, ≤ 10 KB while the probe turns the camera: the remainder is the browser's own style objects for ~15 moving DOM tags); boot to first frame ≤ 2 s here;
 download ≤ 1 MB for the opening view at 1M followers.
