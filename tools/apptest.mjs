@@ -372,6 +372,15 @@ function sessionHarness({ maxTex = 1e9 } = {}) {
     if (fly || Math.abs(cam.x - v.x) > 1e-6 || Math.abs(cam.y - v.y) > 1e-6 || Math.abs(cam.z - v.z) > 1e-6) offEnd++;
   }
   check('view: 300 arrivals across zones never start inside a building', inside === 0, `inside=${inside} zones=${zones}`);
+  // round Q: hard framing for low-zone homes, portrait and landscape
+  for (const [asp, safe] of [[412 / 839, { top: 0.80, bottom: -0.55, side: 0.88 }], [915 / 412, { top: 0.70, bottom: -0.45, side: 0.88 }]]) {
+    app.safe = safe;
+    let framed = 0, n = 0, sd = 7;
+    const r2 = () => ((sd = (sd * 1103515245 + 12345) >>> 0) / 4294967296);
+    while (n < 50) { const p = Math.floor(r2() * L.n); const b = T.plotOf(L, p); if (T.zoneLevel(b.bx, b.bz) >= 2) continue; n++; if (view.homeView(p, asp).framed) framed++; }
+    check(`view: 50 low-zone arrivals framed (box in the safe area, 45-68% / 15-40% wide, door visible, pin below the bar), aspect ${asp.toFixed(2)}`, framed === 50, `${framed}/50`);
+  }
+  delete app.safe;
   check('view: every flight clears the buildings under it', through === 0, `through=${through}`);
   check('view: every flight ends exactly on the arrival view', offEnd === 0, `off=${offEnd}`);
   check('view: plotKey is unique per plot', plotKey(1, 2, 3) !== plotKey(1, 3, 2) && plotKey(-1, 0, 0) !== plotKey(0, -1, 0));

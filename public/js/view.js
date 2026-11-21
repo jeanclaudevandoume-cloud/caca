@@ -83,45 +83,73 @@ export function createView(app) {
     const vfov = Math.PI / 3, hfov = 2 * Math.atan(Math.tan(vfov / 2) * aspect);
     const dist = Math.max(16, Math.min(40, (hw / 0.52) / (2 * Math.tan(hfov / 2))));
     const pref = (hash3(bx, bz, slot) & 1) ? 1 : -1;
-    let best = null;
-    // round P: more candidate angles, and each is also scored for foreground occluders: anything within 22 m of
-    // the camera, in the lower half of the view, that rises above eye height minus 2 m (a neighbour's roof
-    // filling a third of the portrait was the arrival's main flaw)
-    const cands = [];
-    for (const sd of [pref, -pref]) for (const ang of [0.44, 0.36, 0.56]) cands.push([hx + sd * Math.sin(ang) * dist, front + face * Math.cos(ang) * dist]);
-    for (const sd of [pref, -pref]) for (const k of [0.6, 0.8]) cands.push([hx + sd * Math.max(15, dist * k), front + face * 4.5]);   // standing in the lane (further back on a narrow portrait screen)
-    for (const [x, z] of cands) {
-      let y = Math.max(9, Math.min(14, top + 4));
-      y = Math.max(y, heightAt(x, z) + 2);                // above the house opposite, never inside it
-      // and above every roof within 3 m: a camera beside a taller neighbour made the flight's last metre cut
-      // through that roof's corner (found by tools/apptest.mjs)
-      for (let ddz = -3; ddz <= 3; ddz += 3) for (let ddx = -3; ddx <= 3; ddx += 3) y = Math.max(y, heightAt(x + ddx, z + ddz) + 1.2);
-      let block = 0;
-      for (let t = 0.1; t < 0.85; t += 0.05) {
-        const sx = x + (hx - x) * t, sz = z + (front - z) * t, sy = y + (top * 0.5 - y) * t;
-        block = Math.max(block, heightAt(sx, sz) - sy);
-      }
-      let occl = 0;
-      const ax = hx - x, az = front - z, al = Math.hypot(ax, az), ux = ax / al, uz = az / al;
-      for (let fwd = 2; fwd <= 22; fwd += 3) for (let lat = -8; lat <= 8; lat += 4) {
-        const px = x + ux * fwd - uz * lat, pz = z + uz * fwd + ux * lat;
-        if (Math.hypot(px - hx, pz - hz) < 7) continue;     // the home itself
-        const hh = heightAt(px, pz);
-        if (hh > y - 2) occl += 2;                          // rises into the view
-        else if (hh > 4 && fwd < 14) occl += 1;             // a roof just under the camera fills the lower frame
-      }
-      if (heightAt(x, z) > 0) occl += 8;                    // never hover right above a house
-      const score = Math.max(0, block) * 2 + occl;
-      if (!best || score < best.score) best = { x, y, z, block, score };
-    }
-    const { x, z } = best, y = best.y + Math.max(0, best.block + 1);
-    // aim a third of the way from the centre to the front door (the door is on the open side of a jutaku)
+    // round Q: hard framing constraints. A candidate camera is accepted only if, with its final yaw / pitch,
+    // (1) all 8 corners of the home's box are inside the safe rectangle (below the search bar, above the
+    // sheet, 6% side margins), (2) the home spans 45-65% of the screen width, (3) the view is within 35° of
+    // the facade normal (the front, not a side), (4) the door is not hidden behind anything, (5) the pin top is
+    // below the search bar. Candidates sweep the angle off the normal, the distance and the height; among the
+    // accepted ones the fewest foreground occluders wins. If none passes, the best-scoring one is used.
     const r = recipe(bx, bz, slot, zone, null);
     const doorX = zone === 0 && r.side ? (r.side > 0 ? q[0] + 1.3 : q[2] - 1.3) : hx;
-    const aimX = hx + (doorX - hx) / 3;
-    const dx = aimX - x, dz = (front - face * 1) - z, dh = Math.hypot(dx, dz);
-    const yaw = Math.atan2(dx, -dz), pitch = -Math.atan2(y - top * 0.5, dh) - vfov * 0.12;   // home at ~38% from the top
-    return { x, y, z, yaw, pitch, fixed: true, bx, bz, slot, zone, tx: hx, tz: hz, ty: top, px: hx, py: top + 0.6, pz: front - face * 2.5 };   // pin on the roof's front edge: it can't read as the house behind
+    const safe = app.safe || { top: 0.84, bottom: -0.62, side: 0.88 };   // NDC: y up
+    const tv = Math.tan(vfov / 2), th = Math.tan(hfov / 2);
+    const corners = [];
+    for (const cx of [q[0], q[2]]) for (const cz of [q[1], q[3]]) for (const cy of [0, top]) corners.push([cx, cy, cz]);
+    const project = (cam, yaw, pitch, P) => {
+      const fx = Math.sin(yaw) * Math.cos(pitch), fy = Math.sin(pitch), fz = -Math.cos(yaw) * Math.cos(pitch);
+      const rx = Math.cos(yaw), rz = Math.sin(yaw);                 // right = fwd x up (y up)
+      const ux = -fy * rz, uy = Math.cos(pitch), uz = fy * rx;     // up' = right x fwd
+      const dx = P[0] - cam[0], dy = P[1] - cam[1], dz = P[2] - cam[2];
+      const zc = dx * fx + dy * fy + dz * fz;
+      if (zc <= 0.1) return null;
+      return [(dx * rx + dz * rz) / (zc * th), (dx * ux + dy * uy + dz * uz) / (zc * tv)];
+    };
+    const midY = (safe.top + safe.bottom) / 2;
+    let best = null, bestOk = null;
+    const wLo = aspect > 1 ? 0.15 : 0.45, wHi = aspect > 1 ? 0.4 : 0.68, wMid = (wLo + wHi) / 2;
+    for (const sd of [pref, -pref]) for (const ang of [0.15, 0.3, 0.45, 0.6]) for (const dk of [0.8, 1, 1.25, 1.55, 1.9, 2.4, 3.0]) for (const lift of [3, 7, 12, 18, 26]) {
+      const d = dist * dk;
+      const x = hx + sd * Math.sin(ang) * d, z = front + face * Math.cos(ang) * d;
+      let y = Math.max(top + lift, heightAt(x, z) + 2);
+      for (let ddz = -3; ddz <= 3; ddz += 3) for (let ddx = -3; ddx <= 3; ddx += 3) y = Math.max(y, heightAt(x + ddx, z + ddz) + 1.2);
+      // aim at the home's centre, then tilt so it sits at the middle of the safe band
+      const ax = hx - x, az = hz - z, ah = Math.hypot(ax, az);
+      const yaw = Math.atan2(ax, -az);
+      const pitch = -Math.atan2(y - top * 0.5, ah) - Math.atan(midY * tv);
+      const cam = [x, y, z];
+      let ok = true, minX = 9, maxX = -9;
+      for (const c of corners) {
+        const pr = project(cam, yaw, pitch, c);
+        if (!pr || Math.abs(pr[0]) > safe.side || pr[1] > safe.top || pr[1] < safe.bottom) { ok = false; }
+        if (pr) { minX = Math.min(minX, pr[0]); maxX = Math.max(maxX, pr[0]); }
+      }
+      const width = (maxX - minX) / 2;                              // fraction of the screen width
+      if (width < wLo || width > wHi) ok = false;
+      const pin = project(cam, yaw, pitch, [hx, top + 3.2, front - face * 2.5]);
+      if (!pin || pin[1] > safe.top) ok = false;
+      // door sight line
+      const door = [doorX, 1.2, front + face * 0.2];
+      for (let t = 0.08; t < 0.95 && ok; t += 0.06) {
+        const sx = x + (door[0] - x) * t, sz = z + (door[2] - z) * t, sy = y + (door[1] - y) * t;
+        if (Math.hypot(sx - hx, sz - hz) > 6 && heightAt(sx, sz) > sy) ok = false;
+      }
+      let occl = 0;
+      const ux = ax / ah, uz = az / ah;
+      for (let fwd = 2; fwd <= 22; fwd += 4) for (let lat = -8; lat <= 8; lat += 4) {
+        const px = x + ux * fwd - uz * lat, pz = z + uz * fwd + ux * lat;
+        if (Math.hypot(px - hx, pz - hz) < 7) continue;
+        const hh = heightAt(px, pz);
+        if (hh > y - 2) occl += 2; else if (hh > 4 && fwd < 14) occl += 1;
+      }
+      if (heightAt(x, z) > 0) occl += 8;
+      const score = occl + Math.abs(width - wMid) * 4 + ang + (ok ? 0 : 100);
+      const c = { x, y, z, yaw, pitch, score };
+      if (ok && (!bestOk || score < bestOk.score)) bestOk = c;
+      if (!best || score < best.score) best = c;
+    }
+    const pick = bestOk || best;
+    const { x, y, z, yaw, pitch } = pick;
+    return { x, y, z, yaw, pitch, fixed: true, framed: !!bestOk, bx, bz, slot, zone, tx: hx, tz: hz, ty: top, px: hx, py: top + 0.6, pz: front - face * 2.5 };   // pin on the roof's front edge
   }
   function lookAtYaw(v) {
     if (v.fixed) return v;                              // homeView already framed it

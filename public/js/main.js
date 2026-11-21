@@ -192,6 +192,12 @@ function changed() {            // did anything that affects the image change? (
 }
 function resize() {
   ui.uiRects();
+  // the arrival camera keeps the home between the search bar and the card / bottom sheet (NDC, y up)
+  {
+    const H = innerHeight, top = document.getElementById('top'), tb = top ? top.getBoundingClientRect().bottom + 16 : 80;
+    const sheet = innerWidth <= 600 && innerHeight > innerWidth ? 200 : 0.12 * H;
+    app.safe = { top: 1 - 2 * tb / H, bottom: -1 + 2 * (sheet + 16) / H, side: 0.88 };
+  }
   ui.resizeTags();
   const pr = Math.min(window.devicePixelRatio || 1, quality.pr);
   const w = Math.round(innerWidth * pr), h = Math.round(innerHeight * pr);
