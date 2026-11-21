@@ -40,11 +40,16 @@ export function isRiver(bx, bz) {
   const a = riverZ(bx), b = riverZ(bx + 1);
   return (bz >= a - 1 && bz <= a + 1) || (bz >= b - 1 && bz <= b + 1);
 }
-export const avenueX = (bx) => mod(bx, 10) === 0;   // avenue running north-south
+// Arterials (round P): one per 10 blocks but jittered +-2 (the central ones stay on the plaza), so the plan
+// is not graph paper. avenueX(bx): is the north-south avenue of its 10-block band at bx?
+const aveOff = (k, salt) => (k === 0 ? 0 : (hash3(k, salt, 61) % 5) - 2);
+export const avenueX = (bx) => { const k = Math.round(bx / 10); return bx === k * 10 + aveOff(k, 1); };
 // Shotengai (round M): the north-south lane on the +x side of block bx is a shop street every 5 blocks.
 // The corner plots on both sides of it become shop houses facing the lane (see recipe / mesher shopHouse).
 export const shopLaneX = (bx) => mod(bx + 4, 5) === 0 && !avenueX(bx) && !avenueX(bx + 1);
-export const avenueZ = (bz) => mod(bz, 10) === 0;   // avenue running east-west
+export const avenueZ = (bz) => { const k = Math.round(bz / 10); return bz === k * 10 + aveOff(k, 2); };   // east-west
+// Roji (round P): a narrow paved lane through the middle of about one residential block in three
+export const rojiAt = (bx, bz) => hash3(bx, bz, 23) % 3 === 0;
 
 export function lakeAt(bx, bz) {
   if (bx * bx + bz * bz <= 400) return false;
@@ -437,7 +442,7 @@ export function buildGround(L, cx = 0, cz = 0) {
     const homes = k === K.HOMES;
     const base = hash3(fdiv(bx, 5), fdiv(bz, 5), 101);
     d[o] = k;
-    d[o + 1] = (homes ? zoneLevel(bx, bz) : 0) | (homes && bx * bx + bz * bz <= L.maxD2 ? 4 : 0) | (avenueX(bx) ? 8 : 0) | (avenueZ(bz) ? 16 : 0);
+    d[o + 1] = (homes ? zoneLevel(bx, bz) : 0) | (homes && bx * bx + bz * bz <= L.maxD2 ? 4 : 0) | (avenueX(bx) ? 8 : 0) | (avenueZ(bz) ? 16 : 0) | (homes && zoneLevel(bx, bz) <= 1 && rojiAt(bx, bz) ? 32 : 0);
     d[o + 2] = (base % 8) | (((base >>> 4) % 8) << 3);
     d[o + 3] = (base >>> 8) % 8;
   }

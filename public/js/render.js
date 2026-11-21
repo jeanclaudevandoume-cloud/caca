@@ -32,7 +32,7 @@ export function todState(t) {
 
 // Low preset: cast shadows from the nearest chunks only (the opening view's homes are grounded; casters beyond
 // this are painted by the ground shader, which fades its own shadows in where these fade out).
-export const LOW_SHADOW = 130;
+export const LOW_SHADOW = 95;
 
 function sortByDist(arr) {   // insertion sort: allocation-free, fast on nearly sorted lists
   for (let i = 1; i < arr.length; i++) { const v = arr[i]; let j = i - 1; while (j >= 0 && arr[j].d > v.d) { arr[j + 1] = arr[j]; j--; } arr[j + 1] = v; }

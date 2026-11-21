@@ -10,7 +10,7 @@
 // from `so` to the end.
 import {
   PITCH, FLOOR_H, K, hash3, mod, fdiv, kindAt, cellKind, zoneLevel, plotsIn, plotFrame, recipe, occupied,
-  ROOF, CITY, ACCENT, clampSV, civicType, avenueX, avenueZ, isRiver, portLane, bayHalf, homeRect, regionOf, regionKey, lineIndex, CHUNK, REGION,
+  ROOF, CITY, ACCENT, clampSV, civicType, rojiAt, avenueX, avenueZ, isRiver, portLane, bayHalf, homeRect, regionOf, regionKey, lineIndex, CHUNK, REGION,
 } from './town.js';
 
 // Trig rounded to 1e-7 so every JS engine builds byte-identical geometry (positions are then
@@ -130,7 +130,7 @@ export class MB {
     this.ft(x1, y, zf, x1, y, zb, x1, yt, zf, M.PLAIN, wallC, a);
     if (trim) {
       this.wq(x0 - o, x1 + o, yfo - 0.15, yfo, zfo, s, fc, M.PLAIN, a);                 // thin dark fascia
-      this.fqY(x0 - o, yfo - 0.01, zfo, x1 + o, yfo - 0.01, zfo, x1 + o, yt - 0.01, zf, x0 - o, yt - 0.01, zf, M.PLAIN, shade(wallC, 0.7), a, -1);   // underside
+      if (!LITE) this.fqY(x0 - o, yfo - 0.01, zfo, x1 + o, yfo - 0.01, zfo, x1 + o, yt - 0.01, zf, x0 - o, yt - 0.01, zf, M.PLAIN, shade(wallC, 0.7), a, -1);   // underside
     }
   }
   // Flat-roof parapet ring: outer faces, coping on top, inner faces (not on lite); optional roof membrane.
@@ -500,8 +500,8 @@ const F = {};
 function roofClutter(mb, x0, z0, x1, z1, top, wall, h, a) {
   const cast = mb.cast; mb.cast = false;
   const w = x1 - x0, d = z1 - z0, hx = (h & 1) ? x0 + 1.5 : x1 - 1.5, hz = (h & 2) ? z0 + 1.6 : z1 - 1.6;
-  mb.box(hx - 1.1, top, hz - 1.2, hx + 1.1, top + 2.5, hz + 1.2, shade(wall, 0.92), 0x6e7378, M.PLAIN, a);   // stair hut
-  mb.wq(hx - 0.45, hx + 0.45, top + 0.05, top + 2.0, (h & 2) ? hz + 1.21 : hz - 1.21, (h & 2) ? 1 : -1, 0x5a5f66, M.METAL, a);
+  if (!LITE || (h & 16)) mb.box(hx - 1.1, top, hz - 1.2, hx + 1.1, top + 2.5, hz + 1.2, shade(wall, 0.92), 0x6e7378, M.PLAIN, a);   // stair hut (lite: every second roof)
+  if (!LITE) mb.wq(hx - 0.45, hx + 0.45, top + 0.05, top + 2.0, (h & 2) ? hz + 1.21 : hz - 1.21, (h & 2) ? 1 : -1, 0x5a5f66, M.METAL, a);
   if (!LITE) {
     mb.cbox(x0 + w * 0.5, top, z0 + d * ((h & 4) ? 0.3 : 0.7), 0.9, 0.65, 0.4, 0xe9e9e6, M.METAL, a);       // AC condenser
     const tx = (h & 1) ? x1 - 1.4 : x0 + 1.4, tz = z0 + d * 0.5;
@@ -559,6 +559,12 @@ function shopHouse(mb, f, r, lod, a) {
   // vertical sign on the lane corner: big enough to read from the opening camera
   const sz = (r.hash & 1) ? z0 + 0.9 : z1 - 0.9;
   mb.cbox(fx + fs * 0.6, gh + 0.2, sz, 0.25, Math.max(3.0, top - gh + 0.6), 1.5, ACCENT_SIGN[(r.sign + 2) % ACCENT_SIGN.length], M.LIGHT, a);
+  // every second shop: a tall banner sign standing out over the lane (reads from the opening camera)
+  if ((r.hash >>> 23) & 1) {
+    const bz = (r.hash & 1) ? z1 - 2.2 : z0 + 2.2, bc = AWNING[(r.awning + 1) % AWNING.length];
+    mb.cbox(fx + fs * 1.1, gh + 0.6, bz, 1.2, 6.0, 0.16, bc, M.PLAIN, a);
+    mb.cbox(fx + fs * 1.1, gh + 2.0, bz, 0.7, 3.2, 0.2, 0xf6f4ee, M.LIGHT, a);
+  }
   mb.noCast = false;
 }
 
@@ -689,7 +695,7 @@ export function home(mb, bx, bz, f, r, lod) {
         const pc = (r.hash >>> 22) & 1 ? 0xeeebe4 : shade(r.wall, 0.85);
         mb.wq(bx0, bx1, y, y + 1.1, zf, 1, pc, M.PLAIN, a);
         mb.q(bx0, y + 1.1, zb, bx1, y + 1.1, zb, bx1, y + 1.1, zf, bx0, y + 1.1, zf, 0, 1, 0, 0, 0, 0, 0, M.PLAIN, shade(pc, 1.05), a);
-        mb.q(bx0, y, zf, bx1, y, zf, bx1, y, zb, bx0, y, zb, 0, -1, 0, 0, 0, 0, 0, M.PLAIN, shade(pc, 0.45), a);   // dark slab underside
+        if (!LITE) mb.q(bx0, y, zf, bx1, y, zf, bx1, y, zb, bx0, y, zb, 0, -1, 0, 0, 0, 0, 0, M.PLAIN, shade(pc, 0.45), a);   // dark slab underside
         mb.wq(bx0 + 0.3, bx0 + 0.3 + bw * 0.45, y + 0.35, y + 1.1, zf + 0.03, 1, ACCENT[(r.hash >>> 13) % ACCENT.length], M.PLAIN, a);   // futon / laundry
         if (LITE) mb.wq(bx1 - 1.2, bx1 - 0.4, 0.2, 0.8, zb + 0.35, 1, 0xd8d8d4, M.METAL, a);
         else mb.cbox(bx1 - 0.8, 0, zb + 0.3, 0.85, 0.6, 0.4, 0xd8d8d4, M.METAL, a);           // AC unit under the balcony
@@ -721,7 +727,7 @@ export function home(mb, bx, bz, f, r, lod) {
     if (!lod) {
       // side planting strip with a small tree; vending machine at the front corner
       const gapX = r.side > 0 ? x0 - 1.2 : x1 + 1.2;
-      if (r.tree) tree(mb, gapX, (z0 + z1) / 2, 0.55, r.hash >>> 9, LITE ? 1 : 0);
+      if (r.tree && (!LITE || (r.hash >>> 22) % 10 < 3)) tree(mb, gapX, (z0 + z1) / 2, 0.55, r.hash >>> 9, LITE ? 1 : 0);
       if (r.vending) {
         mb.cast = false;
         const vx = r.side > 0 ? f.x - 4.3 : f.x + 4.3, vz = front - fs * 0.6;
@@ -928,6 +934,7 @@ export function buildChunk(L, cx, cz, lod, customs, lite = false) {
             mb.cast = true;
           }
         }
+        if (!lod && !LITE && zone <= 1 && rojiAt(bx, bz)) { lamp(mb, X - 11, Z + 1.9, hb & 255); lamp(mb, X + 11, Z - 1.9, hb & 255); }   // roji lamps
         if (!lod && !LITE && zone <= 1) {
           for (let s = 0; s < occ; s++) {
             const hc = hash3(bx, bz, s + 300);

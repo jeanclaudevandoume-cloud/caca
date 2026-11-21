@@ -84,8 +84,13 @@ export function createView(app) {
     const dist = Math.max(16, Math.min(40, (hw / 0.52) / (2 * Math.tan(hfov / 2))));
     const pref = (hash3(bx, bz, slot) & 1) ? 1 : -1;
     let best = null;
-    for (const sd of [pref, -pref]) for (const ang of [0.44, 0.36]) {
-      const x = hx + sd * Math.sin(ang) * dist, z = front + face * Math.cos(ang) * dist;
+    // round P: more candidate angles, and each is also scored for foreground occluders: anything within 22 m of
+    // the camera, in the lower half of the view, that rises above eye height minus 2 m (a neighbour's roof
+    // filling a third of the portrait was the arrival's main flaw)
+    const cands = [];
+    for (const sd of [pref, -pref]) for (const ang of [0.44, 0.36, 0.56]) cands.push([hx + sd * Math.sin(ang) * dist, front + face * Math.cos(ang) * dist]);
+    for (const sd of [pref, -pref]) for (const k of [0.6, 0.8]) cands.push([hx + sd * Math.max(15, dist * k), front + face * 4.5]);   // standing in the lane (further back on a narrow portrait screen)
+    for (const [x, z] of cands) {
       let y = Math.max(9, Math.min(14, top + 4));
       y = Math.max(y, heightAt(x, z) + 2);                // above the house opposite, never inside it
       // and above every roof within 3 m: a camera beside a taller neighbour made the flight's last metre cut
@@ -96,10 +101,25 @@ export function createView(app) {
         const sx = x + (hx - x) * t, sz = z + (front - z) * t, sy = y + (top * 0.5 - y) * t;
         block = Math.max(block, heightAt(sx, sz) - sy);
       }
-      if (!best || block < best.block) best = { x, y, z, block };
+      let occl = 0;
+      const ax = hx - x, az = front - z, al = Math.hypot(ax, az), ux = ax / al, uz = az / al;
+      for (let fwd = 2; fwd <= 22; fwd += 3) for (let lat = -8; lat <= 8; lat += 4) {
+        const px = x + ux * fwd - uz * lat, pz = z + uz * fwd + ux * lat;
+        if (Math.hypot(px - hx, pz - hz) < 7) continue;     // the home itself
+        const hh = heightAt(px, pz);
+        if (hh > y - 2) occl += 2;                          // rises into the view
+        else if (hh > 4 && fwd < 14) occl += 1;             // a roof just under the camera fills the lower frame
+      }
+      if (heightAt(x, z) > 0) occl += 8;                    // never hover right above a house
+      const score = Math.max(0, block) * 2 + occl;
+      if (!best || score < best.score) best = { x, y, z, block, score };
     }
     const { x, z } = best, y = best.y + Math.max(0, best.block + 1);
-    const dx = hx - x, dz = (front - face * 1) - z, dh = Math.hypot(dx, dz);
+    // aim a third of the way from the centre to the front door (the door is on the open side of a jutaku)
+    const r = recipe(bx, bz, slot, zone, null);
+    const doorX = zone === 0 && r.side ? (r.side > 0 ? q[0] + 1.3 : q[2] - 1.3) : hx;
+    const aimX = hx + (doorX - hx) / 3;
+    const dx = aimX - x, dz = (front - face * 1) - z, dh = Math.hypot(dx, dz);
     const yaw = Math.atan2(dx, -dz), pitch = -Math.atan2(y - top * 0.5, dh) - vfov * 0.12;   // home at ~38% from the top
     return { x, y, z, yaw, pitch, fixed: true, bx, bz, slot, zone, tx: hx, tz: hz, ty: top, px: hx, py: top + 0.6, pz: front - face * 2.5 };   // pin on the roof's front edge: it can't read as the house behind
   }

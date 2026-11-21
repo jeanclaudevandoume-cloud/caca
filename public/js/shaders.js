@@ -504,6 +504,7 @@ vec3 blockCol(uvec4 c, int bx, int bz, vec2 l, vec2 p, float t, float w, vec3 gr
       vec2 sv = cover(l - c0 + uFar.w * vec2(0.6, 0.4), hs + 0.8, max(w, 0.8));
       lot = mix(lot, lot * 0.68, max(sv.x * sv.y - inside, 0.0) * fadeIn);
       lot = mix(lot, roof, inside * fadeIn);
+      if ((c.g & 32u) != 0u && abs(l.y) < 1.7) lot = mix(lot, vec3(0.64, 0.63, 0.60), 1.0 - inside);   // roji, far
       if (uNight > 0.3) {
         float on = float(rv < 40u);
         vec2 wc = cover(l - c0, vec2(1.6), max(w, 0.8));
@@ -533,6 +534,12 @@ vec3 blockCol(uvec4 c, int bx, int bz, vec2 l, vec2 p, float t, float w, vec3 gr
         float gx = abs(l.x - (fx - side * 5.0));
         lot = mix(lot, vec3(0.27, 0.36, 0.20) * (0.8 + 0.3 * vnoise(p * 1.7)), step(gx, 1.2) * step(along, 0.0) * (1.0 - smoothstep(0.6, 1.5, w)));
         if (along > 0.0) lot *= 1.0 - 0.06 * step(0.95, fract(l.x / 0.6)) * (1.0 - smoothstep(0.3, 0.9, w));
+      }
+      if ((c.g & 32u) != 0u && abs(l.y) < 1.7) {
+        // roji: a narrow paved lane between the two rows, with white edge lines and a centre gutter
+        lot = vec3(0.64, 0.63, 0.60) * (0.97 + 0.05 * vnoise(p * 2.0));
+        lot = mix(lot, vec3(0.9), step(abs(abs(l.y) - 1.45), 0.06) * (1.0 - smoothstep(0.5, 1.2, w)));
+        lot *= 1.0 - 0.18 * step(abs(l.y), 0.12) * (1.0 - smoothstep(0.5, 1.2, w));
       }
       float dd = length(max(q, 0.0));
       lot *= 1.0 - 0.5 * exp(-dd * 1.1) * outside;                          // contact shade around the walls

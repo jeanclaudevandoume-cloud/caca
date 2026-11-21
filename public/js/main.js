@@ -92,7 +92,7 @@ quality.maxS = quality.s; quality.maxPr = quality.pr;
 const RAD = { r0: 0, r1: 0, rs: 0 };
 function radii() {          // fills one object (no per-frame allocation)
   // low (round M): full houses only; the massing tiles replace the simplified-house ring
-  RAD.r0 = 320 * Math.max(0.6, quality.s); RAD.r1 = isLow() ? RAD.r0 * 1.12 : 1100 * quality.s; RAD.rs = Math.min(5000, 7000 * quality.s * quality.s);
+  RAD.r0 = 320 * Math.max(0.6, quality.s); RAD.r1 = isLow() ? RAD.r0 * 1.0 : 1100 * quality.s; RAD.rs = Math.min(5000, 7000 * quality.s * quality.s);
   return RAD;
 }
 // shared state the modules read live
