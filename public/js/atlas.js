@@ -10,6 +10,8 @@
 //   row 4: flat roof surfaces (grey, multiplied by the roof colour): 0 urethane membrane with seams and a drain,
 //          1 asphalt sheet with tar patches, 2 concrete pavers, 3 membrane with rust stains
 //   row 5: shopfronts: 0 lit shelves with goods, 1 noren over a dark entrance, 2 roller shutter, 3 vending pair
+//   row 6: kanban lettering (round Q): one vertical column of four kanji-like glyphs per tile; rgb white,
+//          alpha = ink. Signs map u across the board and v down the column (tategaki).
 export const ATLAS_TILES = 4, ATLAS_SIZE = 1024, ATLAS_ROWS = 8, ATLAS_H = 2048;
 const T = ATLAS_SIZE / ATLAS_TILES, PAD = 6;   // a gutter inside each tile so mip levels don't bleed
 
@@ -197,6 +199,36 @@ export function buildAtlas() {
       g.fillStyle = '#1b1d22'; g.fillRect(x + w * 0.15, s * 0.72, w * 0.7, s * 0.08);
     }
     mask(3, 5, 0, 0, s, s * 0.6);
+  });
+
+  // ---- row 6: tategaki glyph columns (ink in the mask; the shader picks board and ink colours) ----
+  for (let i = 0; i < 4; i++) tile(g, i, 6, (s) => {
+    g.fillStyle = '#fff'; g.fillRect(0, 0, s, s);
+    const ink = (x, y, w, h) => mask(i, 6, x, y, w, h);
+    for (let k = 0; k < 4; k++) {
+      const cy = k * s / 4, ch = s / 4, m = 0.12;                 // cell; strokes live in [m, 1-m]^2
+      const tw = s * 0.055, th = ch * 0.075;                       // stroke widths (the cell is drawn 4:1 squashed)
+      // radical p drawn into the sub-box (bx, by, bw, bh) of the cell, all in cell fractions
+      const rad = (p, bx, by, bw, bh) => {
+        const X = (f) => s * (m + (bx + f * bw) * (1 - 2 * m)), Y = (f) => cy + ch * (m + (by + f * bh) * (1 - 2 * m));
+        const H = (y, a = 0, b = 1) => ink(X(a), Y(y) - th / 2, X(b) - X(a), th);
+        const V = (x, a = 0, b = 1) => ink(X(x) - tw / 2, Y(a), tw, Y(b) - Y(a));
+        if (p === 0) { H(0.05); H(0.5); H(0.95); V(0.5); }                                   // 王
+        else if (p === 1) { V(0.05); V(0.95); H(0.05); H(0.95); H(0.5, 0.05, 0.95); }       // 日
+        else if (p === 2) { H(0.3); V(0.5); V(0.2, 0.5, 1); V(0.8, 0.5, 1); }               // 木-ish
+        else if (p === 3) { V(0.05); V(0.95); H(0.05); H(0.95); }                           // 口
+        else if (p === 4) { H(0.2, 0.2, 0.8); H(0.55); V(0.35, 0.55, 1); V(0.65, 0.55, 1); } // 六
+        else if (p === 5) { V(0.15); V(0.5); V(0.85); }                                     // 川
+        else if (p === 6) { H(0.1, 0, 0.7); V(0.35, 0.1, 1); H(0.6, 0.4, 1); V(0.8, 0.3, 0.95); }   // katakana-ish
+        else if (p === 7) { H(0.5); V(0.5, 0, 0.45); ink(X(0.1), Y(0.7), tw * 1.3, th * 2.2); ink(X(0.85), Y(0.7), tw * 1.3, th * 2.2); }   // 小
+        else if (p === 8) { H(0.1); H(0.9); V(0.5, 0.1, 0.9); H(0.5, 0.2, 0.8); }          // 工/土
+        else { V(0.1); H(0.1, 0.1, 1); H(0.5, 0.1, 0.8); H(0.9, 0.1, 1); }                  // ヨ/己-ish
+      };
+      const kind = R();
+      if (kind < 0.35) rad(Math.floor(R() * 10), 0, 0, 1, 1);                                // one radical (kana-like)
+      else if (kind < 0.75) { rad(Math.floor(R() * 10), 0, 0, 0.42, 1); rad(Math.floor(R() * 10), 0.52, 0, 0.48, 1); }   // left + right
+      else { rad(Math.floor(R() * 10), 0, 0, 1, 0.42); rad(Math.floor(R() * 10), 0, 0.52, 1, 0.48); }                    // top + bottom
+    }
   });
 
   // combine: rgb from c, alpha from the glass mask

@@ -307,14 +307,18 @@ void main() {
     // pale lamps and lanterns look like frosted glass by day; coloured lights (pin, signs) keep their colour
     float sat = max(base.r, max(base.g, base.b)) - min(base.r, min(base.g, base.b));
     float pale = smoothstep(0.7, 0.8, dot(base, vec3(0.3, 0.5, 0.2))) * (1.0 - smoothstep(0.25, 0.4, sat));
-    if (sat > 0.3) {                                   // signs: one vertical column of 'lettering' (tategaki)
-      float fx = fract(vUV.x / 8.0), gy = fract(vW.y / 0.7);
-      float glyph = step(0.3, fx) * step(fx, 0.7) * step(0.15, gy) * step(gy, 0.75) * step(2.5, float(ih(uint(int(floor(vW.y / 0.7)) + 4096) * 7919u + uint(vCol.a * 255.0) * 977u) & 7u));   // integer hash (sin() hashes speckle on GPUs)
-      // half the signs: light board with coloured glyphs; the rest: coloured board with white glyphs
-      float kg = clamp(1.2 - max(fwidth(fx), fwidth(gy)) * 3.0, 0.0, 1.0);   // fade on both axes: no speckle
-      bool rev = (uint(vCol.a * 255.0) & 1u) == 1u;
-      vec3 board = rev ? vec3(0.95, 0.94, 0.9) : base, ink = rev ? base * 0.8 : vec3(1.0);
-      base = mix(board, ink, glyph * 0.85 * kg);
+    uint sa4 = uint(vCol.a * 255.0 + 0.5);
+    if (sa4 == 253u || sa4 == 254u) {                  // kanban (round Q): a tategaki glyph column from atlas row 6
+      float u = vUV.x / 8.0, v = vUV.y / 4.0;
+      const float P = 6.0 / 256.0;
+      vec2 sc = (1.0 - 2.0 * P) * vec2(0.25, 0.125);
+      vec2 uv = (vec2(mod(floor(u), 4.0), 6.0) + P + vec2(fract(u), 1.0 - fract(v)) * (1.0 - 2.0 * P)) * vec2(0.25, 0.125);
+      float ink = textureGrad(uAtlas, uv, dFdx(vec2(u, -v)) * sc, dFdy(vec2(u, -v)) * sc).a;
+      bool rev = sa4 == 253u;                          // pale board with coloured ink, or coloured board with white ink
+      vec3 board = rev ? vec3(0.95, 0.94, 0.9) : base, inkC = rev ? base * 0.75 : vec3(1.0);
+      base = mix(board, inkC, ink * 0.9);
+      sat = rev ? 0.35 : sat;                          // a pale board still reads as a sign, not a lamp
+      pale = 0.0;
     }
       col = mix(base, vec3(0.92, 0.93, 0.95), (1.0 - uNight) * pale) * mix(1.0, 0.65, pale) * mix(1.0, 0.8, sat);
     emis = base * vec3(1.0, 0.85, 0.6) * 1.4 * uNight;

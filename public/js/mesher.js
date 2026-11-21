@@ -379,6 +379,39 @@ function lamp(mb, x, z, a) {
   mb.cast = cast;
 }
 
+// Vertical kanban blade (round Q): both faces carry a tategaki glyph column from atlas row 6, the street edge is
+// plain. axis 'z': the blade sticks out along z (faces look along x); 'x': it sticks out along x. fs = which way
+// it sticks out (the outer edge). 4-6 tris, cheaper than the 10-tri box it replaces.
+function kanban(mb, cx, cz, y0, kh, t, dep, axis, fs, c, h) {
+  const y1 = y0 + kh, n = Math.max(2, Math.round(kh / 0.95)), v1 = 16 - ((h >>> 3) & 3) / 4, v0 = v1 - n / 4;   // v: 4 glyphs per tile, quarter steps
+  const k = h & 3, a = (h >>> 2) & 1 ? 253 : 254;            // tile, and board style (253: pale board, coloured ink)
+  if (axis === 'z') {
+    const za = cz - dep / 2, zb = cz + dep / 2;
+    mb.q(cx + t / 2, y0, zb, cx + t / 2, y0, za, cx + t / 2, y1, za, cx + t / 2, y1, zb, 1, 0, 0, k, v0, k + 1, v1, M.LIGHT, c, a);
+    mb.q(cx - t / 2, y0, za, cx - t / 2, y0, zb, cx - t / 2, y1, zb, cx - t / 2, y1, za, -1, 0, 0, k, v0, k + 1, v1, M.LIGHT, c, a);
+    mb.wq(cx - t / 2, cx + t / 2, y0, y1, fs > 0 ? zb : za, fs, c, M.LIGHT, h & 255);
+  } else {
+    const xa = cx - dep / 2, xb = cx + dep / 2;
+    mb.q(xa, y0, cz + t / 2, xb, y0, cz + t / 2, xb, y1, cz + t / 2, xa, y1, cz + t / 2, 0, 0, 1, k, v0, k + 1, v1, M.LIGHT, c, a);
+    mb.q(xb, y0, cz - t / 2, xa, y0, cz - t / 2, xa, y1, cz - t / 2, xb, y1, cz - t / 2, 0, 0, -1, k, v0, k + 1, v1, M.LIGHT, c, a);
+    mb.xq(fs > 0 ? xb : xa, cz - t / 2, cz + t / 2, y0, y1, fs, c, M.LIGHT, h & 255);
+  }
+}
+
+// Billboard face with tategaki lettering (round Q): glyph columns about 1.5 m wide, 1 m glyphs (atlas row 6).
+// plane 'z': z = c0, spanning x in [a0, a1]; plane 'x': x = c0, spanning z. 2 tris.
+function board(mb, plane, c0, a0, a1, y0, y1, fs, c, h) {
+  const nc = Math.max(1, Math.round((a1 - a0) / 1.5)), ng = Math.max(1, Math.min(4, Math.round((y1 - y0) / 1.0)));
+  const u0 = h & 3, u1 = u0 + nc, v1 = 16 - ((h >>> 3) & 3) / 4, v0 = v1 - ng / 4, a = (h >>> 2) & 1 ? 253 : 254;
+  if (plane === 'z') {
+    if (fs > 0) mb.q(a0, y0, c0, a1, y0, c0, a1, y1, c0, a0, y1, c0, 0, 0, 1, u0, v0, u1, v1, M.LIGHT, c, a);
+    else mb.q(a1, y0, c0, a0, y0, c0, a0, y1, c0, a1, y1, c0, 0, 0, -1, u0, v0, u1, v1, M.LIGHT, c, a);
+  } else {
+    if (fs > 0) mb.q(c0, y0, a1, c0, y0, a0, c0, y1, a0, c0, y1, a1, 1, 0, 0, u0, v0, u1, v1, M.LIGHT, c, a);
+    else mb.q(c0, y0, a0, c0, y0, a1, c0, y1, a1, c0, y1, a0, -1, 0, 0, u0, v0, u1, v1, M.LIGHT, c, a);
+  }
+}
+
 // ---------- custom shapes ----------
 export function shape(mb, name, x, y, z, s, c, a, lod) {
   c = clampSV(c, 0.32, 0.75);                    // ART.md: custom homes stay inside the palette (no candy)
@@ -554,16 +587,14 @@ function shopHouse(mb, f, r, lod, a) {
     // a rooftop billboard on some corner shops, readable from the drone views
     if ((r.hash >>> 13) % 3 === 0) {
       const bz0 = z0 + 4, bz1 = z1 - 4, bx = fx - fs * 1.2;
-      const bc = ACCENT_SIGN[(r.sign + 1) % ACCENT_SIGN.length], ba = a & 0xfe;
-      // a solid board with one bold text band (procedural lettering turned to speckle at drone distance)
-      mb.xq(bx, bz0, bz1, top + 0.8, top + 3.2, fs, bc, M.LIGHT, ba);
-      mb.xq(bx + fs * 0.18, bz0 + 1.2, bz1 - 1.2, top + 1.6, top + 2.4, fs, 0xf6f4ee, M.LIGHT, ba);   // 18 cm proud: no depth fight at distance
+      const bc = ACCENT_SIGN[(r.sign + 1) % ACCENT_SIGN.length];
+      board(mb, 'x', bx, bz0, bz1, top + 0.8, top + 3.2, fs, bc, r.hash >>> 9);   // tategaki columns (mipmapped: no speckle far off)
       if (!LITE) mb.xq(bx - fs * 0.05, bz0, bz1, top + 0.8, top + 3.2, -fs, 0x3a3e45, M.PLAIN, a);
     }
   }
   // vertical sign on the lane corner: big enough to read from the opening camera
   const sz = (r.hash & 1) ? z0 + 0.9 : z1 - 0.9;
-  mb.cbox(fx + fs * 0.6, gh + 0.2, sz, 0.25, Math.max(3.0, top - gh + 0.6), 1.5, ACCENT_SIGN[(r.sign + 2) % ACCENT_SIGN.length], M.LIGHT, a);
+  kanban(mb, fx + fs * 0.6, sz, gh + 0.2, Math.max(3.0, top - gh + 0.6), 0.25, 1.2, 'x', fs, ACCENT_SIGN[(r.sign + 2) % ACCENT_SIGN.length], r.hash >>> 5);
   // every second shop: a tall banner sign standing out over the lane (reads from the opening camera)
   if ((r.hash >>> 23) & 1) {
     const bz = (r.hash & 1) ? z1 - 2.2 : z0 + 2.2, bc = AWNING[(r.awning + 1) % AWNING.length];
@@ -888,23 +919,20 @@ export function home(mb, bx, bz, f, r, lod) {
       mb.cast = false;
       {                                          // vertical kanban on every street face, plus stacked signs on some
         const kx = r.hash & 1 ? x0 + 0.5 : x1 - 0.5, kh = 6 + ((r.hash >>> 6) % 4);
-        const kc = ACCENT[(r.hash >>> 9) % ACCENT.length];
-        if (LITE) {                              // lite: the blade's two faces and its street edge (6 tris, not 10)
-          const ka = Math.min(fz + fs * 0.15, fz + fs * 1.35), kb = Math.max(fz + fs * 0.15, fz + fs * 1.35);
-          mb.xq(kx + 0.15, ka, kb, 4.0, 4.0 + kh, 1, kc, M.LIGHT, a);
-          mb.xq(kx - 0.15, ka, kb, 4.0, 4.0 + kh, -1, kc, M.LIGHT, a);
-          mb.wq(kx - 0.15, kx + 0.15, 4.0, 4.0 + kh, fz + fs * 1.35, fs, kc, M.LIGHT, a);
-        } else mb.cbox(kx, 4.0, fz + fs * 0.75, 0.3, kh, 1.2, kc, M.LIGHT, a);
+        kanban(mb, kx, fz + fs * 0.75, 4.0, kh, 0.3, 1.2, 'z', fs, ACCENT[(r.hash >>> 9) % ACCENT.length], r.hash >>> 7);
         if (r.hash & 2 && !LITE) {
           const n = 1 + ((r.hash >>> 5) % 2);
-          for (let i = 0; i < n; i++) mb.cbox(r.hash & 1 ? x1 - 0.4 : x0 + 0.4, 4.2 + i * 4.0, fz + fs * 0.45, 0.25, 3.5, 0.6, ACCENT_SIGN[((r.hash >>> 9) + i * 3) % ACCENT_SIGN.length], M.LIGHT, a);
+          for (let i = 0; i < n; i++) kanban(mb, r.hash & 1 ? x1 - 0.4 : x0 + 0.4, fz + fs * 0.45, 4.2 + i * 4.0, 3.5, 0.25, 0.6, 'z', fs, ACCENT_SIGN[((r.hash >>> 9) + i * 3) % ACCENT_SIGN.length], (r.hash >>> 11) + i);
         }
         if ((r.hash >>> 26) % 4 === 0) {           // rooftop billboard (lite: a double-sided panel, 4 tris)
           const bc = ACCENT[(r.hash >>> 4) % ACCENT.length];
-          if (LITE) { mb.wq(f.x - 3, f.x + 3, roofTop + 2.5, roofTop + 5.5, f.z, 1, bc, M.LIGHT, a); mb.wq(f.x - 3, f.x + 3, roofTop + 2.5, roofTop + 5.5, f.z, -1, bc, M.LIGHT, a); }
+          const by0 = roofTop + 2.5, by1 = roofTop + 5.5;
+          if (LITE) { board(mb, 'z', f.z, f.x - 3, f.x + 3, by0, by1, 1, bc, r.hash >>> 3); board(mb, 'z', f.z, f.x - 3, f.x + 3, by0, by1, -1, bc, r.hash >>> 5); }
           else {
             mb.cbox(f.x - 2, roofTop, f.z, 0.2, 2.5, 0.2, 0x3a3e45, M.METAL, a); mb.cbox(f.x + 2, roofTop, f.z, 0.2, 2.5, 0.2, 0x3a3e45, M.METAL, a);
-            mb.cbox(f.x, roofTop + 2.5, f.z, 6, 3, 0.3, bc, M.LIGHT, a);
+            board(mb, 'z', f.z + 0.15, f.x - 3, f.x + 3, by0, by1, 1, bc, r.hash >>> 3); board(mb, 'z', f.z - 0.15, f.x - 3, f.x + 3, by0, by1, -1, bc, r.hash >>> 5);
+            mb.xq(f.x + 3, f.z - 0.15, f.z + 0.15, by0, by1, 1, bc, M.LIGHT, a); mb.xq(f.x - 3, f.z - 0.15, f.z + 0.15, by0, by1, -1, bc, M.LIGHT, a);
+            mb.q(f.x - 3, by1, f.z + 0.15, f.x + 3, by1, f.z + 0.15, f.x + 3, by1, f.z - 0.15, f.x - 3, by1, f.z - 0.15, 0, 1, 0, 0, 0, 0, 0, M.METAL, 0x3a3e45, a);
           }
         }
       }
