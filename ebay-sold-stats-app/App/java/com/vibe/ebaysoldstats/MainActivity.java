@@ -4,7 +4,6 @@ import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.Intent;
 import android.content.SharedPreferences;
-import android.net.Uri;
 import android.os.Bundle;
 import android.os.Build;
 import android.view.ViewGroup;
@@ -197,6 +196,7 @@ public class MainActivity extends Activity {
         ws.setDomStorageEnabled(true);
         ws.setUserAgentString(null);
         ws.setLoadsImagesAutomatically(true);
+        ws.setBlockNetworkImage(true);
         ws.setMediaPlaybackRequiresUserGesture(true);
         ws.setSupportZoom(false);
         CookieManager cm = CookieManager.getInstance();
@@ -259,6 +259,8 @@ public class MainActivity extends Activity {
     }
 
     private void startRun(String q) {
+        wv.resumeTimers();
+        wv.clearHistory();
         query = q;
         host = SITES[siteSpinner.getSelectedItemPosition()][1];
         pagesWanted = prefs.getInt("pages", 3);
@@ -298,6 +300,7 @@ public class MainActivity extends Activity {
         lp.height = visible ? Math.min(420, 480) * dp : 0;
         wv.setLayoutParams(lp);
         wv.setVisibility(visible ? android.view.View.VISIBLE : android.view.View.GONE);
+        wv.getSettings().setBlockNetworkImage(!visible);
         toggleWeb.setText(visible ? "Hide browser" : "Show browser");
     }
 
@@ -342,6 +345,7 @@ public class MainActivity extends Activity {
         pv.loadDataWithBaseURL("https://www.ebay.fr/", html, "text/html", "utf-8", null);
         dlg.show();
         dlg.getWindow().setLayout(-1, -1);
+        dlg.setOnDismissListener(d -> pv.destroy());
     }
 
     private String tc(String s) {
@@ -788,6 +792,8 @@ public class MainActivity extends Activity {
         if (finished) return;
         finished = true;
         running = false;
+        wv.pauseTimers();
+        wv.clearHistory();
         progress.setVisibility(android.view.View.GONE);
         if (!batchMode) {
             extractBtn.setText("Extract sold stats");
@@ -929,9 +935,10 @@ public class MainActivity extends Activity {
             }
             if (!finalUrl.isEmpty()) {
                 new Thread(() -> {
+                    java.net.HttpURLConnection c = null;
                     try {
                         java.net.URL u = new java.net.URL(finalUrl);
-                        java.net.HttpURLConnection c = (java.net.HttpURLConnection) u.openConnection();
+                        c = (java.net.HttpURLConnection) u.openConnection();
                         c.setConnectTimeout(6000);
                         c.setReadTimeout(6000);
                         c.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android)");
@@ -939,7 +946,10 @@ public class MainActivity extends Activity {
                         if (bmp != null) runOnUiThread(() -> {
                             if (finalUrl.equals(fiv.getTag())) fiv.setImageBitmap(bmp);
                         });
-                    } catch (Exception ignored) { }
+                    } catch (Exception ignored) {
+                    } finally {
+                        if (c != null) c.disconnect();
+                    }
                 }).start();
             }
         }
@@ -958,6 +968,19 @@ public class MainActivity extends Activity {
             default: sym = cur + " ";
         }
         return String.format(Locale.US, sym + "%,.2f", v);
+    }
+
+    @Override
+    protected void onDestroy() {
+        running = false;
+        batchRunning = false;
+        stopService(new Intent(this, BatchService.class));
+        if (wv != null) {
+            wv.removeCallbacks(null);
+            wv.loadUrl("about:blank");
+            wv.destroy();
+        }
+        super.onDestroy();
     }
 
     private double medianSimple(List<Double> sorted) {

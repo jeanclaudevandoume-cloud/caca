@@ -230,7 +230,7 @@ Run the whole 800-query character-goods catalog directly on an Android phone:
   reviewed by a separate visual-QA pass; final grade 9/10 (remaining nit:
   rank badge sits close to the thumbnail edge).
 
-## v2.4 (latest) - whole-flow visual & usability pass (blind-reviewed to 9-10/10)
+## v2.4 - whole-flow visual & usability pass (blind-reviewed to 9-10/10)
 
 Blind visual-QA loop over rendered replicas of the real layout XML, iterated
 until every screen passed a fresh unbiased review at 9+/10:
@@ -247,3 +247,29 @@ until every screen passed a fresh unbiased review at 9+/10:
   wording, pages field hint ("1 to 4 - default 3"), custom catalog hint
   documents the CSV line format, big blue "Save settings" button (was a bare
   gray button). Password stays masked in the real app (inputType=textPassword).
+
+## v2.5 (latest) - performance / battery / memory pass
+
+Audit of the whole codebase with a strict efficiency review; every finding
+verified functional-risk-free before applying:
+
+- WebView no longer downloads listing images: a sold-search page fetches
+  ~120 full-size images that the parser never renders (it reads URL
+  attributes only). Network images are blocked during extraction - a
+  1500-query batch skips tens of MB of image data and the decode CPU.
+  Images are shown normally when the in-app browser is opened manually
+  (sign-in, browsing a listing).
+- WebView timers are paused after each query and resumed for the next one,
+  so eBay's page scripts cannot spin CPU during the 12-21s polite pause
+  or when the batch is stopped.
+- WebView history is cleared after every query instead of growing across
+  thousands of pages (slow RAM creep over a full batch).
+- The results-infographic dialog WebView is destroyed on dismiss (was
+  leaking one WebView per view).
+- Grid thumbnail connections are now disconnected in finally (was
+  leaving sockets to the CDN open).
+- Activity onDestroy stops the batch service and destroys the WebView
+  (clean teardown instead of orphaned renderers).
+- Per-run parsing state (items, recent, currencies, seen-batches) was
+  verified to be reset per query, so no unbounded growth there;
+  resultsCsv/thumbnails stay small (KBs-scale at 1500 queries).
