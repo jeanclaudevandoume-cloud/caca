@@ -133,3 +133,17 @@ weight and requests layout.
   view-tag guards; no image-loading library needed.
 - Lightness kept: APK ~29 KB, parser ~15 ms/page, bounded evaluations,
   WebView released after each run, no services.
+
+## v1.6 (latest)
+
+- Recent-sales grid cells are now clickable: tapping a product thumbnail
+  opens that eBay listing directly in the in-app browser panel.
+- The in-app browser can never sit blank after results: it hides on
+  completion, and if opened manually after the page was released it loads
+  the marketplace home instead of a blank page.
+- Fixed pagination past 99 results: the app previously constructed page-2
+  URLs itself (adding _ipg=120), which eBay serves as an empty results page
+  in some cases (e.g. "panda jujutsu": 99 items then 0). The driver now
+  reads eBay's own next-page link from the results page and navigates with
+  it verbatim (verified on live fixture: proper _pgn=2 session URL is
+  captured and used).

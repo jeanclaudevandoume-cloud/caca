@@ -61,6 +61,7 @@ public class MainActivity extends Activity {
     private boolean running = false;
     private boolean cookiesAppliedForRun = false;
     private boolean finished = false;
+    private String pendingNextUrl = "";
     private int noItemsSeen = 0;
     private String lastEvalUrl = "";
     private final List<double[]> items = new ArrayList<>();   // {price, qty, dateMs(-1 unknown)}
@@ -97,7 +98,17 @@ public class MainActivity extends Activity {
         extractBtn = findViewById(R.id.btn_extract);
         Button settings = findViewById(R.id.btn_settings);
 
-        toggleWeb.setOnClickListener(v -> setWebVisible(!webVisible));
+        toggleWeb.setOnClickListener(v -> {
+            if (!webVisible) {
+                setWebVisible(true);
+                String cur = wv.getUrl();
+                if (cur == null || cur.contains("about:blank")) {
+                    wv.loadUrl("https://" + host + "/");
+                }
+            } else {
+                setWebVisible(false);
+            }
+        });
 
         settings.setOnClickListener(v ->
                 startActivity(new Intent(this, SettingsActivity.class)));
@@ -264,12 +275,13 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
-        public void postItems(final String json) {
-            runOnUiThread(() -> ingestItems(json));
+        public void postItems(final String json, final String nextUrl) {
+            runOnUiThread(() -> ingestItems(json, nextUrl));
         }
 
-        private void ingestItems(String json) {
+        private void ingestItems(String json, String nextUrl) {
             {
+            pendingNextUrl = nextUrl == null ? "" : nextUrl;
             try {
                 JSONArray arr = new JSONArray(json);
                 int before = items.size();
@@ -287,7 +299,8 @@ public class MainActivity extends Activity {
                             o.optDouble("d", -1)});
                     recent.add(new String[]{String.valueOf(o.getDouble("p")),
                             o.optString("c", ""), String.valueOf(o.optDouble("d", -1)),
-                            o.optString("v", ""), o.optString("t", "")});
+                            o.optString("v", ""), o.optString("t", ""),
+                            o.optString("u", "")});
                     if (!o.optString("c", "").isEmpty()) currencies.add(o.getString("c"));
                 }
             } catch (Exception ignored) { }
@@ -299,8 +312,13 @@ public class MainActivity extends Activity {
                 status.setText("Page " + currentPage + " parsed ("
                         + items.size() + " listings) - loading next ...");
                 int next = currentPage + 1;
+                final String nu = pendingNextUrl;
+                pendingNextUrl = "";
                 currentPage = next;
-                wv.postDelayed(() -> wv.loadUrl(pageUrl(next)), 2000);
+                wv.postDelayed(() -> {
+                    String u = (nu != null && !nu.isEmpty()) ? nu : pageUrl(next);
+                    wv.loadUrl(u);
+                }, 2000);
             } else {
                 endRun(true);
             }
@@ -439,6 +457,14 @@ public class MainActivity extends Activity {
             grid.addView(cell, clp);
             shown++;
             final android.widget.ImageView fiv = iv;
+            final String listingUrl = r.length > 5 ? r[5] : "";
+            if (!listingUrl.isEmpty()) {
+                cell.setOnClickListener(v -> {
+                    setWebVisible(true);
+                    status.setText("Opening the listing in the app browser ...");
+                    wv.loadUrl(listingUrl);
+                });
+            }
             if (!finalUrl.isEmpty()) {
                 new Thread(() -> {
                     try {
@@ -561,7 +587,12 @@ public class MainActivity extends Activity {
         " var im=el.querySelector('img');var iu=(im?((im.currentSrc||im.src)+''):'');" +
         " if(iu.indexOf('ebayimg.com')<0)iu='';" +
         " if(iu.indexOf('/s-l500')>-1)iu=iu.split('/s-l500').join('/s-l200');" +
-        " out.push({t:(ttl?ttl.textContent.trim().substring(0,80):''),p:price[1],c:price[0],q:qty,d:dMs,v:iu});}" +
-        "Android.postItems(JSON.stringify(out));" +
+        " var la=el.querySelector('a[href*=\"/itm/\"]');var lu=la?(la.href+''):'';if(lu.indexOf('?')>-1)lu=lu.split('?')[0];" +
+        " out.push({t:(ttl?ttl.textContent.trim().substring(0,80):''),p:price[1],c:price[0],q:qty,d:dMs,v:iu,u:lu});}" +
+        "var cm=/_pgn=(\\d+)/.exec(location.href);var cp=cm?(+cm[1]):1;var next='';" +
+        "var pl=document.querySelectorAll('a[href*=\"_pgn=\"]');" +
+        "for(var k=0;k<pl.length;k++){var m2=/_pgn=(\\d+)/.exec(pl[k].href);" +
+        " if(m2&&((+m2[1])===(cp+1))){next=pl[k].href;break;}}" +
+        "Android.postItems(JSON.stringify(out),next);" +
         "}catch(e){Android.noItems(''+e);}})();";
 }
