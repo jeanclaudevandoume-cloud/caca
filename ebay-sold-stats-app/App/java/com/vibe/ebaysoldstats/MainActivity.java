@@ -46,6 +46,7 @@ public class MainActivity extends Activity {
     private Spinner siteSpinner;
     private TextView status, result;
     private ScrollView resultScroll;
+    private android.widget.LinearLayout gridWrap;
     private android.view.View resultCard, progress;
     private TextView resultSold, resultMedian, resultMedianW, resultMeta;
     private TextView toggleWeb;
@@ -63,6 +64,7 @@ public class MainActivity extends Activity {
     private int noItemsSeen = 0;
     private String lastEvalUrl = "";
     private final List<double[]> items = new ArrayList<>();   // {price, qty, dateMs(-1 unknown)}
+    private final List<String[]> recent = new ArrayList<>(); // {price, cur, dateMs, imgUrl, title}
     private final List<String> currencies = new ArrayList<>();
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -78,12 +80,14 @@ public class MainActivity extends Activity {
         for (String[] s : SITES) ad.add(s[0]);
         ad.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         siteSpinner.setAdapter(ad);
+        siteSpinner.setSelection(2);   // eBay FR default
 
         queryInput = findViewById(R.id.input_query);
         status = findViewById(R.id.status);
         result = findViewById(R.id.result);
         resultScroll = findViewById(R.id.result_scroll);
         resultCard = findViewById(R.id.result_card);
+        gridWrap = findViewById(R.id.result_grid);
         progress = findViewById(R.id.progress);
         resultSold = findViewById(R.id.result_sold);
         resultMedian = findViewById(R.id.result_median);
@@ -143,7 +147,9 @@ public class MainActivity extends Activity {
         host = SITES[siteSpinner.getSelectedItemPosition()][1];
         pagesWanted = prefs.getInt("pages", 3);
         items.clear();
+        recent.clear();
         currencies.clear();
+        gridWrap.removeAllViews();
         currentPage = 1;
         noItemsSeen = 0;
         lastEvalUrl = "";
@@ -167,14 +173,9 @@ public class MainActivity extends Activity {
     private void setWebVisible(boolean visible) {
         webVisible = visible;
         int dp = Math.max(1, (int) (getResources().getDisplayMetrics().density));
-        ViewGroup.LayoutParams lp0 = wv.getLayoutParams();
-        if (lp0 instanceof android.widget.LinearLayout.LayoutParams) {
-            android.widget.LinearLayout.LayoutParams lp =
-                    (android.widget.LinearLayout.LayoutParams) lp0;
-            lp.height = visible ? 420 * dp : 0;
-            lp.weight = 0;
-            wv.setLayoutParams(lp);
-        }
+        ViewGroup.LayoutParams lp = wv.getLayoutParams();
+        lp.height = visible ? Math.min(420, 480) * dp : 0;
+        wv.setLayoutParams(lp);
         wv.setVisibility(visible ? android.view.View.VISIBLE : android.view.View.GONE);
         toggleWeb.setText(visible ? "Hide browser" : "Show browser");
     }
@@ -284,6 +285,9 @@ public class MainActivity extends Activity {
                     if (dup) continue;
                     items.add(new double[]{o.getDouble("p"), o.getDouble("q"),
                             o.optDouble("d", -1)});
+                    recent.add(new String[]{String.valueOf(o.getDouble("p")),
+                            o.optString("c", ""), String.valueOf(o.optDouble("d", -1)),
+                            o.optString("v", ""), o.optString("t", "")});
                     if (!o.optString("c", "").isEmpty()) currencies.add(o.getString("c"));
                 }
             } catch (Exception ignored) { }
@@ -350,8 +354,13 @@ public class MainActivity extends Activity {
         long now = System.currentTimeMillis();
         final long days90 = 90L * 24 * 60 * 60 * 1000;
         List<double[]> inWindow = new ArrayList<>();
-        for (double[] it : items) {
-            if (it[2] < 0 || now - (long) it[2] <= days90) inWindow.add(it);
+        List<Integer> windowIdx = new ArrayList<>();
+        for (int k = 0; k < items.size(); k++) {
+            double[] it = items.get(k);
+            if (it[2] < 0 || now - (long) it[2] <= days90) {
+                inWindow.add(it);
+                windowIdx.add(k);
+            }
         }
         if (inWindow.isEmpty()) {
             status.setText("Finished, but no sold listings in the last 90 days were parsed.");
@@ -378,11 +387,76 @@ public class MainActivity extends Activity {
         resultCard.setVisibility(android.view.View.VISIBLE);
         result.setVisibility(android.view.View.VISIBLE);
         resultScroll.smoothScrollTo(0, 0);
-        wv.loadUrl("about:blank");
+        setWebVisible(false);
+        wv.postDelayed(() -> wv.loadUrl("about:blank"), 4000);
+        List<String[]> recentWindow = new ArrayList<>();
+        for (int k : windowIdx) recentWindow.add(recent.get(k));
+        buildRecentGrid(recentWindow);
         result.setText(String.format(Locale.US,
                 "Marketplace: %s | Title: %s | Sold last 90 days: %.0f | Median: %.2f %s | Weighted: %.2f %s | Listings in window: %d of %d",
                 host, query, soldCount, simple, cur, w, cur, inWindow.size(), items.size()));
         status.setText("Done.");
+    }
+
+    private void buildRecentGrid(List<String[]> recentWindow) {
+        android.widget.GridLayout grid = new android.widget.GridLayout(this);
+        grid.setColumnCount(4);
+        int dp = Math.max(1, (int) (getResources().getDisplayMetrics().density));
+        List<String[]> cells = new ArrayList<>(recentWindow);
+        Collections.sort(cells, (a, b) -> {
+            double da = a[2].isEmpty() ? -1 : Double.parseDouble(a[2]);
+            double db = b[2].isEmpty() ? -1 : Double.parseDouble(b[2]);
+            return Double.compare(db, da);   // newest first
+        });
+        int shown = 0;
+        for (String[] r : cells) {
+            if (shown >= 20) break;
+            double price = Double.parseDouble(r[0]);
+            int cdp = 70 * dp;
+            android.widget.LinearLayout cell = new android.widget.LinearLayout(this);
+            cell.setOrientation(android.widget.LinearLayout.VERTICAL);
+            cell.setPadding(2 * dp, 2 * dp, 2 * dp, 2 * dp);
+            android.view.ViewGroup.LayoutParams ivLp = new android.view.ViewGroup.LayoutParams(cdp, cdp);
+            final android.widget.ImageView iv = new android.widget.ImageView(this);
+            iv.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+            iv.setBackgroundColor(0xffeef1f5);
+            final String finalUrl = r[3];
+            iv.setTag(finalUrl);
+            cell.addView(iv, ivLp);
+            android.widget.TextView tv = new android.widget.TextView(this);
+            tv.setText(fmtAmount(price, r[1]));
+            tv.setTextSize(11);
+            tv.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            tv.setGravity(android.view.Gravity.CENTER);
+            cell.addView(tv);
+            android.widget.GridLayout.LayoutParams clp = new android.widget.GridLayout.LayoutParams();
+            android.widget.GridLayout.Spec row = android.widget.GridLayout.spec(
+                    android.widget.GridLayout.UNDEFINED, 1f);
+            android.widget.GridLayout.Spec col = android.widget.GridLayout.spec(
+                    android.widget.GridLayout.UNDEFINED, 1f);
+            clp.columnSpec = col;
+            clp.rowSpec = row;
+            grid.addView(cell, clp);
+            shown++;
+            final android.widget.ImageView fiv = iv;
+            if (!finalUrl.isEmpty()) {
+                new Thread(() -> {
+                    try {
+                        java.net.URL u = new java.net.URL(finalUrl);
+                        java.net.HttpURLConnection c = (java.net.HttpURLConnection) u.openConnection();
+                        c.setConnectTimeout(6000);
+                        c.setReadTimeout(6000);
+                        c.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android)");
+                        android.graphics.Bitmap bmp = android.graphics.BitmapFactory.decodeStream(c.getInputStream());
+                        if (bmp != null) runOnUiThread(() -> {
+                            if (finalUrl.equals(fiv.getTag())) fiv.setImageBitmap(bmp);
+                        });
+                    } catch (Exception ignored) { }
+                }).start();
+            }
+        }
+        gridWrap.addView(grid);
+        gridWrap.setVisibility(android.view.View.VISIBLE);
     }
 
     private String fmtAmount(double v, String cur) {
@@ -484,7 +558,10 @@ public class MainActivity extends Activity {
         " if(!price){var pt=parsePrice(txt);if(pt)price=pt;}" +
         " if(!price)continue;" +
         " var ttl=el.querySelector('h3, .s-item__title, [role=\"heading\"]');" +
-        " out.push({t:(ttl?ttl.textContent.trim().substring(0,80):''),p:price[1],c:price[0],q:qty,d:dMs});}" +
+        " var im=el.querySelector('img');var iu=(im?((im.currentSrc||im.src)+''):'');" +
+        " if(iu.indexOf('ebayimg.com')<0)iu='';" +
+        " if(iu.indexOf('/s-l500')>-1)iu=iu.split('/s-l500').join('/s-l200');" +
+        " out.push({t:(ttl?ttl.textContent.trim().substring(0,80):''),p:price[1],c:price[0],q:qty,d:dMs,v:iu});}" +
         "Android.postItems(JSON.stringify(out));" +
         "}catch(e){Android.noItems(''+e);}})();";
 }

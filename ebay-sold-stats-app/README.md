@@ -117,3 +117,19 @@ weight and requests layout.
   after each run the WebView loads about:blank to release eBay's page heap;
   bounded evaluations (one driver run per page + max 2 re-checks); no
   services, no polling, no timers left running. APK remains ~25 KB.
+
+## v1.5 (latest)
+
+- The whole screen scrolls now: one ScrollView contains every control, the
+  result card, the results text, Settings, and the new sales grid - nothing
+  is stuck or cut off. The WebView moved to a bottom overlay outside the
+  scroll flow (no gesture conflicts, no blank area: on completion it hides
+  first and releases the page a few seconds later).
+- eBay FR is the default marketplace on first install.
+- New "recent sales" grid: after a run, the 1-20 most recent sales inside the
+  90-day window appear as a 4-column grid under the results - product
+  thumbnail (eBay CDN, small s-l200 webp) with its sold price under it,
+  newest first. Images load asynchronously on background threads with
+  view-tag guards; no image-loading library needed.
+- Lightness kept: APK ~29 KB, parser ~15 ms/page, bounded evaluations,
+  WebView released after each run, no services.
