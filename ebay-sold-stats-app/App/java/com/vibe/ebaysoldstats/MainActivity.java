@@ -300,38 +300,225 @@ public class MainActivity extends Activity {
     private void showResultsSoFar() {
         loadBatchPrefResults();
         String[] lines = resultsCsv.toString().split("\n");
-        int rows = 0;
-        StringBuilder sb = new StringBuilder();
-        for (int i = lines.length - 1; i >= 1; i--) {
+        List<String[]> data = new ArrayList<>();
+        for (int i = 1; i < lines.length; i++) {
             String ln = lines[i];
             if (ln.isEmpty()) continue;
             String[] p = ln.split(",", -1);
             int n = p.length;
             if (n < 9) continue;
-            String sold = p[n - 8], median = p[n - 7], medianw = p[n - 6];
-            String what = (p[n - 11] + " / " + p[n - 10] + " / " + p[n - 9]).trim();
-            if (what.startsWith("custom") || what.replace("/", "").trim().isEmpty()) what = p[1];
-            sb.append('•').append(sold.isEmpty() ? "0" : sold).append(" sold");
-            if (!median.isEmpty()) sb.append(" | med ").append(median);
-            if (!medianw.isEmpty() && !medianw.equals(median))
-                sb.append(" (w ").append(medianw).append(')');
-            sb.append(" — ").append(what.isEmpty() ? "(query)" : what).append('\n');
-            rows++;
-            if (rows >= 300) break;
+            String sold = p[n - 8], median = p[n - 7], cur = p[n - 5];
+            String goods = p[n - 9], character = p[n - 10], franchise = p[n - 11];
+            String name = esc(tc(character));
+            String gd = esc(tc(goods));
+            String fr = esc(tc(franchise));
+            String nm = goods.length() + character.length() == 0 ? esc(p[1]) : name;
+            if (character.equals("custom") || character.isEmpty()) {
+                nm = esc(p[1]); gd = ""; fr = "";
+            }
+            String thumb = thumbFor(p[1]);
+            data.add(new String[]{nm, gd, fr, sold, median, cur, thumb});
         }
-        int total = lines.length - 1;
-        if (rows == 0) {
-            Toast.makeText(this, "No results yet - run some queries first.", Toast.LENGTH_SHORT).show();
+        if (data.isEmpty()) {
+            Toast.makeText(this, "No results yet - run some queries first.",
+                    Toast.LENGTH_SHORT).show();
             return;
         }
-        String head = "Results so far: " + total + " checked queries "
-                + (rows < total ? "(showing newest " + rows + ") " : "")
-                + "- full data in Share CSV.\n\n";
-        result.setText(head + sb.toString());
-        result.setVisibility(android.view.View.VISIBLE);
-        resultCard.setVisibility(android.view.View.GONE);
-        gridWrap.setVisibility(android.view.View.GONE);
-        if (!batchRunning) status.setText("Showing " + total + " results.");
+        String html = buildInfographic(data);
+        WebView pv = new WebView(this);
+        pv.getSettings().setLoadWithOverviewMode(true);
+        pv.getSettings().setUseWideViewPort(true);
+        pv.getSettings().setLoadsImagesAutomatically(true);
+        pv.setVerticalScrollBarEnabled(true);
+        android.app.AlertDialog dlg = new android.app.AlertDialog.Builder(this)
+                .setTitle("Results infographic")
+                .setView(pv)
+                .setPositiveButton("Close", null)
+                .create();
+        pv.loadDataWithBaseURL("https://www.ebay.fr/", html, "text/html", "utf-8", null);
+        dlg.show();
+        dlg.getWindow().setLayout(-1, -1);
+    }
+
+    private String tc(String s) {
+        if (s == null) return "";
+        StringBuilder b = new StringBuilder(s.length() + 4);
+        for (String w : s.split(" ")) {
+            if (w.isEmpty()) continue;
+            b.append(Character.toUpperCase(w.charAt(0)));
+            if (w.length() > 1) b.append(w.substring(1));
+            b.append(' ');
+        }
+        return b.toString().trim();
+    }
+
+    private String esc(String s) {
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+    }
+
+    private String thumbFor(String q) {
+        try {
+            String u = thumbs().optString(q, "");
+            if (u.indexOf("/s-l") > -1) u = u.replaceAll("/s-l\\d+", "/s-l64");
+            return u;
+        } catch (Exception e) { return ""; }
+    }
+
+    private org.json.JSONObject thumbs() throws Exception {
+        String raw = prefs.getString("thumbs", "");
+        return new org.json.JSONObject(raw.isEmpty() ? "{}" : raw);
+    }
+
+    private void saveThumb(String q, String img) {
+        try {
+            if (q == null || q.isEmpty() || img == null || img.isEmpty()) return;
+            org.json.JSONObject t = thumbs();
+            if (!t.has(q)) {
+                t.put(q, img);
+                prefs.edit().putString("thumbs", t.toString()).apply();
+            }
+        } catch (Exception ignored) { }
+    }
+
+    private String pct(double part, double max) {
+        return String.format(Locale.US, "%.0f", max <= 0 ? 100 : Math.min(100, part / max * 100));
+    }
+
+    private String buildInfographic(List<String[]> data) {
+        int checked = data.size();
+        List<String[]> found = new ArrayList<>();
+        long totalSold = 0;
+        List<Double> medians = new ArrayList<>();
+        String cur = "EUR";
+        for (String[] r : data) {
+            long s;
+            try { s = Long.parseLong(r[3]); } catch (Exception e) { s = 0; }
+            if (s <= 0) continue;
+            found.add(r);
+            totalSold += s;
+            if (!r[4].isEmpty()) {
+                try { medians.add(Double.parseDouble(r[4])); } catch (Exception ignored) { }
+                if (!r[5].isEmpty()) cur = r[5];
+            }
+        }
+        String sym = "EUR".equals(cur) || cur.isEmpty() ? "&nbsp;&euro;"
+                : ("GBP".equals(cur) ? "&nbsp;&pound;" : ("USD".equals(cur) ? "&nbsp;$" : "&nbsp;" + esc(cur)));
+        List<Double> mm = new ArrayList<>(medians);
+        Collections.sort(mm);
+        double typical = mm.isEmpty() ? 0 : medianSimple(mm);
+        Collections.sort(found, (a, b) -> {
+            long sa = 0, sb = 0;
+            try { sa = Long.parseLong(a[3]); } catch (Exception ignored) { }
+            try { sb = Long.parseLong(b[3]); } catch (Exception ignored) { }
+            return Long.compare(sb, sa);
+        });
+        int showTop = Math.min(12, found.size());
+        double mx = 1;
+        try { mx = Math.max(1, Long.parseLong(found.get(0)[3])); } catch (Exception ignored) { }
+        java.util.Map<String, Long> fr = new java.util.LinkedHashMap<>();
+        java.util.Map<String, Long> gd = new java.util.LinkedHashMap<>();
+        for (String[] r : found) {
+            long s;
+            try { s = Long.parseLong(r[3]); } catch (Exception e) { s = 0; }
+            if (!r[2].isEmpty()) fr.merge(r[2], s, Long::sum);
+            if (!r[1].isEmpty()) gd.merge(r[1], s, Long::sum);
+        }
+        List<java.util.Map.Entry<String, Long>> frt = new ArrayList<>(fr.entrySet());
+        List<java.util.Map.Entry<String, Long>> gdt = new ArrayList<>(gd.entrySet());
+        frt.sort((a, b) -> Long.compare(b.getValue(), a.getValue()));
+        gdt.sort((a, b) -> Long.compare(b.getValue(), a.getValue()));
+        while (frt.size() > 5) frt.remove(frt.size() - 1);
+        while (gdt.size() > 6) gdt.remove(gdt.size() - 1);
+        double frmx = frt.isEmpty() ? 1 : Math.max(1, frt.get(0).getValue());
+        double gdmx = gdt.isEmpty() ? 1 : Math.max(1, gdt.get(0).getValue());
+
+        StringBuilder H = new StringBuilder();
+        H.append("<!doctype html><html><head><meta charset=\"utf-8\">")
+          .append("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">")
+          .append("<style>*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}")
+          .append("body{font-family:Roboto,'Segoe UI',Arial,sans-serif;background:#eef1f5;color:#21242b;padding:10px}")
+          .append(".card{background:#fff;border-radius:14px;padding:16px;margin-bottom:10px;box-shadow:0 1px 3px rgba(16,24,40,.08)}")
+          .append("h1{font-size:20px;color:#0a4fa0;margin-bottom:3px}")
+          .append(".sub{font-size:13px;color:#3f4652;margin-bottom:14px}")
+          .append(".kpis{display:flex;gap:8px}")
+          .append(".kpi{flex:1;background:#f4f7fb;border-radius:12px;padding:10px 4px;text-align:center;min-width:0}")
+          .append(".kpi .v{font-size:21px;font-weight:800;color:#0a4fa0;white-space:nowrap}")
+          .append(".kpi .l{font-size:9px;color:#8a919e;letter-spacing:.4px;text-transform:uppercase;margin-top:3px;line-height:1.25}")
+          .append("h2.sec{font-size:14px;font-weight:800;color:#21242b;margin-bottom:10px;display:flex;align-items:center;gap:7px}")
+          .append("h2.sec:before{content:'';display:inline-block;width:4px;height:14px;border-radius:2px;background:#0a4fa0;flex:none}")
+          .append(".mover{display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid #f0f2f6}")
+          .append(".mover:last-child{border-bottom:none}")
+          .append(".rank{width:20px;height:20px;border-radius:50%;background:#eef3fa;color:#0a4fa0;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;flex:none;align-self:center}")
+          .append(".mover.first .rank{background:#f5a623;color:#fff}")
+          .append(".mover img,.ph{width:52px;height:52px;border-radius:10px;flex:none;object-fit:cover;border:1px solid #e6eaf0;background:#e6eaf0}")
+          .append(".ph{display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:800;color:#b6c5da}")
+          .append(".mi{flex:1;min-width:0}")
+          .append(".mname{font-size:13.5px;font-weight:700;line-height:1.3;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}")
+          .append(".mgoods{font-size:12px;color:#5f6672;margin-top:2px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}")
+          .append(".bar{height:10px;background:#e6eaf0;border-radius:5px;margin-top:7px;overflow:hidden}")
+          .append(".bar span{display:block;height:10px;border-radius:5px;background:linear-gradient(90deg,#0a4fa0,#3679d8)}")
+          .append(".mover.first .bar span{background:linear-gradient(90deg,#e8890a,#f5a623)}")
+          .append(".mright{text-align:right;flex:none;margin-left:8px;min-width:56px;align-self:center}")
+          .append(".mcount{font-size:18px;font-weight:800;color:#0a4fa0;line-height:1.1;font-variant-numeric:tabular-nums}")
+          .append(".mover.first .mcount{color:#e8890a}")
+          .append(".mcount small{font-size:10.5px;color:#8a919e;font-weight:700;letter-spacing:.3px}")
+          .append(".hbar{display:flex;align-items:center;gap:10px;font-size:13px;padding:7px 0}")
+          .append(".hbar .n{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#21242b;font-weight:700}")
+          .append(".hbar .t{flex:1.5;height:14px;background:#e6eaf0;border-radius:7px;overflow:hidden}")
+          .append(".hbar .t span{display:block;height:14px;border-radius:7px;background:linear-gradient(90deg,#0a4fa0,#3679d8)}")
+          .append(".hbar .v{text-align:right;font-weight:800;flex:none;min-width:52px;color:#0a4fa0;font-variant-numeric:tabular-nums}")
+          .append(".foot{font-size:11px;color:#8a919e;text-align:center;padding:4px 0 10px}")
+          .append("</style></head><body>");
+        H.append("<div class=\"card\"><h1>Batch results</h1>")
+          .append("<div class=\"sub\">").append(checked).append(" queries checked &middot; ")
+          .append(found.size()).append(" with sales in the last 90 days</div><div class=\"kpis\">")
+          .append("<div class=\"kpi\"><div class=\"v\">").append(found.size())
+          .append("</div><div class=\"l\">Found<br>sales</div></div>")
+          .append("<div class=\"kpi\"><div class=\"v\">").append(checked == 0 ? 0 : found.size() * 100 / checked)
+          .append("%</div><div class=\"l\">Queries<br>with sales</div></div>")
+          .append("<div class=\"kpi\"><div class=\"v\">").append(String.format(Locale.US, "%,d", totalSold))
+          .append("</div><div class=\"l\">Items<br>sold</div></div>")
+          .append("<div class=\"kpi\"><div class=\"v\">")
+          .append(String.format(Locale.US, "%.2f", typical)).append(sym)
+          .append("</div><div class=\"l\">Typical<br>price</div></div></div></div>");
+        H.append("<div class=\"card\"><h2 class=\"sec\">Top sellers</h2>");
+        for (int i = 0; i < showTop; i++) {
+            String[] r = found.get(i);
+            long s;
+            try { s = Long.parseLong(r[3]); } catch (Exception e) { s = 0; }
+            String med = r[4].isEmpty() ? ""
+                    : " &middot; median " + r[4] + sym;
+            String meta = (r[1].isEmpty() ? "" : r[1] + med) + (r[1].isEmpty() ? med : "");
+            String initial = r[0].isEmpty() ? "?" : r[0].substring(0, 1);
+            H.append("<div class=\"mover").append(i == 0 ? " first" : "")
+              .append("\"><div class=\"rank\">").append(i + 1).append("</div>");
+            if (r[6].isEmpty()) {
+                H.append("<div class=\"ph\">").append(esc(initial)).append("</div>");
+            } else {
+                H.append("<img src=\"").append(r[6]).append("\">");
+            }
+            H.append("<div class=\"mi\"><div class=\"mname\">").append(r[0]).append("</div>")
+              .append("<div class=\"mgoods\">").append(meta).append("</div>")
+              .append("<div class=\"bar\"><span style=\"width:").append(pct(s, mx))
+              .append("%\"></span></div></div><div class=\"mright\"><div class=\"mcount\">")
+              .append(s).append("<br><small>sold</small></div></div></div>");
+        }
+        H.append("</div>");
+        H.append("<div class=\"card\"><h2 class=\"sec\">Sold by franchise</h2>");
+        for (java.util.Map.Entry<String, Long> e : frt) {
+            H.append("<div class=\"hbar\"><div class=\"n\">").append(e.getKey())
+              .append("</div><div class=\"t\"><span style=\"width:").append(pct(e.getValue(), frmx))
+              .append("%\"></span></div><div class=\"v\">").append(e.getValue()).append("</div></div>");
+        }
+        H.append("</div><div class=\"card\"><h2 class=\"sec\">Sold by goods type</h2>");
+        for (java.util.Map.Entry<String, Long> e : gdt) {
+            H.append("<div class=\"hbar\"><div class=\"n\">").append(e.getKey())
+              .append("</div><div class=\"t\"><span style=\"width:").append(pct(e.getValue(), gdmx))
+              .append("%\"></span></div><div class=\"v\">").append(e.getValue()).append("</div></div>");
+        }
+        H.append("</div><div class=\"foot\">Items sold &middot; median price per query &middot; last 90 days<br>")
+          .append("Full data: Share CSV &middot; eBay Sold Stats</div></body></html>");
+        return H.toString();
     }
 
     private void loadBatch() {
@@ -619,6 +806,14 @@ public class MainActivity extends Activity {
         String cur = lastCurrency;
 
         if (batchMode && !batch.isEmpty() && !batchQuery.isEmpty()) {
+            for (int k = items.size() - 1; k >= 0; k--) {
+                double[] it = items.get(k);
+                boolean inWin = it[2] < 0 || now - (long) it[2] <= days90;
+                if (inWin && k < recent.size() && !recent.get(k)[3].isEmpty()) {
+                    saveThumb(batchQuery, recent.get(k)[3]);
+                    break;
+                }
+            }
             resultsCsv.append(batch.get(batchIdx)[0]).append(',')
                     .append(csv(batchQuery)).append(',')
                     .append(csv(batch.get(batchIdx)[1])).append(',')

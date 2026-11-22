@@ -232,7 +232,7 @@
                 android:backgroundTint="#e8ecf1"
                 android:textColor="#21242b"
                 android:textAllCaps="false"
-                android:text="See results (available even while a batch runs)" />
+                android:text="Results infographic (viewable even mid-batch)" />
 
             <Button
                 android:id="@+id/btn_settings"

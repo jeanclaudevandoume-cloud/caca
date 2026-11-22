@@ -196,7 +196,7 @@ Run the whole 800-query character-goods catalog directly on an Android phone:
 - Settings now has a "Custom catalog" box: one search query per line
   (or franchise,character,goods,query CSV lines). When filled, the batch
   runs YOUR list instead of the built-in one - so the list has no limit.
-## v2.2 (latest) - reliable stop, skip-finished resume, results viewer
+## v2.2 - reliable stop, skip-finished resume, results viewer
 
 - "Stop batch" now really stops: the pause between queries is cancelled as
   well, so the batch never restarts on its own after pressing Stop
@@ -212,3 +212,20 @@ Run the whole 800-query character-goods catalog directly on an Android phone:
   batch is still running mid-way. Share CSV still exports the raw data.
   It also works right after a fresh app start (loads the saved results).
 - Batch button label no longer hardcodes the query count.
+
+## v2.3 (latest) - results infographic
+
+- "Results infographic" replaces the plain text list: a full-screen scrollable
+  dashboard generated from the batch CSV - KPI cards (found sales, hit rate,
+  items sold, typical price), a Top-12 sellers chart with rank badges, tiny
+  thumbnails (64px, downloaded only at s-l64 low-res), relative sales bars and
+  the #1 seller highlighted, plus Sold-by-franchise and Sold-by-goods-type
+  bar rankings.
+- Thumbnails are captured automatically per query while the batch runs
+  (first recent in-window listing image, persisted with results); queries
+  without an image get a clean initial-letter placeholder.
+- Works mid-batch, after a stop, and right after a fresh app relaunch
+  (loads saved results from storage).
+- Visual design was iterated 5 times against headless-Chromium screenshots
+  reviewed by a separate visual-QA pass; final grade 9/10 (remaining nit:
+  rank badge sits close to the thumbnail edge).
