@@ -161,10 +161,15 @@ public class MainActivity extends Activity {
 
     private void setWebVisible(boolean visible) {
         webVisible = visible;
-        int dp = (int) (getResources().getDisplayMetrics().density);
-        ViewGroup.LayoutParams lp = wv.getLayoutParams();
-        lp.height = visible ? 420 * dp : 0;
-        wv.setLayoutParams(lp);
+        int dp = Math.max(1, (int) (getResources().getDisplayMetrics().density));
+        ViewGroup.LayoutParams lp0 = wv.getLayoutParams();
+        if (lp0 instanceof android.widget.LinearLayout.LayoutParams) {
+            android.widget.LinearLayout.LayoutParams lp =
+                    (android.widget.LinearLayout.LayoutParams) lp0;
+            lp.height = visible ? 420 * dp : 0;
+            lp.weight = 0;
+            wv.setLayoutParams(lp);
+        }
         wv.setVisibility(visible ? android.view.View.VISIBLE : android.view.View.GONE);
         toggleWeb.setText(visible ? "Hide browser" : "Show browser");
     }
@@ -195,6 +200,11 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void wall403() {
+            runOnUiThread(() -> doWall403());
+        }
+
+        private void doWall403() {
+            {
             if (!cookiesAppliedForRun && applyCookiesForHost()) {
                 cookiesAppliedForRun = true;
                 status.setText("403 wall detected - applying your Settings cookies and retrying ...");
@@ -206,18 +216,26 @@ public class MainActivity extends Activity {
                         + "for this marketplace, then try again.");
                 running = false;
             }
+            }
         }
 
         @JavascriptInterface
         public void needLogin() {
-            wv.post(() -> setWebVisible(true));
-            status.setText("eBay wants a sign-in for sold search - signing in "
-                    + (hasCreds() ? "with your saved account ..." : "")
-                    + "\nIf a check appears, complete it once in the view below.");
+            runOnUiThread(() -> {
+                setWebVisible(true);
+                status.setText("eBay wants a sign-in for sold search - signing in "
+                        + (hasCreds() ? "with your saved account ..." : "")
+                        + "\nIf a check appears, complete it once in the view below.");
+            });
         }
 
         @JavascriptInterface
-        public void noItems(String title) {
+        public void noItems(final String title) {
+            runOnUiThread(() -> handleNoItems(title));
+        }
+
+        private void handleNoItems(String title) {
+            {
             if (title != null && (title.contains("Se connecter")
                     || title.toLowerCase(Locale.ROOT).contains("sign in"))) {
                 wv.post(() -> setWebVisible(true));
@@ -236,10 +254,16 @@ public class MainActivity extends Activity {
                 return;
             }
             endRun(!items.isEmpty());
+            }
         }
 
         @JavascriptInterface
-        public void postItems(String json) {
+        public void postItems(final String json) {
+            runOnUiThread(() -> ingestItems(json));
+        }
+
+        private void ingestItems(String json) {
+            {
             try {
                 JSONArray arr = new JSONArray(json);
                 int before = items.size();
@@ -270,6 +294,7 @@ public class MainActivity extends Activity {
                 wv.postDelayed(() -> wv.loadUrl(pageUrl(next)), 2000);
             } else {
                 endRun(true);
+            }
             }
         }
     }

@@ -89,3 +89,15 @@ UI overhaul and bug fixes:
   separators; results remain copy-selectable in the raw text view.
 - Regression re-verified against the reference extractor on the captured
   live eBay FR page (69 listings, 66 within 90 days, median EUR 21.87).
+
+## v1.3 (latest)
+
+Critical fix reported from device testing ("show/hide browser does nothing,
+no result visible"): the JavaScript-bridge callbacks ran on the WebView's
+bridge thread and directly touched views. With v1.2's richer result card
+(progress bar, multiple text views, buttons) this reliably raised
+CalledFromWrongThreadException, killing the run right before the result was
+shown and freezing the browser toggle. All bridge callbacks
+(postItems/noItems/wall403/needLogin) are now marshalled to the UI thread via
+runOnUiThread. The browser toggle also correctly resets the WebView layout
+weight and requests layout.
