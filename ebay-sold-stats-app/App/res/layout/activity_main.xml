@@ -1,94 +1,240 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:padding="12dp">
+    android:fillViewport="true">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical">
+        android:orientation="vertical"
+        android:padding="16dp">
 
         <TextView
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Marketplace:"
-            android:textSize="15sp" />
+            android:text="eBay Sold Stats"
+            android:textSize="22sp"
+            android:textStyle="bold"
+            android:textColor="#0a4fa0"
+            android:paddingBottom="2dp" />
 
-        <Spinner
-            android:id="@+id/spinner_site"
-            android:layout_width="0dp"
+        <TextView
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginStart="8dp" />
+            android:text="Search a title on an eBay marketplace to get the number of items sold in the last 90 days and the median sold price."
+            android:textSize="13sp"
+            android:textColor="#5f6672"
+            android:paddingBottom="12dp" />
 
-        <Button
-            android:id="@+id/btn_settings"
-            android:layout_width="wrap_content"
+        <TextView
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Settings"
-            android:textAllCaps="false" />
-    </LinearLayout>
+            android:text="MARKETPLACE"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:textColor="#8a919e"
+            android:paddingBottom="4dp" />
 
-    <EditText
-        android:id="@+id/input_query"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:hint="Search title (e.g. gojo satoru plush)"
-        android:imeOptions="actionDone"
-        android:inputType="text"
-        android:textSize="16sp" />
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/card_bg"
+            android:padding="4dp">
 
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal">
+            <Spinner
+                android:id="@+id/spinner_site"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:padding="6dp" />
+        </FrameLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="SEARCH TITLE"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:textColor="#8a919e"
+            android:paddingBottom="4dp"
+            android:paddingTop="14dp" />
+
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/card_bg"
+            android:padding="4dp">
+
+            <EditText
+                android:id="@+id/input_query"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@null"
+                android:padding="10dp"
+                android:hint="e.g. gojo satoru plush"
+                android:imeOptions="actionDone"
+                android:inputType="text"
+                android:textSize="16sp" />
+        </FrameLayout>
 
         <Button
             android:id="@+id/btn_extract"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
+            android:layout_width="match_parent"
+            android:layout_height="54dp"
+            android:layout_marginTop="16dp"
+            android:backgroundTint="#0a4fa0"
+            android:textColor="#ffffff"
             android:textAllCaps="false"
+            android:textSize="16sp"
             android:text="Extract sold stats" />
 
-        <Button
-            android:id="@+id/btn_toggle_web"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:textAllCaps="false"
-            android:text="Show browser" />
-    </LinearLayout>
-
-    <TextView
-        android:id="@+id/status"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:textSize="13sp"
-        android:text="Pick a marketplace, type a title, press Extract. The browser stays hidden unless eBay asks you to sign in." />
-
-    <ScrollView
-        android:id="@+id/result_scroll"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:layout_marginTop="4dp">
-
-        <TextView
-            android:id="@+id/result"
-            style="@style/Result"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:paddingBottom="8dp"
-            android:textIsSelectable="true" />
-    </ScrollView>
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingTop="8dp">
 
-    <WebView
-        android:id="@+id/webview"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="0" />
-</LinearLayout>
+            <TextView
+                android:id="@+id/status"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:textSize="13sp"
+                android:textStyle="italic"
+                android:textColor="#5f6672"
+                android:text="Tip: add your eBay account in Settings once, so sign-ins are automatic." />
+
+            <TextView
+                android:id="@+id/btn_toggle_web"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:padding="6dp"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:textColor="#0a4fa0"
+                android:text="Show browser" />
+        </LinearLayout>
+
+        <ProgressBar
+            android:id="@+id/progress"
+            style="@android:style/Widget.Material.ProgressBar.Horizontal"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:indeterminate="true"
+            android:visibility="gone" />
+
+        <LinearLayout
+            android:id="@+id/result_card"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:background="@drawable/card_bg"
+            android:orientation="vertical"
+            android:padding="16dp"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="SOLD IN THE LAST 90 DAYS"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                android:textColor="#8a919e" />
+
+            <TextView
+                android:id="@+id/result_sold"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textSize="44sp"
+                android:textStyle="bold"
+                android:textColor="#0a4fa0"
+                android:text="0" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:paddingTop="10dp">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="MEDIAN PRICE"
+                        android:textSize="11sp"
+                        android:textStyle="bold"
+                        android:textColor="#8a919e" />
+
+                    <TextView
+                        android:id="@+id/result_median"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textSize="22sp"
+                        android:textStyle="bold"
+                        android:textColor="#21242b" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="QTY-WEIGHTED MEDIAN"
+                        android:textSize="11sp"
+                        android:textStyle="bold"
+                        android:textColor="#8a919e" />
+
+                    <TextView
+                        android:id="@+id/result_median_w"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textSize="22sp"
+                        android:textStyle="bold"
+                        android:textColor="#21242b" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/result_meta"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingTop="10dp"
+                android:textSize="12sp"
+                android:textColor="#5f6672" />
+
+            <TextView
+                android:id="@+id/result"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:visibility="gone" />
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/btn_settings"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="14dp"
+            android:backgroundTint="#e8ecf1"
+            android:textColor="#21242b"
+            android:textAllCaps="false"
+            android:text="Settings (account, pages, cookie fallback)" />
+
+        <WebView
+            android:id="@+id/webview"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:layout_marginTop="10dp"
+            android:visibility="gone" />
+    </LinearLayout>
+</ScrollView>

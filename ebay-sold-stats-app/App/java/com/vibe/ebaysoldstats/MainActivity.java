@@ -33,20 +33,22 @@ import java.util.Locale;
 public class MainActivity extends Activity {
 
     private static final String[][] SITES = {
-            {"eBay US", "www.ebay.com"},
-            {"eBay UK", "www.ebay.co.uk"},
-            {"eBay FR", "www.ebay.fr"},
-            {"eBay DE", "www.ebay.de"},
-            {"eBay ES", "www.ebay.es"},
-            {"eBay IT", "www.ebay.it"},
+            {"eBay US  (USD $)", "www.ebay.com"},
+            {"eBay UK  (GBP \u00a3)", "www.ebay.co.uk"},
+            {"eBay FR  (EUR \u20ac)", "www.ebay.fr"},
+            {"eBay DE  (EUR \u20ac)", "www.ebay.de"},
+            {"eBay ES  (EUR \u20ac)", "www.ebay.es"},
+            {"eBay IT  (EUR \u20ac)", "www.ebay.it"},
     };
 
     private WebView wv;
     private EditText queryInput;
     private Spinner siteSpinner;
     private TextView status, result;
-    private ScrollView resultScroll;
-    private Button toggleWeb;
+    private android.view.View resultCard, progress;
+    private TextView resultSold, resultMedian, resultMedianW, resultMeta;
+    private TextView toggleWeb;
+    private android.widget.Button extractBtn;
     private boolean webVisible = false;
     private SharedPreferences prefs;
 
@@ -79,9 +81,14 @@ public class MainActivity extends Activity {
         queryInput = findViewById(R.id.input_query);
         status = findViewById(R.id.status);
         result = findViewById(R.id.result);
-        resultScroll = findViewById(R.id.result_scroll);
+        resultCard = findViewById(R.id.result_card);
+        progress = findViewById(R.id.progress);
+        resultSold = findViewById(R.id.result_sold);
+        resultMedian = findViewById(R.id.result_median);
+        resultMedianW = findViewById(R.id.result_median_w);
+        resultMeta = findViewById(R.id.result_meta);
         toggleWeb = findViewById(R.id.btn_toggle_web);
-        Button extract = findViewById(R.id.btn_extract);
+        extractBtn = findViewById(R.id.btn_extract);
         Button settings = findViewById(R.id.btn_settings);
 
         toggleWeb.setOnClickListener(v -> setWebVisible(!webVisible));
@@ -107,9 +114,13 @@ public class MainActivity extends Activity {
             }
         });
 
-        extract.setOnClickListener(v -> {
+        extractBtn.setOnClickListener(v -> {
             if (running) {
                 running = false;
+                finished = true;
+                progress.setVisibility(android.view.View.GONE);
+                extractBtn.setText("Extract sold stats");
+                extractCmd(true);
                 status.setText("Stopped.");
                 return;
             }
@@ -135,20 +146,26 @@ public class MainActivity extends Activity {
         cookiesAppliedForRun = false;
         running = true;
         result.setText("");
+        resultCard.setVisibility(android.view.View.GONE);
+        progress.setVisibility(android.view.View.VISIBLE);
+        extractBtn.setText("Stop");
+        extractCmd(false);
         status.setText("Loading eBay sold search on " + host + " ...");
         wv.loadUrl(pageUrl(1));
     }
 
+    private void extractCmd(boolean idle) {
+        int color = idle ? 0xffe05353 : 0xff0a4fa0;
+        extractBtn.setBackgroundTintList(android.content.res.ColorStateList.valueOf(color));
+    }
+
     private void setWebVisible(boolean visible) {
         webVisible = visible;
-        ViewGroup.LayoutParams lp0 = wv.getLayoutParams();
-        if (lp0 instanceof android.widget.LinearLayout.LayoutParams) {
-            android.widget.LinearLayout.LayoutParams lp =
-                    (android.widget.LinearLayout.LayoutParams) lp0;
-            lp.height = 0;
-            lp.weight = visible ? 1.2f : 0f;
-            wv.setLayoutParams(lp);
-        }
+        int dp = (int) (getResources().getDisplayMetrics().density);
+        ViewGroup.LayoutParams lp = wv.getLayoutParams();
+        lp.height = visible ? 420 * dp : 0;
+        wv.setLayoutParams(lp);
+        wv.setVisibility(visible ? android.view.View.VISIBLE : android.view.View.GONE);
         toggleWeb.setText(visible ? "Hide browser" : "Show browser");
     }
 
@@ -290,10 +307,16 @@ public class MainActivity extends Activity {
         finished = true;
         running = false;
         wv.post(() -> { if (webVisible) setWebVisible(false); });
+        progress.setVisibility(android.view.View.GONE);
+        extractBtn.setText("Extract sold stats");
+        extractCmd(true);
         if (!showSummary || items.isEmpty()) {
             status.setText("No sold listings found for this title on " + host + ".");
             return;
         }
+        progress.setVisibility(android.view.View.GONE);
+        extractBtn.setText("Extract sold stats");
+        extractCmd(true);
         long now = System.currentTimeMillis();
         final long days90 = 90L * 24 * 60 * 60 * 1000;
         List<double[]> inWindow = new ArrayList<>();
@@ -316,11 +339,30 @@ public class MainActivity extends Activity {
         double simple = medianSimple(prices);
         double w = medianWeighted(weighted);
         String cur = currencies.isEmpty() ? "" : currencies.get(0);
+        resultSold.setText(String.format(Locale.US, "%.0f", soldCount));
+        resultMedian.setText(fmtAmount(simple, cur));
+        resultMedianW.setText(fmtAmount(w, cur));
+        resultMeta.setText(String.format(Locale.US,
+                "%d listings scanned on %s \u00b7 %d inside the 90-day window \u00b7 query: %s",
+                items.size(), host, inWindow.size(), query));
+        resultCard.setVisibility(android.view.View.VISIBLE);
         result.setText(String.format(Locale.US,
-                "Marketplace: %s\nTitle: %s\n\nSold (last 90 days): %.0f\nMedian price: %.2f %s\nMedian (sold-qty weighted): %.2f %s\nListings parsed in window: %d (of %d total)",
-                host, query, soldCount, simple, cur, w, cur,
-                inWindow.size(), items.size()));
+                "Marketplace: %s | Title: %s | Sold last 90 days: %.0f | Median: %.2f %s | Weighted: %.2f %s | Listings in window: %d of %d",
+                host, query, soldCount, simple, cur, w, cur, inWindow.size(), items.size()));
         status.setText("Done.");
+    }
+
+    private String fmtAmount(double v, String cur) {
+        String sym;
+        switch (cur) {
+            case "EUR": sym = "\u20ac"; break;
+            case "USD": sym = "$"; break;
+            case "GBP": sym = "\u00a3"; break;
+            case "CAD": return String.format(Locale.US, "CA$%,.2f", v);
+            case "AUD": return String.format(Locale.US, "AU$%,.2f", v);
+            default: sym = cur + " ";
+        }
+        return String.format(Locale.US, sym + "%,.2f", v);
     }
 
     private double medianSimple(List<Double> sorted) {

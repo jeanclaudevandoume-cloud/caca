@@ -22,12 +22,12 @@ $BT/aapt2 link -o $BUILD/base.apk \
   --manifest $APP/AndroidManifest.xml \
   --java $BUILD/gen \
   --min-sdk-version 21 --target-sdk-version 34 \
-  --version-code 2 --version-name 1.1 \
+  --version-code 3 --version-name 1.2 \
   --auto-add-overlay
 
 echo "== javac =="
 find $BUILD/gen $APP/java -name "*.java" > $BUILD/sources.txt
-javac --release 8 -classpath "$PLATFORM" -d $BUILD/classes @$BUILD/sources.txt 2>&1 | grep -v "^warning" | grep -v "Warning" || true
+javac --release 8 -classpath "$PLATFORM" -d $BUILD/classes @$BUILD/sources.txt 2> >(grep -v "warning" >&2) || { echo "JAVAC FAILED"; exit 1; }
 ls $BUILD/classes/com/vibe/ebaysoldstats/
 
 echo "== d8 =="

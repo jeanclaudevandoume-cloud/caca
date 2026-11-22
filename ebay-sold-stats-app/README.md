@@ -69,3 +69,23 @@ No analytics, no tracking, INTERNET permission only.
 - Regression check: on a captured live eBay FR sold-search page, the app's
   parser returns results identical to the Python reference extractor
   (69 listings, 66 within 90 days, median EUR 21.87).
+
+## v1.2 (latest)
+
+UI overhaul and bug fixes:
+
+- New interface: titles and sections, card-style sections with rounded
+  backgrounds, big result display ("sold in the last 90 days" as a large
+  number, median prices with proper currency symbols, meta line with the
+  scan details), indeterminate progress bar while running.
+- Marketplace labels now include the currency (eBay US (USD $), ...).
+- Bug: rotating the screen mid-extraction no longer kills the run
+  (orientation locked + config changes handled in-place).
+- Bug: the Extract button now clearly switches to a red "Stop" state while
+  running and resets on completion/stop.
+- Bug: build script previously masked Java compile errors (deadly for
+  artifacts) - now fails hard on javac errors.
+- Prices formatted per currency (EUR/USD/GBP/CAD/AUD) with thousands
+  separators; results remain copy-selectable in the raw text view.
+- Regression re-verified against the reference extractor on the captured
+  live eBay FR page (69 listings, 66 within 90 days, median EUR 21.87).
