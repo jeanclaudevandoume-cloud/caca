@@ -197,11 +197,38 @@
                 android:orientation="vertical"
                 android:visibility="gone" />
 
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="8dp">
+
+                <Button
+                    android:id="@+id/btn_batch"
+                    android:layout_width="0dp"
+                    android:layout_height="48dp"
+                    android:layout_weight="1"
+                    android:backgroundTint="#e8ecf1"
+                    android:textColor="#21242b"
+                    android:textAllCaps="false"
+                    android:text="Batch: run 800-query catalog" />
+
+                <Button
+                    android:id="@+id/btn_share"
+                    android:layout_width="wrap_content"
+                    android:layout_height="48dp"
+                    android:layout_marginStart="8dp"
+                    android:backgroundTint="#e8ecf1"
+                    android:textColor="#21242b"
+                    android:textAllCaps="false"
+                    android:text="Share CSV" />
+            </LinearLayout>
+
             <Button
                 android:id="@+id/btn_settings"
                 android:layout_width="match_parent"
                 android:layout_height="48dp"
-                android:layout_marginTop="14dp"
+                android:layout_marginTop="10dp"
                 android:backgroundTint="#e8ecf1"
                 android:textColor="#21242b"
                 android:textAllCaps="false"

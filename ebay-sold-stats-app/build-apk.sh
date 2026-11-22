@@ -17,12 +17,13 @@ $BT/aapt2 compile --dir $APP/res -o $BUILD/res.zip
 
 echo "== aapt2 link =="
 $BT/aapt2 link -o $BUILD/base.apk \
+  -A $APP/assets \
   -I "$PLATFORM" \
   $BUILD/res.zip \
   --manifest $APP/AndroidManifest.xml \
   --java $BUILD/gen \
   --min-sdk-version 21 --target-sdk-version 34 \
-  --version-code 8 --version-name 1.7 \
+  --version-code 9 --version-name 2.0 \
   --auto-add-overlay
 
 echo "== javac =="

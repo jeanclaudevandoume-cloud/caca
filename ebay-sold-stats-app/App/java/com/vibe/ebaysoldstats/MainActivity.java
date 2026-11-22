@@ -63,6 +63,19 @@ public class MainActivity extends Activity {
     private boolean finished = false;
     private String pendingNextUrl = "";
     private int noItemsSeen = 0;
+    // ---- batch mode ----
+    private boolean batchMode = false;
+    private java.util.List<String[]> batch = new ArrayList<>();
+    private int batchIdx = 0;
+    private String batchQuery = "";
+    private double lastMedian = -1, lastMedianW = -1, lastSold = -1;
+    private String lastCurrency = "";
+    private int lastInWindow = 0, lastPages = 0;
+    private String csv(String s) {
+        return s.contains(",") || s.contains("\"") ? "\"" + s.replace("\"", "\"\"") + "\"" : s;
+    }
+    private final StringBuilder resultsCsv = new StringBuilder(
+            "query_id,query,franchise,character,goods,sold_90d,median,median_weighted,currency,listings,listings_in_window,pages,status\n");
     private final java.util.HashSet<String> seenBatches = new java.util.HashSet<>();
     private String lastEvalUrl = "";
     private final List<double[]> items = new ArrayList<>();   // {price, qty, dateMs(-1 unknown)}
@@ -113,6 +126,42 @@ public class MainActivity extends Activity {
 
         settings.setOnClickListener(v ->
                 startActivity(new Intent(this, SettingsActivity.class)));
+
+        Button batchBtn = findViewById(R.id.btn_batch);
+        batchBtn.setOnClickListener(v -> {
+            if (running) {
+                running = false;
+                finished = true;
+                status.setText("Stopped.");
+                extractBtn.setText("Extract sold stats");
+                extractCmd(true);
+                progress.setVisibility(android.view.View.GONE);
+                return;
+            }
+            if (batch.isEmpty()) loadBatch();
+            batchMode = true;
+            int saved = prefs.getInt("batch_idx", 0);
+            if (saved > 0 && saved < batch.size()) {
+                batchIdx = saved;
+                status.setText("[Batch] resuming at " + (batchIdx + 1) + "/" + batch.size());
+            } else {
+                batchIdx = 0;
+                status.setText("[Batch] starting: " + batch.size() + " queries (polite pacing)");
+            }
+            prefs.edit().putString("results_csv", resultsCsv.toString()).apply();
+            loadBatchPrefResults();
+            runBatchCurrent(400);
+        });
+
+        findViewById(R.id.btn_share).setOnClickListener(v -> {
+            Intent i = new Intent(Intent.ACTION_SEND);
+            i.setType("text/plain");
+            i.putExtra(Intent.EXTRA_SUBJECT, "eBay sold checker results");
+            i.putExtra(Intent.EXTRA_TEXT, resultsCsv.toString().length() > 900000
+                    ? resultsCsv.substring(resultsCsv.length() - 900000)
+                    : resultsCsv.toString());
+            startActivity(Intent.createChooser(i, "Export results CSV"));
+        });
 
         wv = findViewById(R.id.webview);
         WebSettings ws = wv.getSettings();
@@ -172,11 +221,15 @@ public class MainActivity extends Activity {
         result.setText("");
         resultCard.setVisibility(android.view.View.GONE);
         progress.setVisibility(android.view.View.VISIBLE);
-        extractBtn.setText("Stop");
+        if (!batchMode) { extractBtn.setText("Stop"); }
         extractCmd(false);
-        status.setText("Loading eBay sold search on " + host + " ...");
+        pageCounter = 1;
+        status.setText((batchMode ? "[Batch " + (batchIdx + 1) + "/" + batch.size() + "] " : "")
+                + "Loading eBay sold search on " + host + " ...");
         wv.loadUrl(pageUrl(1));
     }
+
+    private int pageCounter = 1;
 
     private void extractCmd(boolean idle) {
         int color = idle ? 0xffe05353 : 0xff0a4fa0;
@@ -191,6 +244,61 @@ public class MainActivity extends Activity {
         wv.setLayoutParams(lp);
         wv.setVisibility(visible ? android.view.View.VISIBLE : android.view.View.GONE);
         toggleWeb.setText(visible ? "Hide browser" : "Show browser");
+    }
+
+    private void loadBatch() {
+        try {
+            java.io.BufferedReader br = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(getAssets().open("queries.csv")));
+            String line = br.readLine();   // header
+            while ((line = br.readLine()) != null) {
+                String[] parts = line.split(",", -1);
+                if (parts.length >= 5) batch.add(parts);
+            }
+            br.close();
+        } catch (Exception e) {
+            status.setText("Could not read catalog: " + e);
+        }
+    }
+
+    private void loadBatchPrefResults() {
+        String saved = prefs.getString("results_csv", "");
+        if (!saved.contains("\n")) return;
+        String[] lines = saved.split("\n");
+        if (lines.length > 1 && lines[0].startsWith("query_id")) {
+            resultsCsv.setLength(0);
+            resultsCsv.append(lines[0]).append('\n');
+            for (int i = 1; i < lines.length; i++) {
+                if (!lines[i].isEmpty()) resultsCsv.append(lines[i]).append('\n');
+            }
+        }
+    }
+
+    /** Runs the query at batchIdx after ms delay; called per query. */
+    private void runBatchCurrent(long ms) {
+        if (!batchMode) return;
+        if (batchIdx >= batch.size()) { finishBatch(); return; }
+        final String[] row = batch.get(batchIdx);
+        final int idx = batchIdx;
+        status.setText("[Batch " + (idx + 1) + "/" + batch.size() + "] next: "
+                + row[4] + " in " + (ms / 1000) + "s");
+        extractBtn.setText("Stop batch");
+        extractCmd(false);
+        wv.postDelayed(() -> {
+            if (!batchMode || batchIdx != idx) return;
+            batchQuery = row[4];
+            siteSpinner.setSelection(2);   // FR
+            host = row.length > 5 && row[5].equals("us") ? SITES[0][1] : SITES[2][1];
+            startRun(batchQuery);
+        }, ms);
+    }
+
+    private void finishBatch() {
+        batchMode = false;
+        prefs.edit().putInt("batch_idx", 0).apply();
+        resultCard.setVisibility(android.view.View.VISIBLE);
+        status.setText("[Batch] complete - use Export results CSV to save "
+                + "the " + (resultsCsv.toString().split("\n").length - 1) + " rows.");
     }
 
     private String pageUrl(int page) {
@@ -370,31 +478,17 @@ public class MainActivity extends Activity {
         if (finished) return;
         finished = true;
         running = false;
-        wv.post(() -> { if (webVisible) setWebVisible(false); });
         progress.setVisibility(android.view.View.GONE);
-        extractBtn.setText("Extract sold stats");
-        extractCmd(true);
-        if (!showSummary || items.isEmpty()) {
-            status.setText("No sold listings found for this title on " + host + ".");
-            return;
+        if (!batchMode) {
+            extractBtn.setText("Extract sold stats");
+            extractCmd(true);
         }
-        progress.setVisibility(android.view.View.GONE);
-        extractBtn.setText("Extract sold stats");
-        extractCmd(true);
+
         long now = System.currentTimeMillis();
         final long days90 = 90L * 24 * 60 * 60 * 1000;
         List<double[]> inWindow = new ArrayList<>();
-        List<Integer> windowIdx = new ArrayList<>();
-        for (int k = 0; k < items.size(); k++) {
-            double[] it = items.get(k);
-            if (it[2] < 0 || now - (long) it[2] <= days90) {
-                inWindow.add(it);
-                windowIdx.add(k);
-            }
-        }
-        if (inWindow.isEmpty()) {
-            status.setText("Finished, but no sold listings in the last 90 days were parsed.");
-            return;
+        for (double[] it : items) {
+            if (it[2] < 0 || now - (long) it[2] <= days90) inWindow.add(it);
         }
         double soldCount = 0;
         List<Double> prices = new ArrayList<>();
@@ -405,26 +499,64 @@ public class MainActivity extends Activity {
             weighted.add(it);
         }
         Collections.sort(prices);
-        double simple = medianSimple(prices);
-        double w = medianWeighted(weighted);
-        String cur = currencies.isEmpty() ? "" : currencies.get(0);
+        lastSold = soldCount;
+        lastMedian = prices.isEmpty() ? -1 : medianSimple(prices);
+        lastMedianW = weighted.isEmpty() ? -1 : medianWeighted(weighted);
+        lastCurrency = currencies.isEmpty() ? "" : currencies.get(0);
+        lastInWindow = inWindow.size();
+        lastPages = pageCounter;
+        String cur = lastCurrency;
+
+        if (batchMode && !batch.isEmpty() && !batchQuery.isEmpty()) {
+            resultsCsv.append(batch.get(batchIdx)[0]).append(',')
+                    .append(csv(batchQuery)).append(',')
+                    .append(csv(batch.get(batchIdx)[1])).append(',')
+                    .append(csv(batch.get(batchIdx)[2])).append(',')
+                    .append(csv(batch.get(batchIdx)[3])).append(',')
+                    .append(String.valueOf((long) soldCount)).append(',')
+                    .append(lastMedian < 0 ? "" : String.format(Locale.US, "%.2f", lastMedian)).append(',')
+                    .append(lastMedianW < 0 ? "" : String.format(Locale.US, "%.2f", lastMedianW)).append(',')
+                    .append(cur).append(',')
+                    .append(items.size()).append(',')
+                    .append(lastInWindow).append(',')
+                    .append(lastPages).append(',')
+                    .append(inWindow.isEmpty() ? "empty" : "ok").append('\n');
+            prefs.edit().putString("results_csv", resultsCsv.toString())
+                    .putInt("batch_idx", batchIdx + 1).apply();
+            batchIdx++;
+            status.setText("[Batch] " + batchIdx + "/" + batch.size() + " done - last: "
+                    + batchQuery + " -> " + ((long) soldCount) + " sold");
+            runBatchCurrent((long) (12000 + Math.random() * 9000));
+            return;
+        }
+
+        if (!showSummary || inWindow.isEmpty()) {
+            status.setText("No sold listings found for this title on " + host + ".");
+            return;
+        }
         resultSold.setText(String.format(Locale.US, "%.0f", soldCount));
-        resultMedian.setText(fmtAmount(simple, cur));
-        resultMedianW.setText(fmtAmount(w, cur));
+        resultMedian.setText(fmtAmount(lastMedian, cur));
+        resultMedianW.setText(fmtAmount(lastMedianW, cur));
         resultMeta.setText(String.format(Locale.US,
-                "%d listings scanned on %s \u00b7 %d inside the 90-day window \u00b7 query: %s",
+                "%d listings scanned on %s · %d inside the 90-day window · query: %s",
                 items.size(), host, inWindow.size(), query));
         resultCard.setVisibility(android.view.View.VISIBLE);
         result.setVisibility(android.view.View.VISIBLE);
         resultScroll.smoothScrollTo(0, 0);
         setWebVisible(false);
         wv.postDelayed(() -> wv.loadUrl("about:blank"), 4000);
+        List<Integer> wIdx = new ArrayList<>();
+        for (int k = 0; k < items.size(); k++) {
+            double[] it = items.get(k);
+            if (it[2] < 0 || now - (long) it[2] <= days90) wIdx.add(k);
+        }
         List<String[]> recentWindow = new ArrayList<>();
-        for (int k : windowIdx) recentWindow.add(recent.get(k));
+        for (int k : wIdx) recentWindow.add(recent.get(k));
+        gridWrap.removeAllViews();
         buildRecentGrid(recentWindow);
         result.setText(String.format(Locale.US,
                 "Marketplace: %s | Title: %s | Sold last 90 days: %.0f | Median: %.2f %s | Weighted: %.2f %s | Listings in window: %d of %d",
-                host, query, soldCount, simple, cur, w, cur, inWindow.size(), items.size()));
+                host, query, soldCount, lastMedian, cur, lastMedianW, cur, inWindow.size(), items.size()));
         status.setText("Done.");
     }
 
@@ -436,7 +568,7 @@ public class MainActivity extends Activity {
         Collections.sort(cells, (a, b) -> {
             double da = a[2].isEmpty() ? -1 : Double.parseDouble(a[2]);
             double db = b[2].isEmpty() ? -1 : Double.parseDouble(b[2]);
-            return Double.compare(db, da);   // newest first
+            return Double.compare(db, da);
         });
         int shown = 0;
         for (String[] r : cells) {
@@ -460,12 +592,8 @@ public class MainActivity extends Activity {
             tv.setGravity(android.view.Gravity.CENTER);
             cell.addView(tv);
             android.widget.GridLayout.LayoutParams clp = new android.widget.GridLayout.LayoutParams();
-            android.widget.GridLayout.Spec row = android.widget.GridLayout.spec(
-                    android.widget.GridLayout.UNDEFINED, 1f);
-            android.widget.GridLayout.Spec col = android.widget.GridLayout.spec(
-                    android.widget.GridLayout.UNDEFINED, 1f);
-            clp.columnSpec = col;
-            clp.rowSpec = row;
+            clp.columnSpec = android.widget.GridLayout.spec(android.widget.GridLayout.UNDEFINED, 1f);
+            clp.rowSpec = android.widget.GridLayout.spec(android.widget.GridLayout.UNDEFINED, 1f);
             grid.addView(cell, clp);
             shown++;
             final android.widget.ImageView fiv = iv;

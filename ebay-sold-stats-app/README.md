@@ -161,3 +161,23 @@ weight and requests layout.
   the next-page link, page 2): page 1 = 120 listings, page 2 = +28, total
   148, of which 138 inside the 90-day window; median EUR 9.21 (previously
   the app reported 89 of 99, median 10.84).
+
+## v2.0 (latest) - phone-only batch mode
+
+Run the whole 800-query character-goods catalog directly on an Android phone:
+
+- New "Batch: run 800-query catalog" button: loads the bundled catalog
+  (100 characters x 8 goods types across 30 franchises), and runs each query
+  through the same WebView flow one after another at polite pacing
+  (12-21s randomized gap between queries, 2.5-5s between pages).
+- Resumable: progress and the results CSV survive app restarts; pressing
+  Batch again resumes where it stopped.
+- Progress in the status line ("[Batch 37/800] done - last: Gojo Satoru
+  figurine -> 182 sold"); stop any time with the Stop button.
+- "Share CSV" exports the accumulated results (query, franchise, character,
+  goods, sold-90d, median, weighted median, currency, listings,
+  pages, status) via the Android share sheet - send it to Google Sheets
+  or Drive for sorting/filtering.
+- Keep the phone charging and the app in the foreground during a batch;
+  a full sweep at polite pacing takes several hours. Chunks are fine -
+  resume does the rest.
