@@ -13,6 +13,8 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="EBAY ACCOUNT (OPTIONAL)"
+            android:textStyle="bold"
+            android:textColor="#0a4fa0"
             android:textSize="13sp" />
 
         <EditText
@@ -34,12 +36,15 @@
             android:layout_height="wrap_content"
             android:paddingTop="10dp"
             android:text="Result pages to scan per marketplace (1-4):"
+            android:textStyle="bold"
+            android:textColor="#0a4fa0"
             android:textSize="13sp" />
 
         <EditText
             android:id="@+id/input_pages"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:hint="1 to 4 - default 3"
             android:inputType="number"
             android:text="3" />
 
@@ -47,7 +52,9 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:paddingTop="14dp"
-            android:text="Cookie fallback (used automatically if a marketplace returns 403): paste the EditThisCookie JSON export below. Cookies are routed to their own marketplace automatically by their domain field."
+            android:text="Cookie fallback (copy of your logged-in browser session - used automatically if a marketplace returns 403): paste the EditThisCookie JSON export below."
+            android:textStyle="bold"
+            android:textColor="#0a4fa0"
             android:textSize="13sp" />
 
         <EditText
@@ -64,7 +71,9 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:paddingTop="14dp"
-            android:text="Custom catalog (optional - one search query per line; replaces the built-in 1500-query list when filled)"
+            android:text="Custom catalog (optional - one search query per line, or franchise,character,goods,query lines; replaces the built-in 1500-query list when filled)"
+            android:textStyle="bold"
+            android:textColor="#0a4fa0"
             android:textSize="13sp" />
 
         <EditText
@@ -79,8 +88,12 @@
         <Button
             android:id="@+id/btn_save"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
+            android:layout_height="52dp"
+            android:layout_marginTop="16dp"
+            android:backgroundTint="#0a4fa0"
+            android:textColor="#ffffff"
             android:textAllCaps="false"
+            android:textSize="16sp"
             android:text="Save settings" />
     </LinearLayout>
 </ScrollView>

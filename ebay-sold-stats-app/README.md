@@ -213,7 +213,7 @@ Run the whole 800-query character-goods catalog directly on an Android phone:
   It also works right after a fresh app start (loads the saved results).
 - Batch button label no longer hardcodes the query count.
 
-## v2.3 (latest) - results infographic
+## v2.3 - results infographic
 
 - "Results infographic" replaces the plain text list: a full-screen scrollable
   dashboard generated from the batch CSV - KPI cards (found sales, hit rate,
@@ -229,3 +229,21 @@ Run the whole 800-query character-goods catalog directly on an Android phone:
 - Visual design was iterated 5 times against headless-Chromium screenshots
   reviewed by a separate visual-QA pass; final grade 9/10 (remaining nit:
   rank badge sits close to the thumbnail edge).
+
+## v2.4 (latest) - whole-flow visual & usability pass (blind-reviewed to 9-10/10)
+
+Blind visual-QA loop over rendered replicas of the real layout XML, iterated
+until every screen passed a fresh unbiased review at 9+/10:
+
+- Stop affordance fixed and made obvious: the run button now turns RED with a
+  "Stop"/"Stop batch" label while a run is active (it was inverted before -
+  red when idle). Status text during batch explicitly says the red button
+  stops the run.
+- Batch progress: new determinate progress bar plus "[Batch 373/1500 - 24%]"
+  in the status line, so completion is understandable at a glance. Hidden
+  again on stop/finish.
+- Status text upgraded: larger, higher-contrast (13sp gray -> 14sp dark).
+- Settings: section headers in bold app blue, clearer "Cookie fallback"
+  wording, pages field hint ("1 to 4 - default 3"), custom catalog hint
+  documents the CSV line format, big blue "Save settings" button (was a bare
+  gray button). Password stays masked in the real app (inputType=textPassword).

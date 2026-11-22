@@ -49,6 +49,7 @@ public class MainActivity extends Activity {
     private ScrollView resultScroll;
     private android.widget.LinearLayout gridWrap;
     private android.view.View resultCard, progress;
+    private android.widget.ProgressBar batchProgress;
     private TextView resultSold, resultMedian, resultMedianW, resultMeta;
     private TextView toggleWeb;
     private android.widget.Button extractBtn;
@@ -106,6 +107,7 @@ public class MainActivity extends Activity {
         resultCard = findViewById(R.id.result_card);
         gridWrap = findViewById(R.id.result_grid);
         progress = findViewById(R.id.progress);
+        batchProgress = findViewById(R.id.batch_progress);
         resultSold = findViewById(R.id.result_sold);
         resultMedian = findViewById(R.id.result_median);
         resultMedianW = findViewById(R.id.result_median_w);
@@ -139,6 +141,7 @@ public class MainActivity extends Activity {
                 extractBtn.setText("Extract sold stats");
                 extractCmd(true);
                 progress.setVisibility(android.view.View.GONE);
+                if (batchProgress != null) batchProgress.setVisibility(android.view.View.GONE);
                 if (batchMode) stopService(new Intent(this, BatchService.class));
                 return;
             }
@@ -215,6 +218,7 @@ public class MainActivity extends Activity {
                 running = false;
                 finished = true;
                 progress.setVisibility(android.view.View.GONE);
+                if (batchProgress != null) batchProgress.setVisibility(android.view.View.GONE);
                 extractBtn.setText("Extract sold stats");
                 extractCmd(true);
                 status.setText("Stopped. Progress saved - press Batch again to resume.");
@@ -283,7 +287,7 @@ public class MainActivity extends Activity {
     private int pageCounter = 1;
 
     private void extractCmd(boolean idle) {
-        int color = idle ? 0xffe05353 : 0xff0a4fa0;
+        int color = idle ? 0xff0a4fa0 : 0xffd64545;
         extractBtn.setBackgroundTintList(android.content.res.ColorStateList.valueOf(color));
     }
 
@@ -569,13 +573,20 @@ public class MainActivity extends Activity {
     }
 
     /** Runs the query at batchIdx after ms delay; called per query. */
+    private void batchStatus(String msg) {
+        int total = Math.max(1, batch.size());
+        int p = batchIdx * 100 / total;
+        batchProgress.setProgress(p);
+        status.setText("[Batch " + batchIdx + "/" + batch.size() + " \u00b7 " + p + "%] " + msg);
+    }
+
     private void runBatchCurrent(long ms) {
         if (!batchMode) return;
         if (batchIdx >= batch.size()) { finishBatch(); return; }
         final String[] row = batch.get(batchIdx);
         final int idx = batchIdx;
-        status.setText("[Batch " + (idx + 1) + "/" + batch.size() + "] next: "
-                + row[4] + " in " + (ms / 1000) + "s");
+        batchProgress.setVisibility(android.view.View.VISIBLE);
+        batchStatus("next: " + row[4] + " in " + (ms / 1000) + "s \u2013 red button stops");
         extractBtn.setText("Stop batch");
         extractCmd(false);
         wv.postDelayed(() -> {
@@ -591,6 +602,7 @@ public class MainActivity extends Activity {
         batchMode = false;
         batchRunning = false;
         stopService(new Intent(this, BatchService.class));
+        batchProgress.setVisibility(android.view.View.GONE);
         extractBtn.setText("Extract sold stats");
         extractCmd(true);
         resultCard.setVisibility(android.view.View.VISIBLE);
@@ -830,8 +842,7 @@ public class MainActivity extends Activity {
             prefs.edit().putString("results_csv", resultsCsv.toString())
                     .putInt("batch_idx", batchIdx + 1).apply();
             batchIdx++;
-            status.setText("[Batch] " + batchIdx + "/" + batch.size() + " done - last: "
-                    + batchQuery + " -> " + ((long) soldCount) + " sold");
+            batchStatus("done - last: " + batchQuery + " -> " + ((long) soldCount) + " sold");
             if (batchRunning) {
                 runBatchCurrent((long) (12000 + Math.random() * 9000));
             } else {
