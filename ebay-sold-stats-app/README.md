@@ -56,3 +56,16 @@ bash build-apk.sh
 ```
 
 No analytics, no tracking, INTERNET permission only.
+
+## v1.1 (latest)
+
+- Fix: page-load double-triggering eliminated (exactly one driver run per page,
+  with bounded re-check before ever reporting "no sold listings found"),
+  so an interstitial page no longer prints a false negative before results.
+- The embedded eBay browser is now hidden while extracting: the results area
+  takes the full screen and is scrollable. The browser auto-expands only when
+  eBay requires you to sign in or pass a check, and collapses back afterwards.
+  A "Show browser / Hide browser" button toggles it on demand.
+- Regression check: on a captured live eBay FR sold-search page, the app's
+  parser returns results identical to the Python reference extractor
+  (69 listings, 66 within 90 days, median EUR 21.87).

@@ -6,6 +6,9 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.Bundle;
+import android.view.ViewGroup;
+import android.widget.Button;
+import android.widget.ScrollView;
 import android.webkit.CookieManager;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebSettings;
@@ -42,6 +45,9 @@ public class MainActivity extends Activity {
     private EditText queryInput;
     private Spinner siteSpinner;
     private TextView status, result;
+    private ScrollView resultScroll;
+    private Button toggleWeb;
+    private boolean webVisible = false;
     private SharedPreferences prefs;
 
     private String query = "";
@@ -50,6 +56,9 @@ public class MainActivity extends Activity {
     private int currentPage = 1;
     private boolean running = false;
     private boolean cookiesAppliedForRun = false;
+    private boolean finished = false;
+    private int noItemsSeen = 0;
+    private String lastEvalUrl = "";
     private final List<double[]> items = new ArrayList<>();   // {price, qty, dateMs(-1 unknown)}
     private final List<String> currencies = new ArrayList<>();
 
@@ -70,8 +79,12 @@ public class MainActivity extends Activity {
         queryInput = findViewById(R.id.input_query);
         status = findViewById(R.id.status);
         result = findViewById(R.id.result);
+        resultScroll = findViewById(R.id.result_scroll);
+        toggleWeb = findViewById(R.id.btn_toggle_web);
         Button extract = findViewById(R.id.btn_extract);
         Button settings = findViewById(R.id.btn_settings);
+
+        toggleWeb.setOnClickListener(v -> setWebVisible(!webVisible));
 
         settings.setOnClickListener(v ->
                 startActivity(new Intent(this, SettingsActivity.class)));
@@ -88,7 +101,9 @@ public class MainActivity extends Activity {
             @Override
             public void onPageFinished(WebView view, String url) {
                 if (!running) return;
-                view.evaluateJavascript(DRIVER_JS, null);
+                if (url.equals(lastEvalUrl)) return;   // one driver run per page
+                lastEvalUrl = url;
+                view.postDelayed(() -> view.evaluateJavascript(DRIVER_JS, null), 500);
             }
         });
 
@@ -114,11 +129,27 @@ public class MainActivity extends Activity {
         items.clear();
         currencies.clear();
         currentPage = 1;
+        noItemsSeen = 0;
+        lastEvalUrl = "";
+        finished = false;
         cookiesAppliedForRun = false;
         running = true;
         result.setText("");
         status.setText("Loading eBay sold search on " + host + " ...");
         wv.loadUrl(pageUrl(1));
+    }
+
+    private void setWebVisible(boolean visible) {
+        webVisible = visible;
+        ViewGroup.LayoutParams lp0 = wv.getLayoutParams();
+        if (lp0 instanceof android.widget.LinearLayout.LayoutParams) {
+            android.widget.LinearLayout.LayoutParams lp =
+                    (android.widget.LinearLayout.LayoutParams) lp0;
+            lp.height = 0;
+            lp.weight = visible ? 1.2f : 0f;
+            wv.setLayoutParams(lp);
+        }
+        toggleWeb.setText(visible ? "Hide browser" : "Show browser");
     }
 
     private String pageUrl(int page) {
@@ -150,6 +181,7 @@ public class MainActivity extends Activity {
             if (!cookiesAppliedForRun && applyCookiesForHost()) {
                 cookiesAppliedForRun = true;
                 status.setText("403 wall detected - applying your Settings cookies and retrying ...");
+                lastEvalUrl = "";
                 wv.postDelayed(() -> wv.loadUrl(pageUrl(currentPage)), 1500);
             } else {
                 status.setText("eBay is blocking this marketplace (403).\n"
@@ -161,6 +193,7 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void needLogin() {
+            wv.post(() -> setWebVisible(true));
             status.setText("eBay wants a sign-in for sold search - signing in "
                     + (hasCreds() ? "with your saved account ..." : "")
                     + "\nIf a check appears, complete it once in the view below.");
@@ -170,12 +203,22 @@ public class MainActivity extends Activity {
         public void noItems(String title) {
             if (title != null && (title.contains("Se connecter")
                     || title.toLowerCase(Locale.ROOT).contains("sign in"))) {
+                wv.post(() -> setWebVisible(true));
                 status.setText("Sign-in page shown - complete it in the view below "
                         + "(once), the extraction resumes automatically.");
                 return;
             }
-            status.setText("No sold listings found for this title on " + host + ".");
-            running = false;
+            if (finished) return;
+            noItemsSeen++;
+            if (noItemsSeen <= 2) {
+                // interstitial / still-hydrating page: re-check before concluding
+                status.setText("Waiting for results page to settle ...");
+                wv.postDelayed(() -> {
+                    if (running) wv.evaluateJavascript(DRIVER_JS, null);
+                }, 1600);
+                return;
+            }
+            endRun(!items.isEmpty());
         }
 
         @JavascriptInterface
@@ -199,13 +242,17 @@ public class MainActivity extends Activity {
                 }
             } catch (Exception ignored) { }
 
+            noItemsSeen = 0;
+            if (finished) return;
+            wv.post(() -> { if (webVisible) setWebVisible(false); });
             if (currentPage < pagesWanted && currentPage < 4) {
-                currentPage++;
-                status.setText("Page " + (currentPage - 1) + " parsed ("
+                status.setText("Page " + currentPage + " parsed ("
                         + items.size() + " listings) - loading next ...");
-                wv.postDelayed(() -> wv.loadUrl(pageUrl(currentPage)), 2000);
+                int next = currentPage + 1;
+                currentPage = next;
+                wv.postDelayed(() -> wv.loadUrl(pageUrl(next)), 2000);
             } else {
-                finishRun();
+                endRun(true);
             }
         }
     }
@@ -238,8 +285,15 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void finishRun() {
+    private void endRun(boolean showSummary) {
+        if (finished) return;
+        finished = true;
         running = false;
+        wv.post(() -> { if (webVisible) setWebVisible(false); });
+        if (!showSummary || items.isEmpty()) {
+            status.setText("No sold listings found for this title on " + host + ".");
+            return;
+        }
         long now = System.currentTimeMillis();
         final long days90 = 90L * 24 * 60 * 60 * 1000;
         List<double[]> inWindow = new ArrayList<>();

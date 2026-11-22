@@ -41,31 +41,54 @@
         android:inputType="text"
         android:textSize="16sp" />
 
-    <Button
-        android:id="@+id/btn_extract"
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:textAllCaps="false"
-        android:text="Extract sold stats" />
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btn_extract"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textAllCaps="false"
+            android:text="Extract sold stats" />
+
+        <Button
+            android:id="@+id/btn_toggle_web"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:textAllCaps="false"
+            android:text="Show browser" />
+    </LinearLayout>
 
     <TextView
         android:id="@+id/status"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:textSize="13sp"
-        android:text="Pick a marketplace, type a title, press Extract." />
+        android:text="Pick a marketplace, type a title, press Extract. The browser stays hidden unless eBay asks you to sign in." />
 
-    <TextView
-        android:id="@+id/result"
-        style="@style/Result"
+    <ScrollView
+        android:id="@+id/result_scroll"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:paddingTop="6dp"
-        android:textIsSelectable="true" />
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="4dp">
+
+        <TextView
+            android:id="@+id/result"
+            style="@style/Result"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingBottom="8dp"
+            android:textIsSelectable="true" />
+    </ScrollView>
 
     <WebView
         android:id="@+id/webview"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1" />
+        android:layout_weight="0" />
 </LinearLayout>
