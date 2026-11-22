@@ -6,6 +6,7 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Build;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.ScrollView;
@@ -132,14 +133,21 @@ public class MainActivity extends Activity {
             if (running) {
                 running = false;
                 finished = true;
-                status.setText("Stopped.");
+                status.setText("Stopped. Progress saved - press Batch again to resume.");
                 extractBtn.setText("Extract sold stats");
                 extractCmd(true);
                 progress.setVisibility(android.view.View.GONE);
+                if (batchMode) stopService(new Intent(this, BatchService.class));
                 return;
             }
             if (batch.isEmpty()) loadBatch();
             batchMode = true;
+            startService(new Intent(this, BatchService.class));
+            if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(
+                    "android.permission.POST_NOTIFICATIONS")
+                    != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 7);
+            }
             int saved = prefs.getInt("batch_idx", 0);
             if (saved > 0 && saved < batch.size()) {
                 batchIdx = saved;
@@ -248,6 +256,25 @@ public class MainActivity extends Activity {
 
     private void loadBatch() {
         try {
+            String custom = prefs.getString("custom_catalog", "").trim();
+            if (!custom.isEmpty()) {
+                for (String line : custom.split("\\n")) {
+                    String q = line.trim();
+                    if (q.isEmpty()) continue;
+                    // optional CSV form: franchise,character,goods,query
+                    String[] parts = line.split(",", -1);
+                    if (parts.length >= 4) {
+                        batch.add(new String[]{"", parts[0].trim(), parts[1].trim(),
+                                parts[2].trim(), parts[3].trim(), "fr"});
+                    } else {
+                        batch.add(new String[]{"", "custom", "", "", q, "fr"});
+                    }
+                }
+                status.setText("[Batch] custom catalog: " + batch.size() + " queries");
+            }
+        } catch (Exception ignored) { }
+        if (!batch.isEmpty()) return;
+        try {
             java.io.BufferedReader br = new java.io.BufferedReader(
                     new java.io.InputStreamReader(getAssets().open("queries.csv")));
             String line = br.readLine();   // header
@@ -295,6 +322,7 @@ public class MainActivity extends Activity {
 
     private void finishBatch() {
         batchMode = false;
+        stopService(new Intent(this, BatchService.class));
         prefs.edit().putInt("batch_idx", 0).apply();
         resultCard.setVisibility(android.view.View.VISIBLE);
         status.setText("[Batch] complete - use Export results CSV to save "

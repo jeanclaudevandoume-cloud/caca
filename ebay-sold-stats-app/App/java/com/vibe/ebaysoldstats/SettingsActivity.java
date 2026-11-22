@@ -19,11 +19,13 @@ public class SettingsActivity extends Activity {
         final EditText password = findViewById(R.id.input_password);
         final EditText pages = findViewById(R.id.input_pages);
         final EditText cookies = findViewById(R.id.input_cookies);
+        final EditText customList = findViewById(R.id.input_customlist);
 
         email.setText(prefs.getString("email", ""));
         password.setText(prefs.getString("password", ""));
         pages.setText(String.valueOf(prefs.getInt("pages", 3)));
         cookies.setText(prefs.getString("cookies_json", ""));
+        customList.setText(prefs.getString("custom_catalog", ""));
 
         Button save = findViewById(R.id.btn_save);
         save.setOnClickListener(v -> {
@@ -38,6 +40,7 @@ public class SettingsActivity extends Activity {
                     .putString("password", password.getText().toString())
                     .putInt("pages", p)
                     .putString("cookies_json", cookies.getText().toString())
+                    .putString("custom_catalog", customList.getText().toString())
                     .apply();
             Toast.makeText(this, "Saved", Toast.LENGTH_SHORT).show();
             finish();

@@ -60,6 +60,22 @@
             android:textSize="12sp"
             android:typeface="monospace" />
 
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingTop="14dp"
+            android:text="Custom catalog (optional - one search query per line; replaces the built-in 1500-query list when filled)"
+            android:textSize="13sp" />
+
+        <EditText
+            android:id="@+id/input_customlist"
+            android:layout_width="match_parent"
+            android:layout_height="160dp"
+            android:gravity="top"
+            android:hint="Example:\ntanjiro peluche\nnenzuko badge\nsukuna figurine"
+            android:inputType="textMultiLine|textNoSuggestions"
+            android:textSize="12sp" />
+
         <Button
             android:id="@+id/btn_save"
             android:layout_width="match_parent"

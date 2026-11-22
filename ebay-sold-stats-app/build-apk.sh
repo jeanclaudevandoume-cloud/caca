@@ -23,7 +23,7 @@ $BT/aapt2 link -o $BUILD/base.apk \
   --manifest $APP/AndroidManifest.xml \
   --java $BUILD/gen \
   --min-sdk-version 21 --target-sdk-version 34 \
-  --version-code 9 --version-name 2.0 \
+  --version-code 10 --version-name 2.1 \
   --auto-add-overlay
 
 echo "== javac =="

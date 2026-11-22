@@ -181,3 +181,18 @@ Run the whole 800-query character-goods catalog directly on an Android phone:
 - Keep the phone charging and the app in the foreground during a batch;
   a full sweep at polite pacing takes several hours. Chunks are fine -
   resume does the rest.
+
+## v2.1 (latest) - survives screen lock; 1500-query catalog; custom lists
+
+- Foreground service with a partial wake lock keeps the batch running when
+  the screen locks (persistent notification, dataSync foreground-service
+  type). Progress and results are persisted after every query, so even if
+  Android kills the app or the phone dies, pressing Batch resumes exactly
+  where the run stopped - the run is never lost.
+- Catalog expanded to 15 goods types x 100 characters = 1500 queries
+  (peluche, peluche geante, figurine, figurine chibi, figurine pop,
+  gashapon, porte-cles, badge, pin's, stand acrylique, poupee, magnet,
+  strap, carte a collectionner, tapis de souris).
+- Settings now has a "Custom catalog" box: one search query per line
+  (or franchise,character,goods,query CSV lines). When filled, the batch
+  runs YOUR list instead of the built-in one - so the list has no limit.

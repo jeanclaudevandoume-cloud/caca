@@ -81,14 +81,21 @@ CHARACTERS = [
 
 # FR marketplace goods types (the verified market today)
 GOODS_FR = [
-    "peluche",            # plush
-    "figurine",           # figure
-    "porte-clés",         # keychain
-    "badge",              # pin/button
-    "stand acrylique",    # acrylic stand
-    "gashapon",           # gacha figure
-    "poupée",             # doll
-    "magnet",             # fridge magnet
+    "peluche",              # plush
+    "peluche géante",       # giant plush
+    "figurine",             # figure
+    "figurine chibi",       # chibi figure
+    "figurine pop",         # funkopop-style
+    "gashapon",             # gacha figure
+    "porte-clés",           # keychain
+    "badge",                # pin/button
+    "pin's",                # collector pin
+    "stand acrylique",      # acrylic stand
+    "poupée",               # doll
+    "magnet",               # fridge magnet
+    "strap",                # phone strap
+    "carte à collectionner",# collectible card
+    "tapis de souris",      # mousepad
 ]
 
 DUPES = {}  # (character, goods) -> id
