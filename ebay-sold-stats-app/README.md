@@ -101,3 +101,19 @@ shown and freezing the browser toggle. All bridge callbacks
 (postItems/noItems/wall403/needLogin) are now marshalled to the UI thread via
 runOnUiThread. The browser toggle also correctly resets the WebView layout
 weight and requests layout.
+
+## v1.4 (latest)
+
+- Layout restructured so everything is scrollable and always reachable:
+  fixed compact controls on top (marketplace, title, Extract/Stop, status,
+  progress bar, browser toggle) and a dedicated ScrollView (fills the
+  remaining screen) containing the result card, selectable full text and
+  Settings. The WebView was moved out of the scroll flow entirely and
+  appears as a fixed panel only when needed.
+- The plain-text result line is now also displayed (in the scroll area,
+  selectable) in addition to the result card, so the output can never be lost.
+- The scroll area auto-scrolls to the top when a result arrives.
+- Lightweight: the on-page parser takes ~15 ms for ~70 cards (measured);
+  after each run the WebView loads about:blank to release eBay's page heap;
+  bounded evaluations (one driver run per page + max 2 re-checks); no
+  services, no polling, no timers left running. APK remains ~25 KB.

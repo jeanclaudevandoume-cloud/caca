@@ -45,6 +45,7 @@ public class MainActivity extends Activity {
     private EditText queryInput;
     private Spinner siteSpinner;
     private TextView status, result;
+    private ScrollView resultScroll;
     private android.view.View resultCard, progress;
     private TextView resultSold, resultMedian, resultMedianW, resultMeta;
     private TextView toggleWeb;
@@ -81,6 +82,7 @@ public class MainActivity extends Activity {
         queryInput = findViewById(R.id.input_query);
         status = findViewById(R.id.status);
         result = findViewById(R.id.result);
+        resultScroll = findViewById(R.id.result_scroll);
         resultCard = findViewById(R.id.result_card);
         progress = findViewById(R.id.progress);
         resultSold = findViewById(R.id.result_sold);
@@ -101,6 +103,9 @@ public class MainActivity extends Activity {
         ws.setJavaScriptEnabled(true);
         ws.setDomStorageEnabled(true);
         ws.setUserAgentString(null);
+        ws.setLoadsImagesAutomatically(true);
+        ws.setMediaPlaybackRequiresUserGesture(true);
+        ws.setSupportZoom(false);
         CookieManager cm = CookieManager.getInstance();
         cm.setAcceptCookie(true);
         wv.addJavascriptInterface(new Bridge(), "Android");
@@ -371,6 +376,9 @@ public class MainActivity extends Activity {
                 "%d listings scanned on %s \u00b7 %d inside the 90-day window \u00b7 query: %s",
                 items.size(), host, inWindow.size(), query));
         resultCard.setVisibility(android.view.View.VISIBLE);
+        result.setVisibility(android.view.View.VISIBLE);
+        resultScroll.smoothScrollTo(0, 0);
+        wv.loadUrl("about:blank");
         result.setText(String.format(Locale.US,
                 "Marketplace: %s | Title: %s | Sold last 90 days: %.0f | Median: %.2f %s | Weighted: %.2f %s | Listings in window: %d of %d",
                 host, query, soldCount, simple, cur, w, cur, inWindow.size(), items.size()));
