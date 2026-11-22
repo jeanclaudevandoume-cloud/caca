@@ -182,7 +182,7 @@ Run the whole 800-query character-goods catalog directly on an Android phone:
   a full sweep at polite pacing takes several hours. Chunks are fine -
   resume does the rest.
 
-## v2.1 (latest) - survives screen lock; 1500-query catalog; custom lists
+## v2.1 - survives screen lock; 1500-query catalog; custom lists
 
 - Foreground service with a partial wake lock keeps the batch running when
   the screen locks (persistent notification, dataSync foreground-service
@@ -196,3 +196,19 @@ Run the whole 800-query character-goods catalog directly on an Android phone:
 - Settings now has a "Custom catalog" box: one search query per line
   (or franchise,character,goods,query CSV lines). When filled, the batch
   runs YOUR list instead of the built-in one - so the list has no limit.
+## v2.2 (latest) - reliable stop, skip-finished resume, results viewer
+
+- "Stop batch" now really stops: the pause between queries is cancelled as
+  well, so the batch never restarts on its own after pressing Stop
+  (previously the next scheduled query still fired).
+- Resuming skips every query already recorded in the results: the batch
+  index is persisted after each query and the app resumes at the exact
+  next query. If the custom catalog in Settings changed since the last
+  run, the batch restarts from the beginning automatically. If the whole
+  catalog is already checked, the app asks before redoing anything
+  ("Start over" dialog) instead of silently re-running 1500 queries.
+- New "See results" button: shows all results acquired so far (newest
+  first, 300 shown) as a readable list - usable any time, even while a
+  batch is still running mid-way. Share CSV still exports the raw data.
+  It also works right after a fresh app start (loads the saved results).
+- Batch button label no longer hardcodes the query count.

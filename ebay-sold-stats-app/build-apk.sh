@@ -6,9 +6,10 @@ PLATFORM=$SDK/platforms/android-34/android.jar
 JDK=$(ls -d /workspace/android-tools/jdk-17*)
 export JAVA_HOME=$JDK
 export PATH=$JAVA_HOME/bin:$PATH
-ROOT=/workspace/ebay-app
-APP=$ROOT/App
-BUILD=$ROOT/build
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+ROOT=$SCRIPT_DIR
+APP=$SCRIPT_DIR/App
+BUILD=$SCRIPT_DIR/build
 rm -rf "$BUILD"
 mkdir -p "$BUILD/gen" "$BUILD/classes" "$BUILD/dex"
 
@@ -23,7 +24,7 @@ $BT/aapt2 link -o $BUILD/base.apk \
   --manifest $APP/AndroidManifest.xml \
   --java $BUILD/gen \
   --min-sdk-version 21 --target-sdk-version 34 \
-  --version-code 10 --version-name 2.1 \
+  --version-code 11 --version-name 2.2 \
   --auto-add-overlay
 
 echo "== javac =="
@@ -45,13 +46,13 @@ echo "== zipalign =="
 $BT/zipalign -f 4 unsigned.apk aligned.apk
 
 echo "== sign =="
-if [ ! -f $ROOT/debug.keystore ]; then
-  keytool -genkeypair -keystore $ROOT/debug.keystore -storepass android \
+if [ ! -f /workspace/ebay-app/debug.keystore ]; then
+  keytool -genkeypair -keystore /workspace/ebay-app/debug.keystore -storepass android \
     -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 \
     -validity 10000 -dname "CN=Android Debug,O=Android,C=US" >/dev/null 2>&1
 fi
-$BT/apksigner sign --ks $ROOT/debug.keystore --ks-pass pass:android \
-  --key-pass pass:android --out $ROOT/ebay-sold-stats.apk aligned.apk
+$BT/apksigner sign --ks /workspace/ebay-app/debug.keystore --ks-pass pass:android \
+  --key-pass pass:android --out $SCRIPT_DIR/ebay-sold-stats.apk aligned.apk
 $BT/apksigner verify --print-certs $ROOT/ebay-sold-stats.apk
-ls -la $ROOT/ebay-sold-stats.apk
-echo "APK BUILT: $ROOT/ebay-sold-stats.apk"
+ls -la $SCRIPT_DIR/ebay-sold-stats.apk
+echo "APK BUILT: $SCRIPT_DIR/ebay-sold-stats.apk"

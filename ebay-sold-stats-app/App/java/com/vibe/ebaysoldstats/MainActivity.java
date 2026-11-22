@@ -66,6 +66,7 @@ public class MainActivity extends Activity {
     private int noItemsSeen = 0;
     // ---- batch mode ----
     private boolean batchMode = false;
+    private boolean batchRunning = false;
     private java.util.List<String[]> batch = new ArrayList<>();
     private int batchIdx = 0;
     private String batchQuery = "";
@@ -130,7 +131,8 @@ public class MainActivity extends Activity {
 
         Button batchBtn = findViewById(R.id.btn_batch);
         batchBtn.setOnClickListener(v -> {
-            if (running) {
+            if (running || (batchMode && batchRunning)) {
+                batchRunning = false;
                 running = false;
                 finished = true;
                 status.setText("Stopped. Progress saved - press Batch again to resume.");
@@ -141,24 +143,37 @@ public class MainActivity extends Activity {
                 return;
             }
             if (batch.isEmpty()) loadBatch();
-            batchMode = true;
-            startService(new Intent(this, BatchService.class));
-            if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(
-                    "android.permission.POST_NOTIFICATIONS")
-                    != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 7);
+            if (batch.isEmpty()) {
+                status.setText("[Batch] no catalog available - add one in Settings.");
+                return;
+            }
+            String curCustom = prefs.getString("custom_catalog", "").trim();
+            if (!curCustom.equals(prefs.getString("batch_custom_used", ""))) {
+                prefs.edit().putInt("batch_idx", 0)
+                        .putString("batch_custom_used", curCustom).apply();
+                status.setText("[Batch] catalog changed - starting from the beginning.");
+                beginBatch(0);
+                return;
             }
             int saved = prefs.getInt("batch_idx", 0);
             if (saved > 0 && saved < batch.size()) {
-                batchIdx = saved;
-                status.setText("[Batch] resuming at " + (batchIdx + 1) + "/" + batch.size());
+                status.setText("[Batch] resuming at " + (saved + 1) + "/" + batch.size()
+                        + " - finished queries are skipped.");
+                beginBatch(saved);
+            } else if (saved >= batch.size() && saved > 0) {
+                new android.app.AlertDialog.Builder(this)
+                        .setTitle("Batch already complete")
+                        .setMessage("All " + batch.size() + " queries were already checked. "
+                                + "Start over from the beginning?")
+                        .setPositiveButton("Start over", (d, w) -> {
+                            prefs.edit().putInt("batch_idx", 0).apply();
+                            beginBatch(0);
+                        })
+                        .setNegativeButton("Keep results", null).show();
             } else {
-                batchIdx = 0;
                 status.setText("[Batch] starting: " + batch.size() + " queries (polite pacing)");
+                beginBatch(0);
             }
-            prefs.edit().putString("results_csv", resultsCsv.toString()).apply();
-            loadBatchPrefResults();
-            runBatchCurrent(400);
         });
 
         findViewById(R.id.btn_share).setOnClickListener(v -> {
@@ -170,6 +185,8 @@ public class MainActivity extends Activity {
                     : resultsCsv.toString());
             startActivity(Intent.createChooser(i, "Export results CSV"));
         });
+
+        findViewById(R.id.btn_view_results).setOnClickListener(v -> showResultsSoFar());
 
         wv = findViewById(R.id.webview);
         WebSettings ws = wv.getSettings();
@@ -193,6 +210,17 @@ public class MainActivity extends Activity {
         });
 
         extractBtn.setOnClickListener(v -> {
+            if (batchMode && batchRunning) {
+                batchRunning = false;
+                running = false;
+                finished = true;
+                progress.setVisibility(android.view.View.GONE);
+                extractBtn.setText("Extract sold stats");
+                extractCmd(true);
+                status.setText("Stopped. Progress saved - press Batch again to resume.");
+                stopService(new Intent(this, BatchService.class));
+                return;
+            }
             if (running) {
                 running = false;
                 finished = true;
@@ -209,6 +237,21 @@ public class MainActivity extends Activity {
             }
             startRun(q);
         });
+    }
+
+    private void beginBatch(int idx) {
+        batchIdx = idx;
+        batchMode = true;
+        batchRunning = true;
+        startService(new Intent(this, BatchService.class));
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(
+                "android.permission.POST_NOTIFICATIONS")
+                != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 7);
+        }
+        prefs.edit().putString("results_csv", resultsCsv.toString()).apply();
+        loadBatchPrefResults();
+        runBatchCurrent(400);
     }
 
     private void startRun(String q) {
@@ -252,6 +295,43 @@ public class MainActivity extends Activity {
         wv.setLayoutParams(lp);
         wv.setVisibility(visible ? android.view.View.VISIBLE : android.view.View.GONE);
         toggleWeb.setText(visible ? "Hide browser" : "Show browser");
+    }
+
+    private void showResultsSoFar() {
+        loadBatchPrefResults();
+        String[] lines = resultsCsv.toString().split("\n");
+        int rows = 0;
+        StringBuilder sb = new StringBuilder();
+        for (int i = lines.length - 1; i >= 1; i--) {
+            String ln = lines[i];
+            if (ln.isEmpty()) continue;
+            String[] p = ln.split(",", -1);
+            int n = p.length;
+            if (n < 9) continue;
+            String sold = p[n - 8], median = p[n - 7], medianw = p[n - 6];
+            String what = (p[n - 11] + " / " + p[n - 10] + " / " + p[n - 9]).trim();
+            if (what.startsWith("custom") || what.replace("/", "").trim().isEmpty()) what = p[1];
+            sb.append('•').append(sold.isEmpty() ? "0" : sold).append(" sold");
+            if (!median.isEmpty()) sb.append(" | med ").append(median);
+            if (!medianw.isEmpty() && !medianw.equals(median))
+                sb.append(" (w ").append(medianw).append(')');
+            sb.append(" — ").append(what.isEmpty() ? "(query)" : what).append('\n');
+            rows++;
+            if (rows >= 300) break;
+        }
+        int total = lines.length - 1;
+        if (rows == 0) {
+            Toast.makeText(this, "No results yet - run some queries first.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String head = "Results so far: " + total + " checked queries "
+                + (rows < total ? "(showing newest " + rows + ") " : "")
+                + "- full data in Share CSV.\n\n";
+        result.setText(head + sb.toString());
+        result.setVisibility(android.view.View.VISIBLE);
+        resultCard.setVisibility(android.view.View.GONE);
+        gridWrap.setVisibility(android.view.View.GONE);
+        if (!batchRunning) status.setText("Showing " + total + " results.");
     }
 
     private void loadBatch() {
@@ -312,7 +392,7 @@ public class MainActivity extends Activity {
         extractBtn.setText("Stop batch");
         extractCmd(false);
         wv.postDelayed(() -> {
-            if (!batchMode || batchIdx != idx) return;
+            if (!batchMode || !batchRunning || batchIdx != idx) return;
             batchQuery = row[4];
             siteSpinner.setSelection(2);   // FR
             host = row.length > 5 && row[5].equals("us") ? SITES[0][1] : SITES[2][1];
@@ -322,11 +402,14 @@ public class MainActivity extends Activity {
 
     private void finishBatch() {
         batchMode = false;
+        batchRunning = false;
         stopService(new Intent(this, BatchService.class));
-        prefs.edit().putInt("batch_idx", 0).apply();
+        extractBtn.setText("Extract sold stats");
+        extractCmd(true);
         resultCard.setVisibility(android.view.View.VISIBLE);
-        status.setText("[Batch] complete - use Export results CSV to save "
-                + "the " + (resultsCsv.toString().split("\n").length - 1) + " rows.");
+        status.setText("[Batch] complete - "
+                + (resultsCsv.toString().split("\n").length - 1) + " rows saved. "
+                + "Use 'See results' to review or 'Share CSV' to export them.");
     }
 
     private String pageUrl(int page) {
@@ -554,7 +637,12 @@ public class MainActivity extends Activity {
             batchIdx++;
             status.setText("[Batch] " + batchIdx + "/" + batch.size() + " done - last: "
                     + batchQuery + " -> " + ((long) soldCount) + " sold");
-            runBatchCurrent((long) (12000 + Math.random() * 9000));
+            if (batchRunning) {
+                runBatchCurrent((long) (12000 + Math.random() * 9000));
+            } else {
+                status.setText("[Batch] stopped at " + batchIdx + "/" + batch.size()
+                        + " - progress saved.");
+            }
             return;
         }
 
