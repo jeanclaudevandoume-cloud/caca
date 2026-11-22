@@ -39,6 +39,7 @@ PROXY = os.environ.get("EBAY_PROXY", "")
 EMAIL = os.environ.get("EBAY_EMAIL", "")
 PASSWORD = os.environ.get("EBAY_PASSWORD", "")
 PAGES_DEFAULT = 2
+START_COOLDOWN_NOTE = 'keep --delay >= 14 for long batches'
 
 
 class FormP(HTMLParser):
@@ -142,7 +143,7 @@ class Session:
                     break
             if not nxt or page >= pages:
                 break
-            time.sleep(random.uniform(1.5, 3.0))
+            time.sleep(random.uniform(2.5, 5.0))
             url = nxt
         return htmls
 
@@ -165,7 +166,7 @@ def main():
     ap.add_argument("--limit", type=int, default=0, help="max queries this run (0 = all)")
     ap.add_argument("--start", type=int, default=0, help="start at catalog index (0-based)")
     ap.add_argument("--pages", type=int, default=PAGES_DEFAULT, help="result pages per query (1-4)")
-    ap.add_argument("--delay", type=float, default=10.0, help="base delay between queries (s)")
+    ap.add_argument("--delay", type=float, default=14.0, help="base delay between queries (s)")
     ap.add_argument("--redo-failed", action="store_true")
     ap.add_argument("--report-only", action="store_true")
     ap.add_argument("--marketplace", default="fr")
@@ -270,7 +271,7 @@ def main():
                         datetime.now(timezone.utc).isoformat()))
             print(f"    -> ERROR {type(e).__name__}: {str(e)[:90]}", file=sys.stderr)
         db.commit()
-        delay = args.delay * random.uniform(0.8, 1.3)
+        delay = args.delay * random.uniform(0.7, 1.6)
         if run < args.limit if args.limit else idx + 1 < total:
             time.sleep(delay)
 
