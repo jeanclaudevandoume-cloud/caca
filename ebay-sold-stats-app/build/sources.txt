@@ -1,4 +1,0 @@
-/workspace/github__jeanclaudevandoume-cloud__caca/ebay-sold-stats-app/build/gen/com/vibe/ebaysoldstats/R.java
-/workspace/github__jeanclaudevandoume-cloud__caca/ebay-sold-stats-app/App/java/com/vibe/ebaysoldstats/SettingsActivity.java
-/workspace/github__jeanclaudevandoume-cloud__caca/ebay-sold-stats-app/App/java/com/vibe/ebaysoldstats/BatchService.java
-/workspace/github__jeanclaudevandoume-cloud__caca/ebay-sold-stats-app/App/java/com/vibe/ebaysoldstats/MainActivity.java
