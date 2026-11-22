@@ -147,3 +147,17 @@ weight and requests layout.
   reads eBay's own next-page link from the results page and navigates with
   it verbatim (verified on live fixture: proper _pgn=2 session URL is
   captured and used).
+
+## v1.7 (latest)
+
+- Fixed the "89 of 99" undercount (live-tested with "panda jujutsu" on FR):
+  the old per-item duplicate filter wrongly merged distinct sold listings
+  that share price+quantity+date - identical plushies sold the same day are
+  DIFFERENT sales. It is replaced with a per-batch signature guard: the
+  whole page batch has a signature (count + price sum + first items), so a
+  re-evaluation of the same page after a redirect is ignored, while distinct
+  identical-looking listings are all counted.
+- Live end-to-end verification of the app's exact flow (login, page 1 with
+  the next-page link, page 2): page 1 = 120 listings, page 2 = +28, total
+  148, of which 138 inside the 90-day window; median EUR 9.21 (previously
+  the app reported 89 of 99, median 10.84).

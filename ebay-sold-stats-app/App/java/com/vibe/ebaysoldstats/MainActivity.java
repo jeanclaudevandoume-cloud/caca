@@ -63,6 +63,7 @@ public class MainActivity extends Activity {
     private boolean finished = false;
     private String pendingNextUrl = "";
     private int noItemsSeen = 0;
+    private final java.util.HashSet<String> seenBatches = new java.util.HashSet<>();
     private String lastEvalUrl = "";
     private final List<double[]> items = new ArrayList<>();   // {price, qty, dateMs(-1 unknown)}
     private final List<String[]> recent = new ArrayList<>(); // {price, cur, dateMs, imgUrl, title}
@@ -160,6 +161,7 @@ public class MainActivity extends Activity {
         items.clear();
         recent.clear();
         currencies.clear();
+        seenBatches.clear();
         gridWrap.removeAllViews();
         currentPage = 1;
         noItemsSeen = 0;
@@ -284,17 +286,27 @@ public class MainActivity extends Activity {
             pendingNextUrl = nextUrl == null ? "" : nextUrl;
             try {
                 JSONArray arr = new JSONArray(json);
-                int before = items.size();
+                // batch signature: guards against the same results page being
+                // evaluated twice (redirects, reloads) WITHOUT merging distinct
+                // listings that happen to share price/qty/date/title.
+                if (arr.length() == 0) { endRun(!items.isEmpty()); return; }
+                double sum = 0;
+                StringBuilder sig = new StringBuilder().append(arr.length());
                 for (int i = 0; i < arr.length(); i++) {
                     JSONObject o = arr.getJSONObject(i);
-                    // de-duplicate across pages
-                    boolean dup = false;
-                    for (int k = before > 200 ? before - 200 : 0; k < items.size(); k++) {
-                        double[] it = items.get(k);
-                        if (it[0] == o.getDouble("p") && it[1] == o.getDouble("q")
-                                && it[2] == o.optDouble("d", -1)) { dup = true; break; }
-                    }
-                    if (dup) continue;
+                    sum += o.getDouble("p");
+                    if (i < 3) sig.append('|').append(o.optDouble("p", 0))
+                            .append(',').append(o.optDouble("d", -1))
+                            .append(',').append(o.optString("t", ""));
+                }
+                String signature = sig + "#" + String.format(Locale.US, "%.2f", sum);
+                if (!seenBatches.add(signature)) {
+                    // identical batch already ingested (page re-render); ignore
+                    if (currentPage >= pagesWanted || currentPage >= 4) endRun(true);
+                    return;
+                }
+                for (int i = 0; i < arr.length(); i++) {
+                    JSONObject o = arr.getJSONObject(i);
                     items.add(new double[]{o.getDouble("p"), o.getDouble("q"),
                             o.optDouble("d", -1)});
                     recent.add(new String[]{String.valueOf(o.getDouble("p")),
