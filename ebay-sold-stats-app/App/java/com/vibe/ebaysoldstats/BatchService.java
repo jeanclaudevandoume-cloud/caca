@@ -49,7 +49,7 @@ public class BatchService extends Service {
             wl = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "ebaysoldstats:batch");
             wl.acquire(12 * 60 * 60 * 1000L);
         }
-        return START_STICKY;
+        return START_NOT_STICKY;
     }
 
     @Override

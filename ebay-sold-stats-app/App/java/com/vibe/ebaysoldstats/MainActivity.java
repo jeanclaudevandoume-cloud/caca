@@ -66,6 +66,7 @@ public class MainActivity extends Activity {
     private int noItemsSeen = 0;
     private int runGen = 0;
     private int batchGen = 0;
+    private int stallRetries = 0;
     // ---- batch mode ----
     private boolean batchMode = false;
     private boolean batchRunning = false;
@@ -208,6 +209,20 @@ public class MainActivity extends Activity {
         wv.addJavascriptInterface(new Bridge(), "Android");
         wv.setWebViewClient(new WebViewClient() {
             @Override
+            public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                if (!isTrustedEbayUrl(url)) {
+                    status.setText("Blocked non-eBay page: " + url);
+                    return true;
+                }
+                return false;
+            }
+
+            @Override
+            public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+                lastLoadedUrl = url;
+            }
+
+            @Override
             public void onPageFinished(WebView view, String url) {
                 if (!running) return;
                 if (url.equals(lastEvalUrl)) return;   // one driver run per page
@@ -269,6 +284,27 @@ public class MainActivity extends Activity {
         runBatchCurrent(400);
     }
 
+    private volatile String lastLoadedUrl = "";
+
+    private boolean isTrustedEbayUrl(String url) {
+        if (url == null) return false;
+        if (url.equals("about:blank") || url.startsWith("about:")) return true;
+        try {
+            String h = new java.net.URI(url).getHost();
+            if (h == null) return false;
+            h = h.toLowerCase(Locale.ROOT);
+            for (String d : new String[]{"ebay.com", "ebay.co.uk", "ebay.fr",
+                    "ebay.de", "ebay.es", "ebay.it"}) {
+                if (h.equals(d) || h.endsWith("." + d)) return true;
+            }
+        } catch (Exception ignored) { }
+        return false;
+    }
+
+    private boolean bridgeTrusted() {
+        return isTrustedEbayUrl(lastLoadedUrl);
+    }
+
     private void startRun(String q) {
         runGen++;
         wv.resumeTimers();
@@ -297,15 +333,24 @@ public class MainActivity extends Activity {
         status.setText((batchMode ? "[Batch " + (batchIdx + 1) + "/" + batch.size() + "] " : "")
                 + "Loading eBay sold search on " + host + " ...");
         wv.loadUrl(pageUrl(1));
+        stallRetries = 0;
         final int g = runGen;
-        wv.postDelayed(() -> {
-            if (!running || runGen != g || finished) return;
-            if (items.isEmpty() && noItemsSeen == 0) {
-                status.setText("Page stalled - reloading ...");
-                lastEvalUrl = "";
-                wv.loadUrl(pageUrl(currentPage));
-            }
-        }, 40000);
+        wv.postDelayed(() -> watchdogTick(g), 40000);
+    }
+
+    private void watchdogTick(final int g) {
+        if (!running || runGen != g || finished) return;
+        if (!items.isEmpty() || noItemsSeen > 0) return;
+        if (stallRetries < 3) {
+            stallRetries++;
+            status.setText("Page stalled - reloading (attempt " + stallRetries + " of 3) ...");
+            lastEvalUrl = "";
+            wv.loadUrl(pageUrl(currentPage));
+            wv.postDelayed(() -> watchdogTick(g), 40000);
+        } else {
+            status.setText("Page unresponsive after 3 attempts - moving on.");
+            endRun(false);
+        }
     }
 
     private int pageCounter = 1;
@@ -333,7 +378,7 @@ public class MainActivity extends Activity {
         for (int i = 1; i < lines.length; i++) {
             String ln = lines[i];
             if (ln.isEmpty()) continue;
-            String[] p = ln.split(",", -1);
+            String[] p = splitCsvLine(ln);
             int n = p.length;
             if (n < 9) continue;
             String sold = p[n - 8], median = p[n - 7], cur = p[n - 5];
@@ -368,6 +413,26 @@ public class MainActivity extends Activity {
         dlg.show();
         dlg.getWindow().setLayout(-1, -1);
         dlg.setOnDismissListener(d -> pv.destroy());
+    }
+
+    private static String[] splitCsvLine(String ln) {
+        List<String> out = new ArrayList<>();
+        StringBuilder cur = new StringBuilder();
+        boolean inQ = false;
+        for (int i = 0; i < ln.length(); i++) {
+            char c = ln.charAt(i);
+            if (inQ) {
+                if (c == '"') {
+                    if (i + 1 < ln.length() && ln.charAt(i + 1) == '"') { cur.append('"'); i++; }
+                    else inQ = false;
+                } else cur.append(c);
+            } else if (c == '"') inQ = true;
+            else if (c == ',') out.add(cur.toString());
+            else cur.append(c);
+            if (c == ',' && !inQ) cur.setLength(0);
+        }
+        out.add(cur.toString());
+        return out.toArray(new String[0]);
     }
 
     private String tc(String s) {
@@ -652,15 +717,16 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public boolean hasCreds() {
+            if (!bridgeTrusted()) return false;
             return !prefs.getString("email", "").isEmpty()
                     && !prefs.getString("password", "").isEmpty();
         }
 
         @JavascriptInterface
-        public String email() { return prefs.getString("email", ""); }
+        public String email() { return bridgeTrusted() ? prefs.getString("email", "") : ""; }
 
         @JavascriptInterface
-        public String password() { return prefs.getString("password", ""); }
+        public String password() { return bridgeTrusted() ? prefs.getString("password", "") : ""; }
 
         @JavascriptInterface
         public void wall403() {
