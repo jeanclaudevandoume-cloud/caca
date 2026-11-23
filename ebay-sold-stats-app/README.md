@@ -248,7 +248,7 @@ until every screen passed a fresh unbiased review at 9+/10:
   documents the CSV line format, big blue "Save settings" button (was a bare
   gray button). Password stays masked in the real app (inputType=textPassword).
 
-## v2.5 (latest) - performance / battery / memory pass
+## v2.5 - performance / battery / memory pass
 
 Audit of the whole codebase with a strict efficiency review; every finding
 verified functional-risk-free before applying:
@@ -273,3 +273,28 @@ verified functional-risk-free before applying:
 - Per-run parsing state (items, recent, currencies, seen-batches) was
   verified to be reset per query, so no unbounded growth there;
   resultsCsv/thumbnails stay small (KBs-scale at 1500 queries).
+
+## v2.6 (latest) - fixes batch resume corruption (stop + restart)
+
+Reported on device: after stopping a batch and restarting it, the first query
+reported an inflated sold count (101 instead of 9) and then the batch wedged
+with the page loaded but nothing happening.
+
+Root cause: timers scheduled before the Stop survived it. The next-page load
+in ingestItems had NO guard at all, and the driver evaluation/403-retry/settle
+re-checks weren't generation-checked. After a stop+resume, a leftover 2s timer
+could load the OLD query's page-2 into the NEW run, merging two result sets
+(inflated counts) and desynchronizing the page counter (hang).
+
+Fix: a run-generation token (runGen) and batch-generation token (batchGen).
+Every scheduled postDelayed callback now captures the generation and aborts if
+it changed. Generations are bumped on: query start, batch start/stop, single-run
+stop, and both Stop buttons. Additionally:
+- pendingNextUrl is now reset at the start of every run
+- a 40s watchdog reloads the current page if a run produced no items and no
+  "no items" signal (the silent stall case)
+- the about:blank clear after a single run is also generation-guarded
+
+Every scheduled callback path is generation-guarded (verified by audit):
+driver eval, 403 retry, settle re-check, next-page load, next-query timer,
+watchdog, blank clear.

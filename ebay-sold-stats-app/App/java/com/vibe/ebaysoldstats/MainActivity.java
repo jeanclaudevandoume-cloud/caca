@@ -64,6 +64,8 @@ public class MainActivity extends Activity {
     private boolean finished = false;
     private String pendingNextUrl = "";
     private int noItemsSeen = 0;
+    private int runGen = 0;
+    private int batchGen = 0;
     // ---- batch mode ----
     private boolean batchMode = false;
     private boolean batchRunning = false;
@@ -133,6 +135,8 @@ public class MainActivity extends Activity {
         Button batchBtn = findViewById(R.id.btn_batch);
         batchBtn.setOnClickListener(v -> {
             if (running || (batchMode && batchRunning)) {
+                batchGen++;
+                runGen++;
                 batchRunning = false;
                 running = false;
                 finished = true;
@@ -208,12 +212,17 @@ public class MainActivity extends Activity {
                 if (!running) return;
                 if (url.equals(lastEvalUrl)) return;   // one driver run per page
                 lastEvalUrl = url;
-                view.postDelayed(() -> view.evaluateJavascript(DRIVER_JS, null), 500);
+                final int g = runGen;
+                view.postDelayed(() -> {
+                    if (running && runGen == g) view.evaluateJavascript(DRIVER_JS, null);
+                }, 500);
             }
         });
 
         extractBtn.setOnClickListener(v -> {
             if (batchMode && batchRunning) {
+                batchGen++;
+                runGen++;
                 batchRunning = false;
                 running = false;
                 finished = true;
@@ -226,6 +235,7 @@ public class MainActivity extends Activity {
                 return;
             }
             if (running) {
+                runGen++;
                 running = false;
                 finished = true;
                 progress.setVisibility(android.view.View.GONE);
@@ -245,6 +255,7 @@ public class MainActivity extends Activity {
 
     private void beginBatch(int idx) {
         batchIdx = idx;
+        batchGen++;
         batchMode = true;
         batchRunning = true;
         startService(new Intent(this, BatchService.class));
@@ -259,6 +270,7 @@ public class MainActivity extends Activity {
     }
 
     private void startRun(String q) {
+        runGen++;
         wv.resumeTimers();
         wv.clearHistory();
         query = q;
@@ -272,6 +284,7 @@ public class MainActivity extends Activity {
         currentPage = 1;
         noItemsSeen = 0;
         lastEvalUrl = "";
+        pendingNextUrl = "";
         finished = false;
         cookiesAppliedForRun = false;
         running = true;
@@ -284,6 +297,15 @@ public class MainActivity extends Activity {
         status.setText((batchMode ? "[Batch " + (batchIdx + 1) + "/" + batch.size() + "] " : "")
                 + "Loading eBay sold search on " + host + " ...");
         wv.loadUrl(pageUrl(1));
+        final int g = runGen;
+        wv.postDelayed(() -> {
+            if (!running || runGen != g || finished) return;
+            if (items.isEmpty() && noItemsSeen == 0) {
+                status.setText("Page stalled - reloading ...");
+                lastEvalUrl = "";
+                wv.loadUrl(pageUrl(currentPage));
+            }
+        }, 40000);
     }
 
     private int pageCounter = 1;
@@ -593,8 +615,9 @@ public class MainActivity extends Activity {
         batchStatus("next: " + row[4] + " in " + (ms / 1000) + "s \u2013 red button stops");
         extractBtn.setText("Stop batch");
         extractCmd(false);
+        final int bg = batchGen;
         wv.postDelayed(() -> {
-            if (!batchMode || !batchRunning || batchIdx != idx) return;
+            if (!batchMode || !batchRunning || batchGen != bg || batchIdx != idx) return;
             batchQuery = row[4];
             siteSpinner.setSelection(2);   // FR
             host = row.length > 5 && row[5].equals("us") ? SITES[0][1] : SITES[2][1];
@@ -650,7 +673,10 @@ public class MainActivity extends Activity {
                 cookiesAppliedForRun = true;
                 status.setText("403 wall detected - applying your Settings cookies and retrying ...");
                 lastEvalUrl = "";
-                wv.postDelayed(() -> wv.loadUrl(pageUrl(currentPage)), 1500);
+                final int g = runGen;
+                wv.postDelayed(() -> {
+                    if (running && runGen == g) wv.loadUrl(pageUrl(currentPage));
+                }, 1500);
             } else {
                 status.setText("eBay is blocking this marketplace (403).\n"
                         + "Open Settings and paste an EditThisCookie JSON export "
@@ -685,12 +711,13 @@ public class MainActivity extends Activity {
                 return;
             }
             if (finished) return;
+            final int g = runGen;
             noItemsSeen++;
             if (noItemsSeen <= 2) {
                 // interstitial / still-hydrating page: re-check before concluding
                 status.setText("Waiting for results page to settle ...");
                 wv.postDelayed(() -> {
-                    if (running) wv.evaluateJavascript(DRIVER_JS, null);
+                    if (running && runGen == g) wv.evaluateJavascript(DRIVER_JS, null);
                 }, 1600);
                 return;
             }
@@ -706,6 +733,7 @@ public class MainActivity extends Activity {
         private void ingestItems(String json, String nextUrl) {
             {
             pendingNextUrl = nextUrl == null ? "" : nextUrl;
+            final int g = runGen;
             try {
                 JSONArray arr = new JSONArray(json);
                 // batch signature: guards against the same results page being
@@ -750,6 +778,7 @@ public class MainActivity extends Activity {
                 pendingNextUrl = "";
                 currentPage = next;
                 wv.postDelayed(() -> {
+                    if (!running || runGen != g) return;
                     String u = (nu != null && !nu.isEmpty()) ? nu : pageUrl(next);
                     wv.loadUrl(u);
                 }, 2000);
@@ -872,7 +901,10 @@ public class MainActivity extends Activity {
         result.setVisibility(android.view.View.VISIBLE);
         resultScroll.smoothScrollTo(0, 0);
         setWebVisible(false);
-        wv.postDelayed(() -> wv.loadUrl("about:blank"), 4000);
+        final int g = runGen;
+        wv.postDelayed(() -> {
+            if (runGen == g) wv.loadUrl("about:blank");
+        }, 4000);
         List<Integer> wIdx = new ArrayList<>();
         for (int k = 0; k < items.size(); k++) {
             double[] it = items.get(k);
