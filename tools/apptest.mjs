@@ -2,8 +2,9 @@
 // flights) and search sequencing, with fake workers, a fake fetch and fake GL handles.
 //   node tools/apptest.mjs
 // Each check guards a past bug class; tools/selftest.mjs runs this file too.
-import * as T from '../public/js/town.js';
-import { SKY } from '../public/js/mesher.js';
+import * as Town from '../public/js/town.js';
+import * as Layout from '../public/js/layout.js';
+import { SKY } from '../public/js/mb.js';
 import { Supervisor } from '../public/js/supervisor.js';
 import { createStreamer } from '../public/js/streaming.js';
 import { createTownData, createLatest, searchHome } from '../public/js/data.js';
@@ -11,6 +12,7 @@ import { createView, plotKey } from '../public/js/view.js';
 import { createTagState, scanTags, placeTags, resetTags, MAX_TAGS } from '../public/js/tags.js';
 import { createSession, createGroundWin } from '../public/js/session.js';
 import { persp, lookDir, mul } from '../public/js/gfx.js';
+const T = { ...Town, ...Layout };   // the town rules (town.js, layout.js) as one namespace
 
 const t0 = Date.now();
 let fails = 0;

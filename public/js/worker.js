@@ -1,6 +1,7 @@
 // Builds the layout, the ground data texture and chunk/skyline meshes off the main thread.
 // Custom-home files are fetched once by the main thread and arrive with each chunk request.
-import { buildLayout, layoutFromBin, buildGround, finishLayout, layoutTransfer, regionKey, fdiv, CHUNK, REGION } from './town.js';
+import { fdiv, CHUNK, REGION } from './town.js';
+import { buildLayout, layoutFromBin, buildGround, finishLayout, layoutTransfer, regionKey } from './layout.js';
 import { buildChunk, buildSkyline, buildMid } from './mesher.js';
 import { buildAtlas } from './atlas.js';
 

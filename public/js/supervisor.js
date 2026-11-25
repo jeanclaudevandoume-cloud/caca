@@ -13,7 +13,8 @@
 //  - A layout build is tracked on its own (id, worker, clock). A reply from an older build is ignored;
 //    only the builder's death or hang re-posts the build; with no worker it waits for the refill.
 //  - Before the first layout is committed a dead worker is fatal (onFatal).
-export const STALE = 20000, BUILD_STALE = 30000, BACKOFF = 30000, MAX_DEATHS = 6;
+const STALE = 20000, BUILD_STALE = 30000, BACKOFF = 30000;
+export const MAX_DEATHS = 6;
 
 export class Supervisor {
   constructor({ size, spawn, now, later, notice = () => {}, onFatal = () => {} }) {

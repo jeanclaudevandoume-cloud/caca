@@ -6,8 +6,12 @@
 // prefix is ordered and never shares a vertex with the colour range, vertices stay inside the tile box and
 // under ymax, and building the same tile twice is byte-identical. Custom specs never throw and their colours
 // stay soft.
-import * as T from '../public/js/town.js';
+import * as Town from '../public/js/town.js';
+import * as Layout from '../public/js/layout.js';
+import * as Recipe from '../public/js/recipe.js';
 import * as Mz from '../public/js/mesher.js';
+import { MB, SKY, MID } from '../public/js/mb.js';
+const T = { ...Town, ...Layout, ...Recipe };   // the town rules (town.js, layout.js, recipe.js) as one namespace
 
 let seed = +(process.argv[2] || 20261121) >>> 0;
 const rnd = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296);
@@ -38,8 +42,8 @@ for (let k = 0; k < 140; k++, cases++) {
 }
 
 // ---- meshes ----
-Mz.MB.strict = true;
-const before = Mz.MB.overflow.length;
+MB.strict = true;
+const before = MB.overflow.length;
 function meshProps(name, m, sc, half, ymaxCap) {
   const p = new Int16Array(m.vb), ib = m.ib, nv = m.vb.byteLength / 16;
   let bad = '';
@@ -91,17 +95,17 @@ for (let k = 0; k < 260; k++, cases++) {
   if (k % 5 === 0) check('chunk is deterministic', same(m, Mz.buildChunk(L, cx, cz, lod, customs, lite)), `${cx},${cz}`);
 }
 for (let k = 0; k < 60; k++, cases++) {
-  const L = towns[0], lim = Math.ceil(L.rB / Mz.SKY) + 1, sx = ri(-lim, lim), sz = ri(-lim, lim), lite = rnd() < 0.5;
+  const L = towns[0], lim = Math.ceil(L.rB / SKY) + 1, sx = ri(-lim, lim), sz = ri(-lim, lim), lite = rnd() < 0.5;
   const m = Mz.buildSkyline(L, sx, sz, lite);
-  meshProps(`skyline ${sx},${sz}${lite ? ' lite' : ''}`, m, 32, Mz.SKY * T.PITCH / 2 + 60, 400);
+  meshProps(`skyline ${sx},${sz}${lite ? ' lite' : ''}`, m, 32, SKY * T.PITCH / 2 + 60, 400);
   if (k % 6 === 0) check('skyline is deterministic', same(m, Mz.buildSkyline(L, sx, sz, lite)), `${sx},${sz}`);
 }
 for (let k = 0; k < 60; k++, cases++) {
-  const L = towns[k & 1], lim = Math.ceil(L.rB / Mz.MID) + 1, mx = ri(-lim, lim), mz = ri(-lim, lim);
+  const L = towns[k & 1], lim = Math.ceil(L.rB / MID) + 1, mx = ri(-lim, lim), mz = ri(-lim, lim);
   const m = Mz.buildMid(L, mx, mz);
-  meshProps(`mid ${mx},${mz}`, m, 64, Mz.MID * T.PITCH / 2 + 30, 60);
+  meshProps(`mid ${mx},${mz}`, m, 64, MID * T.PITCH / 2 + 30, 60);
 }
-check('nothing overflows the packed vertex format', Mz.MB.overflow.length === before, Mz.MB.overflow.slice(before, before + 3).join(' | '));
+check('nothing overflows the packed vertex format', MB.overflow.length === before, MB.overflow.slice(before, before + 3).join(' | '));
 
 // ---- custom specs: never throw, colours stay soft ----
 const hsv = (c) => { const r = ((c >> 16) & 255) / 255, g = ((c >> 8) & 255) / 255, b = (c & 255) / 255, mx = Math.max(r, g, b), mn = Math.min(r, g, b); return [mx ? (mx - mn) / mx : 0, mx]; };

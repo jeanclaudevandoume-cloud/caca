@@ -1,7 +1,7 @@
 // Drawing one frame: time of day, camera matrices, chunk / skyline / mid-band / pin draws, the full-screen
 // sky and ground (half resolution on the low preset), planar shadows, and the perf probe. No DOM.
 import { PITCH, CHUNK } from './town.js';
-import { MB, M, SKY, MID } from './mesher.js';
+import { MB, M, SKY, MID } from './mb.js';
 import { hyp2, hyp3, persp, lookDir, mul, invert, planes, inFrustum } from './gfx.js';
 
 // keys: 0 noon, 1 sunset, 2 night, 3 dawn (cycle of 4)
@@ -14,7 +14,7 @@ const KEYS = [
 // Writes into one preallocated object (the frame loop allocates nothing).
 const TOD_KEYS = ['top', 'hor', 'sun', 'sky', 'gnd', 'fog'];
 const TOD = { top: new Float32Array(3), hor: new Float32Array(3), sun: new Float32Array(3), sky: new Float32Array(3), gnd: new Float32Array(3), fog: new Float32Array(3), dir: new Float32Array(3), night: 0 };
-export function todState(t) {
+function todState(t) {
   t = ((t % 4) + 4) % 4;
   const i = Math.floor(t), f = t - i, a = KEYS[i], b = KEYS[(i + 1) % 4];
   const s = f * f * (3 - 2 * f);
@@ -32,7 +32,7 @@ export function todState(t) {
 
 // Low preset: cast shadows from the nearest chunks only (the opening view's homes are grounded; casters beyond
 // this are painted by the ground shader, which fades its own shadows in where these fade out).
-export const LOW_SHADOW = 95;
+const LOW_SHADOW = 95;
 
 function sortByDist(arr) {   // insertion sort: allocation-free, fast on nearly sorted lists
   for (let i = 1; i < arr.length; i++) { const v = arr[i]; let j = i - 1; while (j >= 0 && arr[j].d > v.d) { arr[j + 1] = arr[j]; j--; } arr[j + 1] = v; }
@@ -50,7 +50,7 @@ export function createRenderer(d) {
   const FWD = new Float64Array(3), EYE = new Float64Array(3), SHD = new Float32Array(3);
   let pinMesh = null;
   let groundTex = null, groundExt = 0, groundBytes = 0;
-  // The ground data texture is a window of at most 641^2 blocks (1.6 MB) (town.js buildGround): the whole town when it
+  // The ground data texture is a window of at most 641^2 blocks (1.6 MB) (layout.js buildGround): the whole town when it
   // fits, otherwise centred near the camera and replaced by a worker-built window when the camera has moved
   // more than 96 blocks from its centre (streaming.js asks for it). Same size at 1M and 10M followers.
   const groundWin = d.groundWin;                     // shared with streaming.js, which asks for new windows
@@ -276,7 +276,7 @@ export function createRenderer(d) {
     if (s[1] < 0.3) { const h = hyp2(s[0], s[2]); const k = Math.sqrt(1 - 0.3 * 0.3) / h; s[0] *= k; s[2] *= k; s[1] = 0.3; }
     return s;
   }
-  // the ground data texture (town.js buildGround); false if this GPU can't hold it (nothing changed then)
+  // the ground data texture (layout.js buildGround); false if this GPU can't hold it (nothing changed then)
   r.setGround = (ground) => {
     if (ground.size > gl.getParameter(gl.MAX_TEXTURE_SIZE)) return false;
     if (!groundTex) groundTex = gl.createTexture();

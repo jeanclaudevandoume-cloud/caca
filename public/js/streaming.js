@@ -4,12 +4,13 @@
 //  - A reply is uploaded only if its target still wants exactly that request (gone or superseded: dropped).
 //  - Uploads are spread over frames (<= 512 KB per drain, nearest first) so streaming never hitches.
 //  - A target that failed 3 times gives up (loaded, empty) instead of retrying forever.
-import { PITCH, CHUNK, chunkLod, chunkLite, skyLite, regionKey, regionOf } from './town.js';
-import { SKY, MID } from './mesher.js';
+import { PITCH, CHUNK, chunkLod, chunkLite, skyLite } from './town.js';
+import { regionKey, regionOf } from './layout.js';
+import { SKY, MID } from './mb.js';
 import { hyp2 } from './gfx.js';
 
-export const MID_OUT = 3.6;   // low: x r1 (= r0), ~700 m
-export const ckey = (x, z) => (x + 32768) * 65536 + (z + 32768);   // numeric map keys: no strings in the stream loop
+const MID_OUT = 3.6;   // low: x r1 (= r0), ~700 m
+const ckey = (x, z) => (x + 32768) * 65536 + (z + 32768);   // numeric map keys: no strings in the stream loop
 const byWantD = (a, b) => a.d - b.d;
 const byTargetDist = (a, b) => (a.t.d || 0) - (b.t.d || 0);
 

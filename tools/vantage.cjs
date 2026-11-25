@@ -1,6 +1,9 @@
 // Capture the fixed vantage set into shots/<tag>/ for before/after comparison:
 //   timeout 1500 node tools/vantage.cjs <tag> [name ...]
 // Needs the server on PORT (default 8080). One browser, one page at a time (SwiftShader is slow).
+// --base <url path prefix> (or env BASE) captures a build served under that path instead of the root, e.g. a
+// side-by-side base build copied to public/_rp/ for same-browser A/B runs:
+//   node tools/vantage.cjs base phoneauto --base /_rp/
 const { chromium, devices } = require('playwright');
 const fs = require('fs');
 const V = {
@@ -28,7 +31,11 @@ const V = {
   portraitfull: ['q=low&t=10&notags&fullres&cam=6,24,660,0,-0.07', 390, 844],
 };
 (async () => {
-  const [tag = 'cur', ...only] = process.argv.slice(2);
+  const argv = process.argv.slice(2), bi = argv.indexOf('--base');
+  let base = process.env.BASE || '/';
+  if (bi >= 0) { base = argv[bi + 1] || '/'; argv.splice(bi, 2); }
+  base = ('/' + base + '/').replace(/\/+/g, '/');                   // '/_rp', '_rp/' and '/_rp/' all mean /_rp/
+  const [tag = 'cur', ...only] = argv;
   const names = only.length ? only : Object.keys(V);
   fs.mkdirSync(`shots/${tag}`, { recursive: true });
   const b = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--enable-precise-memory-info'] });
@@ -51,7 +58,7 @@ const V = {
     p.on('pageerror', (e) => { bad = bad || 'pageerror: ' + e.message.slice(0, 200); console.log(n, 'pageerror:', e.message.slice(0, 300)); });
     let bytes = 0;
     p.on('response', async (r) => { try { const h = await r.allHeaders(); bytes += +(h['content-length'] || 0); } catch { /* ignore */ } });
-    await p.goto(`http://localhost:${process.env.PORT || 8080}/?shot&${q}`);
+    await p.goto(`http://localhost:${process.env.PORT || 8080}${base}?shot&${q}`);
     try {
       await p.waitForFunction(() => { const t = window.__town; if (!t || !t.ready || !t.idle()) { window.__s = 0; return false; } return ++window.__s >= 4; }, null, { timeout: 110000, polling: 400 });
     } catch { bad = bad || 'timeout'; console.log(n, 'timeout'); }

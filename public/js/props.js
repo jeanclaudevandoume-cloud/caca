@@ -1,16 +1,15 @@
 // Street props and small parts shared by homes and chunks: trees, wires, lamps, kanban and billboards,
 // custom shapes, garden items, doors and rooftop clutter (round Q split of mesher.js).
+import { hash3 } from './town.js';
+import { ROOF, clampSV } from './recipe.js';
 import {
-  hash3, ROOF, clampSV,
-} from './town.js';
-import {
-  rcos, rsin, M, shade, LEAVES, BLOSSOM, TRUNK, ctx, DOORS,
+  rcos, rsin, M, shade, LEAVES, BLOSSOM, TRUNK, DOORS,
 } from './mb.js';
 
 export function tree(mb, x, z, s, h, lod) {
   const cast = mb.cast;
   if (cast && lod) mb.cast = false;                 // far trees don't cast at all
-  else if (cast && !ctx.LITE) {
+  else if (cast && !mb.lite) {
     // cheap shadow stand-in (hidden inside the crown); the detailed crown below does not cast
     mb.ell(x, 3.6 * s, z, 1.8 * s, 1.6 * s, 1.8 * s, 4, 1, 0x3e6d3a, M.LEAF, 0);
     mb.cast = false;
@@ -18,9 +17,9 @@ export function tree(mb, x, z, s, h, lod) {
   treeBody(mb, x, z, s, h, lod);
   mb.cast = cast;
 }
-export function treeBody(mb, x, z, s, h, lod) {
+function treeBody(mb, x, z, s, h, lod) {
   const kind = h % 7;
-  if (ctx.LITE) {
+  if (mb.lite) {
     const c = kind === 6 ? BLOSSOM[(h >>> 3) % 3] : LEAVES[(h >>> 3) % LEAVES.length];
     mb.cyl(x, 0, z, 0.25 * s, 1.6 * s, 0.25 * s, 3, TRUNK, M.PLAIN, h & 255, false);   // the trunk stays: a crown without one floats
     if (kind < 2) mb.cyl(x, 1.0 * s, z, 2.2 * s, 6 * s, 0, 4, shade(c, 0.85), M.LEAF, h & 255);
@@ -67,9 +66,9 @@ export function wires(mb, x0, x1, z, n, alongZ = false) {
 
 export function lamp(mb, x, z, a) {
   const cast = mb.cast; mb.cast = false;
-  if (ctx.LITE) mb.cyl(x, 0, z, 0.14, 5.2, 0.14, 3, 0x3a3f4a, M.METAL, a, false);   // lite: a 3-sided post (6 tris, not 10)
+  if (mb.lite) mb.cyl(x, 0, z, 0.14, 5.2, 0.14, 3, 0x3a3f4a, M.METAL, a, false);   // lite: a 3-sided post (6 tris, not 10)
   else mb.cbox(x, 0, z, 0.25, 5.2, 0.25, 0x3a3f4a, M.METAL, a);
-  if (ctx.LITE) mb.cyl(x, 5.0, z, 0.45, 5.35, 0.45, 3, 0xfff1c1, M.LIGHT, a);   // lite: a 3-sided lantern (7 tris)
+  if (mb.lite) mb.cyl(x, 5.0, z, 0.45, 5.35, 0.45, 3, 0xfff1c1, M.LIGHT, a);   // lite: a 3-sided lantern (7 tris)
   else mb.cbox(x, 5.0, z, 0.7, 0.35, 0.7, 0xfff1c1, M.LIGHT, a);
   mb.cast = cast;
 }
@@ -210,13 +209,13 @@ export function gardenItem(mb, item, x, z, h) {
 export function door(mb, x, zw, fs, r, rc, a) {
   const cast = mb.cast; mb.cast = false;
   mb.wq(x - 0.6, x + 0.6, 0, 2.3, zw + fs * 0.04, fs, DOORS[(r.hash >>> 19) % 5], M.PLAIN, a);
-  if (!ctx.LITE) {
+  if (!mb.lite) {
     mb.wq(x - 0.85, x + 0.85, 0, 2.7, zw + fs * 0.02, fs, 0xf2eee6, M.PLAIN, a);
     mb.cbox(x, 0, zw + fs * 0.55, 1.8, 0.18, 1.0, 0xbdb8ae, M.PLAIN, a);
     mb.cbox(x + 0.95, 2.05, zw + fs * 0.1, 0.22, 0.3, 0.12, 0xffe2a8, M.LIGHT, a);
   }
   mb.cast = cast;
-  if (ctx.LITE) return;
+  if (mb.lite) return;
   if (hash3(r.hash, 7, 3) % 10 < 3) {            // porch: roof on two posts
     mb.cbox(x, 2.6, zw + fs * 0.8, 3.0, 0.14, 1.6, rc, M.PLAIN, a);
     mb.cbox(x - 1.35, 0, zw + fs * 1.45, 0.2, 2.6, 0.2, 0xf2eee6, M.PLAIN, a);
@@ -229,8 +228,8 @@ export function roofClutter(mb, x0, z0, x1, z1, top, wall, h, a) {
   const cast = mb.cast; mb.cast = false;
   const w = x1 - x0, d = z1 - z0, hx = (h & 1) ? x0 + 1.5 : x1 - 1.5, hz = (h & 2) ? z0 + 1.6 : z1 - 1.6;
   mb.box(hx - 1.1, top, hz - 1.2, hx + 1.1, top + 2.5, hz + 1.2, shade(wall, 0.92), 0x6e7378, M.PLAIN, a);   // stair hut
-  if (!ctx.LITE) mb.wq(hx - 0.45, hx + 0.45, top + 0.05, top + 2.0, (h & 2) ? hz + 1.21 : hz - 1.21, (h & 2) ? 1 : -1, 0x5a5f66, M.METAL, a);
-  if (!ctx.LITE) {
+  if (!mb.lite) mb.wq(hx - 0.45, hx + 0.45, top + 0.05, top + 2.0, (h & 2) ? hz + 1.21 : hz - 1.21, (h & 2) ? 1 : -1, 0x5a5f66, M.METAL, a);
+  if (!mb.lite) {
     mb.cbox(x0 + w * 0.5, top, z0 + d * ((h & 4) ? 0.3 : 0.7), 0.9, 0.65, 0.4, 0xe9e9e6, M.METAL, a);       // AC condenser
     const tx = (h & 1) ? x1 - 1.4 : x0 + 1.4, tz = z0 + d * 0.5;
     for (const [lx, lz] of [[-0.5, -0.5], [0.5, 0.5]]) mb.cbox(tx + lx, top, tz + lz, 0.08, 0.9, 0.08, 0x5a5f66, M.METAL, a);

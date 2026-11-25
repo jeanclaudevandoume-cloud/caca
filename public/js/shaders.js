@@ -1,5 +1,5 @@
 // GLSL. Per-block facts (kind, zone, inhabited, avenues, roof colours) come to the ground
-// shader in a data texture built by town.js (buildGround). What the shader still mirrors by
+// shader in a data texture built by layout.js (buildGround). What the shader still mirrors by
 // hand: hash3 (per-slot roof pick), riverZ/isRiver, bayHalf/bayAt/portLane (outside the
 // texture), plot layout and the ROOF palette. Change one, change the other.
 
@@ -439,7 +439,7 @@ uvec4 cellAt(int bx, int bz) {
 bool isWater(uint k) { return k == 3u || k == 4u || k == 9u; }
 bool countryish(uint k) { return k == 6u || k == 8u || isWater(k); }
 
-uniform vec3 uRoof[8];   // set from town.js ROOF (no hand-copied palette)
+uniform vec3 uRoof[8];   // set from recipe.js ROOF (no hand-copied palette)
 
 uint h2(ivec2 p) { uint h = uint(p.x) * 0x8da6b343u ^ uint(p.y) * 0xd8163841u; h ^= h >> 13u; h *= 0x5bd1e995u; return h ^ (h >> 15u); }
 float vnoise(vec2 p) {
@@ -537,7 +537,7 @@ vec3 blockCol(uvec4 c, int bx, int bz, vec2 l, vec2 p, float t, float w, vec3 gr
         lot += vec3(1.0, 0.7, 0.38) * 3.0 * on * uNight * wc.x * wc.y * fadeIn;
       }
     } else if (zone <= 1 && w < 1.5 && (c.g & 4u) != 0u) {
-      // near the camera: the lot plan of each home (mirrors town.js homeRect / recipe)
+      // near the camera: the lot plan of each home (mirrors town.js homeRect / recipe.js recipe)
       bool laneB = (c.g & 32u) != 0u;                  // lane-split block (town.js laneBlock): plots front the roji
       int col = laneB ? int(clamp(floor((l.x + 20.0) / 8.0), 0.0, 4.0)) : int(clamp(floor((l.x + 20.0) / 10.0), 0.0, 3.0)), row = l.y < 0.0 ? 0 : 1;
       int slot = laneB ? row * 5 + col : row * 4 + col;

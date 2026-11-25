@@ -13,7 +13,7 @@
 //   row 6: kanban lettering (round Q): one vertical column of four kanji-like glyphs per tile; rgb white,
 //          alpha = ink. Signs map u across the board and v down the column (tategaki).
 //   row 7: mid-band roof strips (round R): 0-1 jutaku rows, 2-3 villa rows (stair huts, tanks, AC, NE shadows)
-export const ATLAS_TILES = 4, ATLAS_SIZE = 1024, ATLAS_ROWS = 8, ATLAS_H = 2048;
+const ATLAS_TILES = 4, ATLAS_SIZE = 1024, ATLAS_H = 2048;   // 8 rows of 256 px tiles
 const T = ATLAS_SIZE / ATLAS_TILES, PAD = 6;   // a gutter inside each tile so mip levels don't bleed
 
 function rng(seed) { let s = seed >>> 0; return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296); }
@@ -325,19 +325,4 @@ export function fillAtlas(gl, tex, data, aniso = true) {
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   const an = gl.getExtension('EXT_texture_filter_anisotropic');
   if (an && aniso) gl.texParameterf(gl.TEXTURE_2D, an.TEXTURE_MAX_ANISOTROPY_EXT, Math.min(4, gl.getParameter(an.MAX_TEXTURE_MAX_ANISOTROPY_EXT)));
-}
-export function uploadAtlas(gl, aniso = true) {
-  const img = buildAtlas();
-  const tex = gl.createTexture();
-  gl.bindTexture(gl.TEXTURE_2D, tex);
-  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, ATLAS_SIZE, ATLAS_H, 0, gl.RGBA, gl.UNSIGNED_BYTE, img.data);
-  gl.generateMipmap(gl.TEXTURE_2D);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-  const an = gl.getExtension('EXT_texture_filter_anisotropic');
-  if (an && aniso) gl.texParameterf(gl.TEXTURE_2D, an.TEXTURE_MAX_ANISOTROPY_EXT, Math.min(4, gl.getParameter(an.MAX_TEXTURE_MAX_ANISOTROPY_EXT)));
-  return tex;
 }

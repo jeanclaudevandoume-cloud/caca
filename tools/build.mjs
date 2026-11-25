@@ -7,7 +7,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { buildLayout, layoutToBin, plotOf, regionOf, regionKey, lineIndex, normName, cleanName, shardKey, SHAPES, GARDEN, REGION, SLOTS } from '../public/js/town.js';
+import { REGION, SLOTS } from '../public/js/town.js';
+import { normName, cleanName, shardKey } from '../public/js/names.js';
+import { SHAPES, GARDEN } from '../public/js/recipe.js';
+import { buildLayout, layoutToBin, plotOf, regionOf, regionKey, lineIndex } from '../public/js/layout.js';
 
 const src = process.argv[2] || 'data/live';
 const out = process.argv[3] || 'public/town';
@@ -26,7 +29,7 @@ const shards = new Map();
 const index = new Map();
 const dupes = [];
 for (let i = 0; i < n; i++) {
-  const name = cleanName(lines[i]);   // town.js: NFC, no bidi/zero-width/control characters, grapheme-safe truncation
+  const name = cleanName(lines[i]);   // names.js: NFC, no bidi/zero-width/control characters, grapheme-safe truncation
   if (!name) continue;
   const { bx, bz, slot } = plotOf(L, i);
   const key = regionKey(regionOf(bx), regionOf(bz));
@@ -114,7 +117,7 @@ for (const sub of ['n', 'c', 's']) {
   }
 }
 
-// the block order is computed from a formula on every client now (town.js buildLayout): no order.bin
+// the block order is computed from a formula on every client now (layout.js buildLayout): no order.bin
 try { fs.unlinkSync(path.join(out, 'order.bin')); written++; } catch { /* none */ }
 // the layout tables themselves (~82 KB at 1M): clients skip the counting pass at boot
 const layBuf = Buffer.from(layoutToBin(L));

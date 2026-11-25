@@ -1,7 +1,7 @@
 // Fake followers for testing: node tools/demo-data.mjs data/demo 1000000
 import fs from 'node:fs';
 import path from 'node:path';
-import { SHAPES, GARDEN } from '../public/js/town.js';
+import { SHAPES, GARDEN } from '../public/js/recipe.js';
 
 const dir = process.argv[2] || 'data/demo';
 const N = +(process.argv[3] || 1000000);

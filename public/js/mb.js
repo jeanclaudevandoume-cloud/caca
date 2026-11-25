@@ -1,5 +1,5 @@
-// Mesh builder (MB) and the shared palettes (round Q split of mesher.js).
-// Mesh building. Vertex = 16 bytes:
+// Mesh builder (MB), the shared palettes and the mesh tile sizes (round Q split of mesher.js).
+// Vertex = 16 bytes:
 //   0..5  int16 x,y,z  (metres * 64, relative to the mesh origin)
 //   6     uint8 u      (metres along the wall * 8)
 //   7     uint8 v      (floors * 4, so up to 63 floors)
@@ -9,9 +9,8 @@
 // Index buffer: shadow-only proxies (count `so`, never drawn in the colour pass), then visible casters (the
 // shadow pass draws the first `ns` indices, proxies included), then visible non-casters. The colour pass draws
 // from `so` to the end.
-import {
-  FLOOR_H, ROOF,
-} from './town.js';
+import { FLOOR_H, REGION } from './town.js';
+import { ROOF } from './recipe.js';
 
 // Trig rounded to 1e-7 so every JS engine builds byte-identical geometry (positions are then
 // quantised to 1/64 m, so an ulp of difference between engines can no longer flip a value).
@@ -21,11 +20,16 @@ export const rsin = (a) => Math.round(Math.sin(a) * 1e7) / 1e7;
 export const M = { PLAIN: 0, WIN: 1, LEAF: 2, METAL: 3, LIGHT: 4, GLASS: 5, WATER: 6, ROOF: 7 };
 export const TALL = 8;
 
+// Mesh tile sizes in blocks (mesher.js builds them; render.js and streaming.js place them, without pulling in mesher.js).
+export const SKY = 2 * REGION;   // skyline tile = 2x2 data regions (32x32 blocks, ~1.5 km)
+export const MID = 16;           // mid-band tile
+
 export class MB {
   static strict = false;
   static overflow = [];
-  constructor(ox, oz, cap = 4096) {
+  constructor(ox, oz, cap = 4096, lite = false) {
     this.ox = ox; this.oz = oz;
+    this.lite = lite;   // lite (low-quality) chunk: cheaper trees, fewer props; read by every helper that gets this mb
     this.alloc(cap);
     this.nv = 0;
     this.ic = new Uint32Array(cap * 2); this.nc = 0;
@@ -98,7 +102,7 @@ export class MB {
   // Residential walls with baked shade: the 0.7 m under the eaves darkens to 60% (vertex colours),
   // so the shade under the roof works on every preset with zero shader cost.
   boxEave(x0, y0, z0, x1, y1, z1, c, top, m, a, band = 0.7) {
-    if (ctx.LITE) { this.box(x0, y0, z0, x1, y1, z1, c, top, m, a, y0 / FLOOR_H); return; }   // lite: no eave band (8 tris a house)
+    if (this.lite) { this.box(x0, y0, z0, x1, y1, z1, c, top, m, a, y0 / FLOOR_H); return; }   // lite: no eave band (8 tris a house)
     const ys = y1 - band, cd = shade(c, 0.6);
     this.box(x0, y0, z0, x1, ys, z1, c, -1, m, a, y0 / FLOOR_H);   // window rows count from the ground
     const v0 = ys / FLOOR_H, v1 = y1 / FLOOR_H, sp = 2.6;
@@ -130,7 +134,7 @@ export class MB {
     this.ft(x1, y, zf, x1, y, zb, x1, yt, zf, M.PLAIN, wallC, a);
     if (trim) {
       this.wq(x0 - o, x1 + o, yfo - 0.15, yfo, zfo, s, fc, M.PLAIN, a);                 // thin dark fascia
-      if (!ctx.LITE) this.fqY(x0 - o, yfo - 0.01, zfo, x1 + o, yfo - 0.01, zfo, x1 + o, yt - 0.01, zf, x0 - o, yt - 0.01, zf, M.PLAIN, shade(wallC, 0.7), a, -1);   // underside
+      if (!this.lite) this.fqY(x0 - o, yfo - 0.01, zfo, x1 + o, yfo - 0.01, zfo, x1 + o, yt - 0.01, zf, x0 - o, yt - 0.01, zf, M.PLAIN, shade(wallC, 0.7), a, -1);   // underside
     }
   }
   // Flat-roof parapet ring: outer faces, coping on top, inner faces (not on lite); optional roof membrane.
@@ -140,10 +144,10 @@ export class MB {
     this.wq(x0, x1, y, yt, z1, 1, sideC, M.PLAIN, a); this.wq(x0, x1, y, yt, z0, -1, sideC, M.PLAIN, a);
     this.xq(x1, z0, z1, y, yt, 1, sideC, M.PLAIN, a); this.xq(x0, z0, z1, y, yt, -1, sideC, M.PLAIN, a);
     const top = (ax0, az0, ax1, az1) => this.q(ax0, yt, az1, ax1, yt, az1, ax1, yt, az0, ax0, yt, az0, 0, 1, 0, 0, 0, 0, 0, M.PLAIN, capC, a);
-    if (!ctx.LITE) {                                 // lite: no coping (sub-pixel at lite range; the wall band carries the rim)
+    if (!this.lite) {                                 // lite: no coping (sub-pixel at lite range; the wall band carries the rim)
       top(x0, z0, x1, z0 + t); top(x0, z1 - t, x1, z1); top(x0, z0 + t, x0 + t, z1 - t); top(x1 - t, z0 + t, x1, z1 - t);
     }
-    if (!ctx.LITE) {
+    if (!this.lite) {
       const ic = shade(sideC, 0.8);
       this.wq(x0 + t, x1 - t, y, yt, z1 - t, -1, ic, M.PLAIN, a); this.wq(x0 + t, x1 - t, y, yt, z0 + t, 1, ic, M.PLAIN, a);
       this.xq(x1 - t, z0 + t, z1 - t, y, yt, -1, ic, M.PLAIN, a); this.xq(x0 + t, z0 + t, z1 - t, y, yt, 1, ic, M.PLAIN, a);
@@ -252,7 +256,7 @@ export class MB {
       if (trim) {
         this.wq(x0, x1, y - 0.22, y, z1, 1, fc, M.PLAIN, a);
         this.wq(x0, x1, y - 0.22, y, z0, -1, fc, M.PLAIN, a);
-        if (!ctx.LITE) this.box(x0 - 0.05, y + h - 0.12, zm - 0.18, x1 + 0.05, y + h + 0.1, zm + 0.18, shade(c, 0.75), shade(c, 0.75), M.PLAIN, a);
+        if (!this.lite) this.box(x0 - 0.05, y + h - 0.12, zm - 0.18, x1 + 0.05, y + h + 0.1, zm + 0.18, shade(c, 0.75), shade(c, 0.75), M.PLAIN, a);
       }
     } else {
       const xm = (x0 + x1) / 2;
@@ -263,7 +267,7 @@ export class MB {
       if (trim) {
         this.q(x1, y - 0.22, z1, x1, y - 0.22, z0, x1, y, z0, x1, y, z1, 1, 0, 0, 0, 0, 0, 0, M.PLAIN, fc, a);
         this.q(x0, y - 0.22, z0, x0, y - 0.22, z1, x0, y, z1, x0, y, z0, -1, 0, 0, 0, 0, 0, 0, M.PLAIN, fc, a);
-        if (!ctx.LITE) this.box(xm - 0.18, y + h - 0.12, z0 - 0.05, xm + 0.18, y + h + 0.1, z1 + 0.05, shade(c, 0.75), shade(c, 0.75), M.PLAIN, a);
+        if (!this.lite) this.box(xm - 0.18, y + h - 0.12, z0 - 0.05, xm + 0.18, y + h + 0.1, z1 + 0.05, shade(c, 0.75), shade(c, 0.75), M.PLAIN, a);
       }
     }
   }
@@ -310,8 +314,6 @@ export const flatMem = (r) => FLAT_MEM[(r.hash >>> 21) & 3];
 export const LEAVES = [0x3e7d3a, 0x4f8f3f, 0x2f6b3c, 0x5f9a45, 0x6d8f3a, 0x467f43];
 export const BLOSSOM = [0xf2a7c3, 0xe98fb4, 0xf7c1d5];
 export const TRUNK = 0x7a5233;
-
-export const ctx = { LITE: false };   // buildChunk sets LITE: low-quality chunks get cheaper trees and fewer props
 
 // palettes shared by the mesh modules
 export const VEND = [0xe8433a, 0x2a6fb5, 0xf2f2ee, 0x2a9d6f];

@@ -1,5 +1,7 @@
-// Follower Town — every rule that decides WHERE things are and HOW a home looks.
-// Shared verbatim by the browser, the mesh worker and the Node build tool.
+// Follower Town — the cell and zone rules: WHERE things are (river, bay, avenues, roji, civic cells, zones, plot
+// frames) and the streaming decisions. Home recipes and palettes are in recipe.js, the follower -> plot layout
+// and the ground texture in layout.js, name handling in names.js. Shared verbatim by the browser, the mesh worker
+// and the Node build tool.
 //
 // Determinism: only integer math through hash3 decides anything. No Math.random, no time,
 // no GPU. Math.sqrt is only used on exact integers (IEEE sqrt is correctly rounded, so
@@ -8,9 +10,7 @@
 // The ground shader (shaders.js, groundBase) mirrors hash3, riverZ, cellKind, zoneLevel,
 // plot layout and roofIdx by hand. Change one, change the other.
 
-export const PITCH = 48;        // block + road
-export const BLK = 40;          // block size
-export const HALF = 20;
+export const PITCH = 48;        // block (40 m) + road
 export const CHUNK = 4;         // blocks per chunk side
 export const REGION = 16;       // blocks per data region side
 export const SLOTS = 16;        // data slots per block in region files
@@ -51,7 +51,7 @@ export const avenueZ = (bz) => { const k = Math.round(bz / 10); return bz === k 
 // Roji (round P): a narrow paved lane through the middle of about one residential block in three
 export const rojiAt = (bx, bz) => hash3(bx, bz, 23) % 3 === 0;
 
-export function lakeAt(bx, bz) {
+function lakeAt(bx, bz) {
   if (bx * bx + bz * bz <= 400) return false;
   const cx = fdiv(bx, 9), cz = fdiv(bz, 9);
   const hl = hash3(cx, cz, 9);
@@ -76,7 +76,7 @@ export function portLane(bx, bz) {
 
 // Static kind: never depends on follower count.
 // Civic cells (round M): one per 6x6-block neighbourhood, never on its border, so two are never adjacent.
-export function isCivic(bx, bz) {
+function isCivic(bx, bz) {
   const nx = fdiv(bx, 6), nz = fdiv(bz, 6), h = hash3(nx, nz, 3);
   return bx === nx * 6 + 1 + (h % 4) && bz === nz * 6 + 1 + ((h >>> 4) % 4);
 }
@@ -168,317 +168,6 @@ export function roofIdx(bx, bz, slot) {
 }
 export const districtAccent = (bx, bz) => hash3(fdiv(bx, 4), fdiv(bz, 4), 31) % 6;
 
-// Palettes (0xRRGGBB). The ground shader holds ROOF too.
-export const WALL = [0xf0ece2, 0xe2d8c4, 0xcdbfa5, 0xd99a6c, 0xf4f2ec, 0xc9b49a, 0xb8c9a3, 0x5c6870];   // ART.md: cream, sand, terracotta, sage, slate (picked through WALL_PICK)
-const WALL_PICK = [0, 1, 2, 3, 4, 5, 6, 7, 3, 6];   // terracotta (3) and sage (6) twice: less cream, more colour
-// townhouses: three brick tones, then stucco
-export const TOWN = [0xb46a4c, 0xb07a5a, 0xc8b08e, 0xc9a27e, 0xe3dccf];
-export const ROOF = [0x3a3e45, 0x4b5663, 0x2f5d8a, 0x2f4d7a, 0x8a4a34, 0x9a4a30, 0x3f6b6e, 0x7a3b2a];   // ART.md: charcoal/slate, Japanese blue, navy, terracotta, teal, oxblood (round H: 2 of 8 grey, not 4); green only on villas
-// ART.md city facades: S <= .30, V <= .85 (the palette is clamped to the table)
-export const CITY = [0xc9a27e, 0x8e9aa6, 0xd8c3a0, 0x5f6b78, 0xb5876a, 0xe0d6c4, 0x4a5560].map((c) => clampSV(c, 0.295, 0.845));
-export const ACCENT = [0xff6b6b, 0x1fb5ad, 0xffb627, 0x6c63ff, 0x2ec27e, 0xff8fb1];
-export const GLASS = [0x4d7799, 0x2f7f86, 0x2f4a72, 0x2a4a63, 0x8a6a4a, 0x3b5a4f, 0x6b4f3a, 0x1f2a3a, 0x7a5a3e, 0x355f8f, 0x2c3f4f, 0x5a6f80];   // ART.md: dark only
-
-export const SHAPES = ['mushroom', 'dome', 'castle', 'pyramid', 'ufo', 'treehouse', 'lighthouse', 'igloo', 'rocket', 'cube'];
-export const GARDEN = ['fountain', 'pool', 'flowers', 'tree', 'car', 'trampoline', 'statue', 'bench', 'swing', 'pond', 'palm', 'tent'];
-
-// How a home looks. `custom` (optional) = { shape, color: '#rrggbb', garden: [..] }.
-export function recipe(bx, bz, slot, zone, custom) {
-  const h = hash3(bx * 16 + slot, bz, 21), h2 = hash3(bx, bz * 16 + slot, 22);
-  const r = { zone, slot, hash: h, roof: roofIdx(bx, bz, slot), wall: 0, floors: 1, w: 7, d: 9,
-    roofType: 0, mat: 1, style: 0, sig: false, ox: 0, garden: [], tree: false, shape: null, color: -1, top: false, crown: 0 };
-  const col = slot & 3, lane = laneBlock(bx, bz, zone);
-  if (zone <= 1 && !custom && !lane && ((col === 3 && shopLaneX(bx)) || (col === 0 && shopLaneX(bx - 1)))) {
-    // shop house on a shotengai: shop on the ground floor facing the lane, 2-4 storeys of flats above
-    r.shop = col === 3 ? 1 : -1;
-    r.floors = (zone === 1 ? 3 : 2) + (h % 3);
-    r.w = 9.4; r.d = 18.6; r.roofType = (h >>> 20) % 10 < 4 ? 0 : 2;   // 40% pitched (gable along the lane)
-    r.wall = TOWN[(h >>> 11) % TOWN.length];
-    r.sign = (h >>> 7) % 6; r.awning = (h >>> 10) % 4;
-    r.height = r.floors * FLOOR_H;
-    return r;
-  }
-  if (zone === 0) {
-    // Tokyo jutaku: narrow 2-3 storey house close to the street, hugging one side line
-    r.floors = 2 + (h & 1);                   // half are 3 storeys
-    r.w = lane ? 6.4 + ((h >>> 1) % 4) * 0.2 : 8.0 + ((h >>> 1) % 4) * 0.3;   // packed: side gaps 0.7-1.6 m (narrower on 8 m lane plots)
-    r.d = 11 + ((h >>> 4) % 4) * 0.75;
-    const rt = (h >>> 8) % 20;
-    r.roofType = rt < 9 ? 3 : rt < 15 ? 0 : 2;  // 3 mono-pitch, 0 low gable, 2 flat with parapet
-    r.wall = WALL[WALL_PICK[(h >>> 11) % WALL_PICK.length]];   // creams (0,1,4) are 3 in 10, not 3 in 8
-    r.style = (h >>> 26) & 1;                 // 1 = ceramic siding (vertical joints)
-    r.twoTone = ((h >>> 27) & 1) === 1;       // darker ground storey + string course
-    r.side = h & 8 ? 1 : -1;                  // the house sits 0.9 m from this side line
-    r.balcony = (h >>> 14) % 10 < 6;
-    r.garage = (h >>> 18) % 10 < 7;           // built-in garage on the side away from the door
-    r.tree = (h >>> 22) % 10 < 5;             // a small tree in the side planting strip
-    r.vending = (h >>> 29) % 3 === 0;         // a vending machine at the front corner
-    if ((h >>> 18) % 3 === 0) r.garden.push(GARDEN[(h2 >>> 3) % GARDEN.length]);
-  } else if (zone === 1) {
-    // Seoul villa: 4-5 storeys of brick over an open parking storey (pilotis), flat roof
-    r.floors = 4 + (h & 1);
-    r.w = lane ? 7.2 : 9.4; r.d = 12 + ((h >>> 4) % 7) * 0.5;
-    r.roofType = 2;
-    r.mansard = (h >>> 8) % 10 < 3;
-    const mr = (h >>> 20) % 20;
-    r.roofMem = mr < 12 ? 0x4f8a6e : mr < 15 ? 0x5f86a8 : 0x5a5f66;   // Seoul green / blue / grey roofs
-    const ti = (h >>> 11) % 5;
-    r.wall = TOWN[ti];
-    r.style = ti < 2 ? 2 : 0;                 // 2 = brick
-    r.tree = ((h >>> 14) % 10) < 3;
-  } else if (zone === 2) {
-    // shotengai massing: low shop buildings on the street rows, taller ones behind (height/width <= ~3.3,
-    // no "pencil palisade" on the horizon); outer columns step down too so blocks read as stepped masses
-    const row = slot >> 2, col = slot & 3, street = row === 0 || row === 3, edge = col === 0 || col === 3;
-    r.floors = street ? 3 + (h % 4) - (edge && (h & 16) ? 1 : 0) : 5 + (h % 5);
-    r.w = 8.6; r.d = 8.0 + ((h >>> 20) % 3) * 0.8; r.roofType = 2;
-    r.wall = (h >>> 9) % 5 === 0 ? clampSV(blend(ACCENT[districtAccent(bx, bz)], CITY[(h >>> 11) % CITY.length], 0.75), 0.295, 0.845) : CITY[(h >>> 11) % CITY.length];
-    r.crown = (h >>> 15) % 3;
-  } else {
-    // towers: height tapers from the centre, with ragged variety and the odd landmark
-    const d = isqrt(bx * bx + bz * bz);
-    const hubFar = d > 10;
-    // a landmark cluster right around the plaza, tapering steadily outward
-    const maxF = hubFar ? 30 : d <= 2 ? 58 : Math.max(18, 48 - 4 * d);
-    const roll = h % 100;
-    r.floors = Math.max(8, Math.floor(maxF * ((d <= 3 ? 60 : 35) + (h >>> 7) % (d <= 3 ? 41 : 66)) / 100));
-    if (roll < 6) r.floors = Math.min(58, Math.floor(maxF * 1.25));   // 58 + a 4-floor crown stays under the packed v limit (63.75 floors)
-    r.sig = d <= 1 && roll < 6;                  // the few signature towers (lantern crown + spire)
-    // plots pair up: even slots build one wide tower over both plots, odd slots a 2-storey podium
-    r.pod = (slot & 1) === 1;
-    if (r.pod) { r.floors = 2; r.w = 9.6; r.d = 19; r.ox = 0; }
-    else {
-      r.w = 17.5; r.d = 15 + ((h >>> 5) % 5); r.ox = 5;
-      if (!r.sig) r.floors = Math.min(r.floors, Math.floor(9 * r.w / FLOOR_H));   // height/width <= 9: no needles
-    }
-    r.roofType = 2; r.mat = 5;
-    r.wall = GLASS[(h >>> 9) % GLASS.length];
-    r.crown = (h >>> 15) % 5;
-  }
-  if (custom) {
-    if (zone >= 2) r.top = true;
-    r.shape = SHAPES.includes(custom.shape) ? custom.shape : 'cube';
-    r.color = soften(parseColor(custom.color, ACCENT[h % ACCENT.length]));
-    if (Array.isArray(custom.garden)) r.garden = custom.garden.filter((g) => GARDEN.includes(g)).slice(0, 4);
-  }
-  r.height = r.floors * FLOOR_H;   // custom homes keep their house (the shape is an ornament on top)
-  return r;
-}
-
-// Cap a colour's HSV saturation and value (hue kept).
-export function clampSV(c, smax, vmax) {
-  const r = ((c >> 16) & 255) / 255, g = ((c >> 8) & 255) / 255, b = (c & 255) / 255;
-  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), v = Math.min(mx, vmax), sat = mx > 0 ? Math.min((mx - mn) / mx, smax) : 0;
-  const f = (x) => { const s0 = mx > mn ? (mx - x) / (mx - mn) : 0; return Math.round((v * (1 - sat * s0)) * 255); };
-  return (f(r) << 16) | (f(g) << 8) | f(b);
-}
-// Custom colours are owner-chosen and often neon: cap saturation and brightness so they sit in the palette.
-export const soften = (c) => clampSV(c, 0.32, 0.75);
-export function blend(a, b, t) {
-  const f = (s) => Math.round(((a >> s) & 255) * (1 - t) + ((b >> s) & 255) * t) << s;
-  return f(16) | f(8) | f(0);
-}
-
-export function parseColor(s, dflt) {
-  if (typeof s === 'string' && /^#[0-9a-fA-F]{6}$/.test(s)) return parseInt(s.slice(1), 16);
-  return dflt;
-}
-
-// ---- layout: which block holds follower #n ----
-// Residential blocks are ordered by squared distance from the plaza, ties broken by hash.
-// Follower #n gets plot #n forever (append-only growth).
-
-// Layout (round M): the order is a pure function: blocks sorted by squared distance from the plaza, ties by
-// (hash3(bx,bz,77), bx, bz), each block holding plotsIn() homes, followers filling them in order. So it is
-// stored as one small table — the distinct squared distances that hold homes (`dv`) and the number of homes
-// before each (`cs`), ~1.3 MB at 10M followers — and the blocks on one ring are enumerated when needed.
-// No per-block arrays, no order.bin, nothing that grows per block is copied between threads.
-// buildLayoutRef (below) is the old sort, kept so tools/selftest.mjs can prove the two agree.
-export function buildLayout(n) {
-  let R = Math.ceil(Math.sqrt(Math.max(n, 1) / (8 * 0.5) / Math.PI)) + 4;
-  for (;;) {
-    const R2 = R * R, cnt = new Int32Array(R2 + 1), tallD = new Map();   // region -> nearest tall block's d2
-    for (let bz = -R; bz <= R; bz++) {
-      const dz = bz * bz;
-      if (dz > R2) continue;
-      const w = isqrt(R2 - dz);                                   // only the disk: no per-block d2 rejection
-      for (let bx = -w; bx <= w; bx++) {
-        if (cellKind(bx, bz) !== K.HOMES) continue;
-        const d2 = bx * bx + dz, z = zoneLevel(bx, bz);
-        cnt[d2] += z === 2 ? 16 : laneBlock(bx, bz, z) ? 10 : 8;   // = plotsIn
-        if (z >= 2) { const rk = regionKey(fdiv(bx, 16), fdiv(bz, 16)), o = tallD.get(rk); if (o === undefined || d2 < o) tallD.set(rk, d2); }
-      }
-    }
-    let total = 0, nd = 0, maxD2 = 0;
-    for (let d = 0; d <= R2 && total < n; d++) if (cnt[d]) { total += cnt[d]; nd++; maxD2 = d; }
-    if (total >= n || n === 0) {
-      const dv = new Int32Array(nd), cs = new Int32Array(nd + 1);
-      let k = 0, acc = 0;
-      for (let d = 0; d <= maxD2; d++) if (cnt[d]) { dv[k] = d; cs[k] = acc; acc += cnt[d]; k++; }
-      cs[nd] = acc;
-      // regions that can hold skyline buildings (SKY = 16 in mesher.js), so empty skyline tiles are never requested
-      const tall = ['0_0'];
-      for (const [rk, d2] of tallD) if (d2 <= maxD2 && rk !== '0_0') tall.push(rk);
-      return finishLayout({ n, dv, cs, maxD2, tall });
-    }
-    R = Math.ceil(R * 1.25);
-  }
-}
-
-// The layout tables as a small binary file (tools/build.mjs writes it), so clients skip the 50-400 ms counting
-// pass at boot. Round Q: the tables are delta + varint packed (dv rises by 1-3 a ring, a ring holds < 2^14 homes),
-// ~2.3 bytes a ring instead of 8: 1M followers 26 KB (was 95), 10M 230 KB (was 825); parse 1-6 ms.
-// Layout: magic 'FTL2', then varints: n, rings, maxD2, tall count, dv deltas, homes per ring (cs deltas),
-// tall regions as zigzag (rx, rz). layoutFromBin returns null if the file does not match n.
-const LMAGIC = 0x324c5446;   // 'FTL2' little-endian
-export function layoutToBin(L) {
-  const out = [];
-  const vu = (v) => { while (v >= 128) { out.push((v & 127) | 128); v = Math.floor(v / 128); } out.push(v); };
-  const zz = (v) => vu(v < 0 ? -2 * v - 1 : 2 * v);
-  const nd = L.dv.length, tall = L.tall.map((k) => k.split('_').map(Number));
-  vu(L.n); vu(nd); vu(L.maxD2); vu(tall.length);
-  for (let k = 0; k < nd; k++) vu(L.dv[k] - (k ? L.dv[k - 1] : 0));
-  for (let k = 0; k < nd; k++) vu(L.cs[k + 1] - L.cs[k]);
-  for (const [x, z] of tall) { zz(x); zz(z); }
-  const a = new Uint8Array(4 + out.length);
-  new DataView(a.buffer).setUint32(0, LMAGIC, true);
-  a.set(out, 4);
-  return a.buffer;
-}
-export function layoutFromBin(n, buf) {
-  if (!buf || buf.byteLength < 8) return null;
-  const b = new Uint8Array(buf);
-  if (new DataView(buf).getUint32(0, true) !== LMAGIC) return null;
-  let p = 4, bad = false;
-  const vu = () => {
-    let v = 0, m = 1;
-    for (;;) { if (p >= b.length) { bad = true; return 0; } const c = b[p++]; v += (c & 127) * m; if (c < 128) return v; m *= 128; }
-  };
-  const zz = () => { const v = vu(); return v & 1 ? -(v + 1) / 2 : v / 2; };
-  const fn = vu(), nd = vu(), maxD2 = vu(), nt = vu();
-  if (bad || fn !== n || nd <= 0 || nd > b.length) return null;
-  const dv = new Int32Array(nd), cs = new Int32Array(nd + 1);
-  for (let k = 0, d = 0; k < nd; k++) { d += vu(); dv[k] = d; }
-  for (let k = 0; k < nd; k++) cs[k + 1] = cs[k] + vu();
-  const tall = [];
-  for (let i = 0; i < nt; i++) { const x = zz(), z = zz(); tall.push(regionKey(x, z)); }
-  if (bad || p !== b.length || cs[nd] < n) return null;
-  return finishLayout({ n, dv, cs, maxD2, tall });
-}
-
-// Blocks with homes on the ring bx^2+bz^2 = d, in layout order. Cached (rings are re-read a lot).
-const RINGS = new Map();
-function ring(d) {
-  let r = RINGS.get(d);
-  if (r) return r;
-  const out = [], m = isqrt(d);
-  for (let bx = -m; bx <= m; bx++) {
-    const rest = d - bx * bx, z = isqrt(rest);
-    if (z * z !== rest) continue;
-    for (const bz of z ? [-z, z] : [0]) { const p = plotsIn(bx, bz); if (p) out.push([bx, bz, p, hash3(bx, bz, 77)]); }
-  }
-  out.sort((a, b) => (a[3] !== b[3] ? (a[3] < b[3] ? -1 : 1) : a[0] !== b[0] ? a[0] - b[0] : a[1] - b[1]));
-  if (RINGS.size > 8192) RINGS.clear();
-  RINGS.set(d, out);
-  return out;
-}
-function ringIndex(L, d) {                         // index of d in L.dv, or -1
-  let lo = 0, hi = L.dv.length - 1;
-  while (lo <= hi) { const m = (lo + hi) >> 1, v = L.dv[m]; if (v === d) return m; if (v < d) lo = m + 1; else hi = m - 1; }
-  return -1;
-}
-// first plot index of a block (or -1 if the block is outside the town or holds no homes)
-export function blockStart(L, bx, bz) {
-  const d = bx * bx + bz * bz;
-  if (d > L.maxD2) return -1;
-  const k = ringIndex(L, d);
-  if (k < 0) return -1;
-  let s = L.cs[k];
-  for (const e of ring(d)) { if (e[0] === bx && e[1] === bz) return s; s += e[2]; }
-  return -1;
-}
-
-// Reference implementation: the original sort (tools/selftest.mjs only).
-export function buildLayoutRef(n) {
-  // Counting sort by squared distance into typed arrays (no per-block JS objects), ties by
-  // (hash, bx, bz) inside each distance bucket. Same order as a full comparison sort.
-  let R = Math.ceil(Math.sqrt(Math.max(n, 1) / (8 * 0.5) / Math.PI)) + 4;
-  for (;;) {
-    const R2 = R * R, cap = Math.ceil(Math.PI * R2 + 8 * R + 16);
-    const cbx = new Int16Array(cap), cbz = new Int16Array(cap), cd2 = new Int32Array(cap), ch = new Uint32Array(cap), cp = new Uint8Array(cap);
-    const cnt = new Int32Array(R2 + 2);
-    let N = 0;
-    for (let bz = -R; bz <= R; bz++) for (let bx = -R; bx <= R; bx++) {
-      const d2 = bx * bx + bz * bz;
-      if (d2 > R2) continue;
-      const p = plotsIn(bx, bz);
-      if (!p) continue;
-      cbx[N] = bx; cbz[N] = bz; cd2[N] = d2; ch[N] = hash3(bx, bz, 77); cp[N] = p; N++;
-      cnt[d2 + 1]++;
-    }
-    for (let i = 1; i <= R2 + 1; i++) cnt[i] += cnt[i - 1];
-    const ord = new Int32Array(N), fill = cnt.slice(0, R2 + 1);
-    for (let i = 0; i < N; i++) ord[fill[cd2[i]]++] = i;
-    const less = (i, j) => ch[i] !== ch[j] ? ch[i] < ch[j] : cbx[i] !== cbx[j] ? cbx[i] < cbx[j] : cbz[i] < cbz[j];
-    for (let d = 0; d <= R2; d++) {                       // buckets are small: insertion sort
-      for (let i = cnt[d] + 1; i < cnt[d + 1]; i++) {
-        const v = ord[i]; let j = i - 1;
-        while (j >= cnt[d] && less(v, ord[j])) { ord[j + 1] = ord[j]; j--; }
-        ord[j + 1] = v;
-      }
-    }
-    let total = 0, count = 0;
-    while (count < N && total < n) total += cp[ord[count++]];
-    if (total >= n || n === 0) {
-      const blocks = new Int32Array(count * 2), start = new Int32Array(count + 1), plots = new Uint8Array(count);
-      let acc = 0, maxD2 = 0;
-      for (let i = 0; i < count; i++) {
-        const c = ord[i];
-        blocks[2 * i] = cbx[c]; blocks[2 * i + 1] = cbz[c]; plots[i] = cp[c];
-        start[i] = acc; acc += cp[c]; maxD2 = cd2[c];
-      }
-      start[count] = acc;
-      return { n, count, blocks, start, plots, maxD2 };
-    }
-    R = Math.ceil(R * 1.25);
-  }
-}
-
-// Rebuild derived fields (also used after posting a layout between threads).
-export function finishLayout(L) {
-  const rB = Math.max(3, Math.ceil(Math.sqrt(L.maxD2)));
-  L.rB = rB;
-  L.townD2 = (rB + 1) * (rB + 1);
-  L.seaBx = Math.max(rB + 7, 46);
-  L.portX = 32 * PITCH;
-  L.seaX = L.seaBx * PITCH - 24;
-  return L;
-}
-
-// Per-block data for the ground shader (so it does not re-derive the rules per pixel).
-// RGBA8, (2*ext+1)^2 texels centred on the plaza, ext = rB + 10:
-//   R kind · G zone | inhabited<<2 | avenueX<<3 | avenueZ<<4 · B roof colours c0 | c1<<3 · A c2
-// A window of at most GROUND_MAX^2 blocks (round M; 641: a 1.2M-follower town fits whole): the whole town when it fits, otherwise centred on
-// (cx, cz) — the main thread asks for a new window when the camera moves far — so the texture is the same
-// size at 1M and at 10M followers. ox/oz: the block at texel (0, 0).
-export const GROUND_MAX = 641;
-export function buildGround(L, cx = 0, cz = 0) {
-  const full = 2 * (L.rB + 10) + 1, S = Math.min(full, GROUND_MAX), h = (S - 1) / 2;
-  const ox = full <= GROUND_MAX ? -h : cx - h, oz = full <= GROUND_MAX ? -h : cz - h;
-  const d = new Uint8Array(S * S * 4);
-  for (let j = 0; j < S; j++) for (let i = 0; i < S; i++) {
-    const bx = i + ox, bz = j + oz, o = (j * S + i) * 4;
-    const k = kindAt(L, bx, bz);
-    const homes = k === K.HOMES;
-    const base = hash3(fdiv(bx, 5), fdiv(bz, 5), 101);
-    d[o] = k;
-    d[o + 1] = (homes ? zoneLevel(bx, bz) : 0) | (homes && bx * bx + bz * bz <= L.maxD2 ? 4 : 0) | (avenueX(bx) ? 8 : 0) | (avenueZ(bz) ? 16 : 0) | (homes && zoneLevel(bx, bz) <= 1 && rojiAt(bx, bz) ? 32 : 0);
-    d[o + 2] = (base % 8) | (((base >>> 4) % 8) << 3);
-    d[o + 3] = (base >>> 8) % 8;
-  }
-  return { size: S, ox, oz, cx, cz, full: full <= GROUND_MAX, data: d };
-}
-
 // Footprint of a regular home on its plot (matches mesher.home), world metres.
 export function homeRect(f, r) {
   if (r.zone >= 2 || r.shop) return [f.x + r.ox - r.w / 2, f.z - r.d / 2, f.x + r.ox + r.w / 2, f.z + r.d / 2];
@@ -491,101 +180,8 @@ export function homeRect(f, r) {
   return [f.x - r.w / 2, z0, f.x + r.w / 2, z0 + r.d];
 }
 
-export function layoutTransfer(L) {
-  return { n: L.n, dv: L.dv, cs: L.cs, maxD2: L.maxD2, tall: L.tall };
-}
-
-// Occupied slots in a block (0 if nobody lives there).
-export function occupied(L, bx, bz) {
-  const st = blockStart(L, bx, bz);
-  if (st < 0 || st >= L.n) return 0;
-  return Math.min(plotsIn(bx, bz), L.n - st);
-}
-
-// Plot index of a slot (or -1).
-export function plotIndex(L, bx, bz, slot) {
-  const st = blockStart(L, bx, bz);
-  if (st < 0 || slot >= Math.min(plotsIn(bx, bz), L.n - st)) return -1;
-  return st + slot;
-}
-
-// Plot #p -> block and slot.
-export function plotOf(L, p) {
-  let lo = 0, hi = L.dv.length - 1;
-  while (lo < hi) { const m = (lo + hi + 1) >> 1; if (L.cs[m] <= p) lo = m; else hi = m - 1; }
-  let s = L.cs[lo];
-  for (const e of ring(L.dv[lo])) { if (p < s + e[2]) return { bx: e[0], bz: e[1], slot: p - s }; s += e[2]; }
-  return { bx: 0, bz: 0, slot: 0 };
-}
-
-// ---- data files ----
-
-export const regionOf = (b) => fdiv(b, REGION);
-export const regionKey = (rx, rz) => `${rx}_${rz}`;
-export function lineIndex(bx, bz, slot) {
-  const lx = mod(bx, REGION), lz = mod(bz, REGION);
-  return (lz * REGION + lx) * SLOTS + slot;
-}
-
-export function normName(s) {
-  return String(s).trim().toLowerCase().replace(/^@/, '').replace(/[^a-z0-9._]/g, '');
-}
-export function shardKey(norm, len) {
-  let k = norm.slice(0, len);
-  while (k.length < len) k += '-';
-  return k.replace(/\./g, '~');
-}
-// Pick the shard file for a name given the manifest's list of split prefixes.
-export function shardFor(norm, split) {
-  let len = 2;
-  while (split && split.includes(shardKey(norm, len)) && len < 6) len++;
-  return shardKey(norm, len);
-}
-
 // ---- streaming decisions (pure, with hysteresis so nothing ping-pongs at a boundary; tested in selftest) ----
 export const chunkLod = (d, r0, prevLod) => (d < r0 * (prevLod === 0 ? 1.1 : 0.9) ? 0 : 1);
 export const chunkLite = (low, lod, d, r0, prevLite) => low || (lod === 0 && d >= r0 * (prevLite ? 0.45 : 0.55));
 export const skyLite = (low, d, prevLite) => low || d > (prevLite ? 1350 : 1650);
 export const lowNext = (prev, s) => (prev === null || (prev && s > 0.74) || (!prev && s < 0.66) ? s < 0.7 : prev);
-
-// ---- follower names (build time) ----
-// NFC; no control or format characters (bidi overrides, zero-width spaces, line separators) except a ZWJ
-// inside an emoji sequence, ZWJ/ZWNJ inside Arabic/Indic/Sinhala words and tag characters after a black flag (England, Scotland, Wales);
-// runs of combining marks capped at 4 (no "zalgo" towers; Hebrew and Tibetan names keep theirs); truncated to
-// 40 grapheme clusters so no emoji is split. A name with nothing visible left becomes ''.
-const SEG = typeof Intl !== 'undefined' && Intl.Segmenter ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null;
-// scripts whose words need ZWJ / ZWNJ to render correctly (elsewhere they are only invisible spoofing material)
-const JOINING = /[\p{Script=Arabic}\p{Script=Syriac}\p{Script=Devanagari}\p{Script=Bengali}\p{Script=Gurmukhi}\p{Script=Gujarati}\p{Script=Oriya}\p{Script=Tamil}\p{Script=Telugu}\p{Script=Kannada}\p{Script=Malayalam}\p{Script=Sinhala}]/u;
-const ZWJ = String.fromCharCode(0x200d), ZWNJ = String.fromCharCode(0x200c), BLACK_FLAG = String.fromCodePoint(0x1f3f4);
-export function cleanName(s) {
-  const cps = Array.from(String(s).normalize('NFC'));
-  const pict = (c) => c !== undefined && /\p{Extended_Pictographic}/u.test(c);
-  const isTag = (c) => { const v = c.codePointAt(0); return v >= 0xe0020 && v <= 0xe007f; };
-  const out = [];
-  let marks = 0;
-  for (let k = 0; k < cps.length; k++) {
-    const c = cps[k];
-    if (c === ZWJ || c === ZWNJ) {
-      // ZWJ inside an emoji sequence (over skin tones and variation selectors), and ZWJ / ZWNJ between letters
-      // (Persian and Indic scripts need them to render words correctly)
-      let p = out.length - 1;
-      while (p >= 0 && /[\p{M}\p{Emoji_Modifier}\uFE0F]/u.test(out[p])) p--;
-      const next = cps[k + 1];
-      if ((c === ZWJ && pict(out[p]) && pict(next)) || (JOINING.test(out[p] || '') && next !== undefined && /[\p{L}\p{M}]/u.test(next))) out.push(c);
-      continue;
-    }
-    if (isTag(c)) {                                          // tag characters only in a run right after a black flag
-      let p = out.length - 1;
-      while (p >= 0 && isTag(out[p])) p--;
-      if (out[p] === BLACK_FLAG) out.push(c);
-      continue;
-    }
-    if (/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(c)) continue;
-    if (/\p{M}/u.test(c)) { if (++marks > 4) continue; } else marks = 0;
-    out.push(c);
-  }
-  const t = out.join('').trim();
-  if (!/[\p{L}\p{N}\p{S}\p{P}]/u.test(t)) return '';
-  const g = SEG ? Array.from(SEG.segment(t), (x) => x.segment) : Array.from(t);
-  return g.slice(0, 40).join('');
-}

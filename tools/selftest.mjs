@@ -6,9 +6,14 @@ import crypto from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import * as T from '../public/js/town.js';
+import * as Town from '../public/js/town.js';
+import * as Layout from '../public/js/layout.js';
+import * as Recipe from '../public/js/recipe.js';
+import * as Names from '../public/js/names.js';
 import * as Mz from '../public/js/mesher.js';
+import { MB } from '../public/js/mb.js';
 import * as S from '../public/js/shaders.js';
+const T = { ...Town, ...Layout, ...Recipe, ...Names };   // the town rules (town, layout, recipe, names) as one namespace
 
 const update = process.argv.includes('--update');
 const GOLD = 'tools/selftest.golden.json';
@@ -125,7 +130,7 @@ golden('cellKind/zoneLevel/recipe 200x200', h(rules));
 golden('buildGround 1e5', h(T.buildGround(L).data));
 
 // 3. meshes (and packed-format overflow)
-Mz.MB.strict = true;
+MB.strict = true;
 let meshes = '';
 for (const [cx, cz, lod, lite] of [[0, 0, 0, false], [3, 2, 0, false], [11, 6, 0, false], [11, 6, 0, true], [5, -4, 1, false], [8, -3, 0, false]]) {
   const m = Mz.buildChunk(L, cx, cz, lod, null, lite); meshes += h(m.vb) + h(m.ib);
@@ -135,7 +140,7 @@ golden('chunk + skyline meshes', h(meshes));
 const Lbig = T.buildLayout(1000000);
 for (const [cx, cz] of [[0, 0], [-1, -1], [1, 0]]) Mz.buildChunk(Lbig, cx, cz, 0, null);
 Mz.buildSkyline(Lbig, 0, 0);
-check('vertex positions and uv fit their packed formats (1M core)', Mz.MB.overflow.length === 0, Mz.MB.overflow.slice(0, 3).join(' | '));
+check('vertex positions and uv fit their packed formats (1M core)', MB.overflow.length === 0, MB.overflow.slice(0, 3).join(' | '));
 
 // 3b. no zero-area triangles after quantisation (they cost vertex work and inflate budgets)
 {

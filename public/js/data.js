@@ -4,10 +4,12 @@
 //  - A 404 is a real "nothing here" and is cached; a network error never is: the next caller retries
 //    (round M: one dropped request used to blank a region's names / custom homes until eviction).
 //  - Concurrent callers share one in-flight fetch.
-import { CHUNK, regionKey, regionOf, lineIndex, normName, shardFor } from './town.js';
+import { CHUNK } from './town.js';
+import { normName, shardFor } from './names.js';
+import { regionKey, regionOf, lineIndex } from './layout.js';
 
 // Map used as a small LRU: newest last, oldest evicted beyond 64 entries.
-export function capSet(map, k, v) { map.delete(k); map.set(k, v); if (map.size > 64) map.delete(map.keys().next().value); }
+function capSet(map, k, v) { map.delete(k); map.set(k, v); if (map.size > 64) map.delete(map.keys().next().value); }
 
 export function createTownData({ fetch, base = 'town/', later = (fn, ms) => setTimeout(fn, ms) }) {
   let manifest = null;

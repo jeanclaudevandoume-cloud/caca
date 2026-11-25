@@ -1,14 +1,14 @@
 // Session: worker message routing and the layout lifecycle (first build, live updates, commit). No DOM: the
 // supervisor, renderer, streamer and data are injected, so tools/apptest.mjs drives it with fakes.
 //
-//  - The layout is a formula (town.js); the worker builds a few small tables from n. A live update builds
+//  - The layout is a formula (layout.js); the worker builds a few small tables from n. A live update builds
 //    against the *staged* manifest; it becomes current only when its layout arrives and is accepted, so a
 //    failed build leaves the old manifest and layout consistent.
 //  - A rejected layout (its ground texture is larger than the GPU allows) is remembered (badBuilt) and never
 //    retried; a fatal worker error during a build is transient (out of memory...): the next poll retries.
 //  - The ground data window has a generation: a window requested before a commit was built from the old
 //    layout and is dropped when it arrives, even if the request id still matches.
-import { finishLayout } from './town.js';
+import { finishLayout } from './layout.js';
 
 // The ground window is shared with render.js (uploads it) and streaming.js (asks for a new one when the camera
 // moves far, recording the generation it asked under); the session owns its lifecycle.

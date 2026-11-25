@@ -56,7 +56,7 @@ Frame rates in this container are software rendering and mean nothing.
 
 | File | Role |
 |---|---|
-| `public/js/town.js` | All rules: `hash3`, `riverZ`/`isRiver`, the bay and port (`bayAt`, `portLane`), avenues, lakes, `cellKind`, `zoneLevel`, `kindAt` (adds country, highways, open sea), plot frames, `homeRect`, `recipe`, `roofIdx`, layout order, `buildGround` (data texture for the ground shader), data keys. |
+| `public/js/town.js` (+ `layout.js`, `recipe.js`, `names.js`) | All rules: `hash3`, `riverZ`/`isRiver`, the bay and port (`bayAt`, `portLane`), avenues, lakes, `cellKind`, `zoneLevel`, `kindAt` (adds country, highways, open sea), plot frames, `homeRect`, `roofIdx`; `recipe` and palettes in recipe.js; layout order, `buildGround` (data texture for the ground shader) and data keys in layout.js; names in names.js. |
 | `public/js/mesher.js` (+ `mb.js`, `props.js`, `homes.js`, round Q) | `MB` builder + homes, customs, garden items, trees, lamps, parks, avenues, bridges, beacon, port, ships, skyline. |
 | `public/js/worker.js` | Layout + chunk/skyline meshing off the main thread; fetches custom files. |
 | `public/js/shaders.js` | Geometry (windows, night lights, canyon AO, fog), planar shadows, full-screen sky + ground. |

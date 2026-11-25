@@ -53,9 +53,12 @@ follower, add `instant` to jump · `debug` shows a stats line.
 
 | File | Role |
 |---|---|
-| `public/js/town.js` | All rules: hash, block kinds, zones, layout order, plots, home recipes, data file keys. |
+| `public/js/town.js` | Cell and zone rules: hash, block kinds, zones, plots, streaming decisions. |
+| `public/js/layout.js` | Layout order (follower <-> plot), layout file, data file keys, ground texture. |
+| `public/js/recipe.js` | Home recipes and palettes. |
+| `public/js/names.js` | Name normalisation, search shards, build-time name cleaning. |
 | `public/js/mesher.js` | Chunk, mid-band and skyline meshes (the worker's entry points). |
-| `public/js/mb.js` | Mesh builder (16 bytes/vertex) and the shared palettes. |
+| `public/js/mb.js` | Mesh builder (16 bytes/vertex), the shared palettes and mesh tile sizes. |
 | `public/js/props.js` | Trees, wires, lamps, kanban, billboards, custom shapes, doors, rooftop clutter. |
 | `public/js/homes.js` | Homes on their plots, shop houses, civic cells, tower massing. |
 | `tools/poptest.cjs` | Flythrough pop metric (fixed-pose frame pairs on a virtual 60 fps clock). |

@@ -1,7 +1,8 @@
 // Everything on the page around the 3D view: input, search and suggestions, the home card (a bottom sheet on
 // phones), toasts, buttons, and the name-tag overlay canvas. The only module besides main.js that touches the
 // DOM. a 'latest' ticket (data.js createLatest): only the latest tap / search / manual move may set the card, the pin and the flight.
-import { plotOf, PITCH } from './town.js';
+import { PITCH } from './town.js';
+import { plotOf } from './layout.js';
 import { createLatest, searchHome } from './data.js';
 import { plotKey } from './view.js';
 

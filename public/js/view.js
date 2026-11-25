@@ -1,7 +1,9 @@
 // Where things are and where the camera goes: per-plot footprints and heights, picking, the home-arrival
 // camera and the fly-to arc. No DOM; the layout is read live from `app.L` (tools/apptest.mjs drives this).
 import { railHeight, inRail } from './rail.js';
-import { PITCH, FLOOR_H, K, plotOf, plotFrame, recipe, zoneLevel, kindAt, slotAt, plotIndex, homeRect, hash3, laneBlock } from './town.js';
+import { PITCH, FLOOR_H, K, plotFrame, zoneLevel, kindAt, slotAt, homeRect, hash3, laneBlock } from './town.js';
+import { recipe } from './recipe.js';
+import { plotOf, plotIndex } from './layout.js';
 import { mulv } from './gfx.js';
 
 export const plotKey = (bx, bz, slot) => ((bx + 32768) * 65536 + (bz + 32768)) * 16 + slot;

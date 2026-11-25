@@ -3,7 +3,8 @@
 // data (names, search, custom homes), view (heights, picking, arrival camera, flights), tags (which names
 // show where), render (one frame), ui (page, input, card, tag overlay), supervisor (the worker pool),
 // session (worker routing and the layout lifecycle).
-import { ROOF, lowNext } from './town.js';
+import { lowNext } from './town.js';
+import { ROOF } from './recipe.js';
 import { Supervisor } from './supervisor.js';
 import { buildAtlas, atlasTexture, fillAtlas } from './atlas.js';
 import { GEO_VS, GEO_FS, SHADOW_VS, SHADOW_FS, FULL_VS, FULL_FS, COPY_FS } from './shaders.js';

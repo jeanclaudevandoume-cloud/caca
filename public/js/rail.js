@@ -8,7 +8,7 @@ import { M, TALL, shade } from './mb.js';
 import { board } from './props.js';
 
 export const RAIL_Z = 21;                                      // the road on the +z side of block row 21: ~160 m ahead of the opening camera, above its low houses
-export const isStation = (bx) => mod(bx, 12) === 5;
+const isStation = (bx) => mod(bx, 12) === 5;
 const DECK = 0x9d9a93, DECK_TOP = 0x6f6c67, Y0 = 9.6, Y1 = 10.8, HW = 3.6;
 
 // one block's 48 m of viaduct, centred on the road at Z + 24

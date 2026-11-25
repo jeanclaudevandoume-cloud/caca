@@ -5,7 +5,8 @@
 //  - Occlusion is tested at the scan, not per frame (heightAt runs the house recipe).
 //  - Placement: at most 24, no overlaps, never under the search bar or the round buttons; while a home is
 //    selected only its own name shows.
-import { PITCH, K, kindAt, zoneLevel, occupied, plotFrame } from './town.js';
+import { PITCH, K, kindAt, zoneLevel, plotFrame } from './town.js';
+import { occupied } from './layout.js';
 import { hyp2, hyp3, mulv } from './gfx.js';
 import { plotKey } from './view.js';
 
@@ -24,8 +25,6 @@ export function resetTags(st) {
   st.memo.clear(); st.epoch++; st.cam[0] = NaN;
   for (const c of st.cand) { c.key = -1; c.name = null; c.pending = -1; }
 }
-// force a rescan at the next opportunity (a name failed to load: retry)
-export const rescanTags = (st) => { st.cam[0] = NaN; };
 
 export function scanTags(st, now, cam, L, flying, view, nameOf) {
   // NaN in st.cam compares false with <=, so the first scan always runs
