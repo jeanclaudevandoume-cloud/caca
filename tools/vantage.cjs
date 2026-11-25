@@ -9,7 +9,7 @@ const fs = require('fs');
 const V = {
   downtown: ['q=high&t=10&notags&cam=6,24,660,0,-0.03'],
   sunset: ['q=high&t=10&notags&tod=1&cam=6,24,660,0,-0.03'],
-  night: ['q=high&t=10&notags&tod=2&cam=6,24,660,0,-0.03'],
+  night: ['q=high&t=10&notags&tod=3&cam=6,24,660,0,-0.03'],
   core: ['q=high&t=10&notags&cam=168,5,230,0,0.1'],
   hub: ['q=high&t=10&notags&cam=3000,7,3000,0.9,-0.05'],
   suburb: ['q=high&t=10&notags&cam=2184,7,1260,0,-0.05'],

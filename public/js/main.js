@@ -97,7 +97,7 @@ function radii() {          // fills one object (no per-frame allocation)
   return RAD;
 }
 // shared state the modules read live
-const app = { cam, L: null, pin: null, fly: null, tod: params.has('tod') ? parseFloat(params.get('tod')) : 0.22, bootMs: 0 };
+const app = { cam, L: null, pin: null, fly: null, tod: params.has('tod') ? parseFloat(params.get('tod')) : 2, bootMs: 0 };
 const t0 = performance.now();
 const frozenT = params.has('t') ? parseFloat(params.get('t')) : null;
 const showTags = !params.has('notags');

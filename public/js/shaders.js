@@ -116,7 +116,7 @@ void atlasWindow(inout vec3 col, inout vec3 emis, vec2 f, vec2 g, vec2 r0, vec2 
   wc = mix(wc, wc * 0.55 + refl * 0.55, at.a * 0.4 * (1.0 - uNight));      // the sky in the glass
   wc *= mix(1.0, 0.35, at.a * uNight);                                        // dark glass at night
   col = mix(col, wc, inW);
-  emis = warm * lit * at.a * inW * smoothstep(0.05, 0.6, uNight);
+  emis = warm * lit * at.a * inW * smoothstep(0.05, 0.6, uNight) * 1.5;
 }
 void main() {
   vec3 n = normalize(vN);
@@ -169,8 +169,11 @@ void main() {
       float spand = (1.0 - smoothstep(0.22 - fwy, 0.22 + fwy, fract(fy))) * clamp(1.6 - fwy * 2.2, 0.0, 1.0);
       float plant = smoothstep(0.85 - fwy * 0.125, 0.85 + fwy * 0.125, fract(fy / 8.0));   // top floor of every 8: plant band
       col *= 1.0 - (0.22 * spand + 0.25 * plant * step(20.0, vW.y)) * mix(0.5, 1.0, glass) * (1.0 - uNight);
-      float share0 = 18.0 + float(ih(seed * 31u + 7u) % 82u);
-      emis = vec3(1.0, 0.78, 0.45) * (share0 / 512.0) * mix(0.22, 0.75, glass) * smoothstep(0.05, 0.6, uNight) * 0.7;
+      float share0 = (18.0 + float(ih(seed * 31u + 7u) % 82u)) * 1.9;
+      // lit floors read from across town at dusk: a hashed band per floor and per 3-window group (arithmetic only)
+      float bandOn = float(float(ih(uint(int(floor(fy)) + 64) * 7919u + uint(int(floor(g.x / 3.0)) + 4096) * 104729u + seed * 31u) & 255u) < share0 * 1.0);
+      float lit0 = mix(share0 / 512.0, bandOn * 0.75, clamp(1.4 - fwy * 1.6, 0.0, 1.0));
+      emis = mix(vec3(1.0, 0.76, 0.42), vec3(0.85, 0.9, 1.0), float((seed & 3u) == 1u)) * lit0 * mix(0.35, 0.9, glass) * smoothstep(0.05, 0.6, uNight) * (1.0 - spand * 0.7);
     } else {
       // phone, near walls: one hash, hard-edged frame and pane (MSAA is off on the low preset), no mullions/sills/reveals
       uint face = uint(dot(step(0.5, abs(n)), vec3(1.0, 2.0, 3.0)) + 3.0 * step(0.0, n.x + n.z));
@@ -181,7 +184,7 @@ void main() {
       vec2 e = vec2(0.07 / sp, 0.022);
       if (glass < 0.5) {
         // homes: the whole window is one atlas fetch (no procedural frame/pane work on the phone)
-        float share = 18.0 + float(ih(seed * 31u + 7u) % 82u);
+        float share = (18.0 + float(ih(seed * 31u + 7u) % 82u)) * 1.9;
         float lit = mix(share / 512.0, float(float(cell & 255u) < share), k);
         vec3 refl = mix(vec3(0.3, 0.38, 0.46), uSkyHor, 0.4);
         if (step(0.3, v) > 0.0) atlasWindow(col, emis, f, g, vec2(mx, my0) - e, vec2(1.0 - mx, my1) + e, has, wt, cell, n, amb * ao, key, refl, lit, vec3(1.0, 0.75, 0.42));
@@ -197,9 +200,9 @@ void main() {
       float mullC = (glass < 0.5 && wt <= 1u) ? step(abs(f.x - 0.5), 0.025 / sp) * k : 0.0;   // centre mullion on sliding sashes
       col = mix(col, mix(refl * (0.55 + 0.45 * (1.0 - uNight)), sashC, mullC), pane);
       col *= 1.0 - 0.35 * step(my1 + e.y, f.y) * step(f.y, my1 + 0.07) * has * k * step(0.3, v);   // lintel shadow
-      float share = 18.0 + float(ih(seed * 31u + 7u) % 82u);
+      float share = (18.0 + float(ih(seed * 31u + 7u) % 82u)) * 1.9;
       float lit = mix(share / 512.0, float(float(cell & 255u) < share), k);
-      emis = vec3(1.0, 0.75, 0.42) * lit * pane * smoothstep(0.05, 0.6, uNight);
+      emis = vec3(1.0, 0.75, 0.42) * lit * pane * smoothstep(0.05, 0.6, uNight) * 1.5;
       }
 #else
 
@@ -258,8 +261,8 @@ void main() {
     refl *= 1.0 - 0.45 * k * max(smoothstep(0.84, 0.9, fy), (1.0 - smoothstep(0.0, 0.14, (f.x - mx) / (1.0 - 2.0 * mx))) * step(0.0, dot(n, uSunDir)));
     if (glass < 0.5 && (cell >> 12u) % 8u == 0u) refl = mix(refl, vec3(0.91, 0.86, 0.78) * 0.8 * (amb + uSunCol * 0.3), step(fy, 0.55) * k);
     refl *= mix(1.0, 0.6, smoothstep(0.86, 0.9, fy) * k);
-    float share = 18.0 + float(ih(seed * 31u + 7u) % 82u);            // 7%..39% of windows lit
-    float towerGlow = glass > 0.5 ? (0.25 + 0.75 * float(ih(seed * 77u + 3u) & 255u) / 255.0) * 0.6 : 1.0;
+    float share = (18.0 + float(ih(seed * 31u + 7u) % 82u)) * 1.9;            // 13%..74% of windows lit (evening: people are home)
+    float towerGlow = glass > 0.5 ? (0.4 + 0.6 * float(ih(seed * 77u + 3u) & 255u) / 255.0) * 0.9 : 1.0;
     // floor bands stay visible further than single windows, so far towers read striped, not flat
     float kf = clamp(1.8 - fwidth(v) * 1.2, 0.0, 1.0);
     float band = float(float(ih(uint(int(floor(v)) + 64) * 7919u + seed * 31u) & 255u) < share * 1.3) * 0.75 + 0.1;
@@ -278,7 +281,7 @@ void main() {
     if (glass > 0.5) col = mix(col, col * 0.75 + refl * 0.25, 1.0 - pane);
     if (glass > 0.5) col *= 1.0 - 0.35 * step(fract((v + float((seed >> 3) % 8u) + 3.0) / 8.0), 0.125) * clamp(1.4 - fwidth(v) * 0.6, 0.0, 1.0);   // mechanical floor every 8 storeys, offset per tower (no city-wide line)
     // far away the windows merge, so the glow stays a little brighter and whiter to stay readable
-    emis = mix(vec3(1.0, 0.78, 0.45), warm, k) * lit * pane * (1.0 - mull * k) * smoothstep(0.05, 0.6, uNight) * mix(0.7 * towerGlow, 1.05, k) * mix(1.0, 1.25 - 0.45 * fy, k);
+    emis = mix(vec3(1.0, 0.78, 0.45), warm, k) * lit * pane * (1.0 - mull * k) * smoothstep(0.05, 0.6, uNight) * mix(1.0 * towerGlow, 1.05, k) * mix(1.0, 1.25 - 0.45 * fy, k);
     if (glass < 0.5 && facade == 9u && k > 0.05 && step(0.3, v) > 0.0) atlasWindow(col, emis, f, g, glo - fw, ghi + fw, has, wt, cell, n, amb * ao, key, refl, lit, warm);
 #endif
 #ifdef LOWQ
@@ -321,7 +324,7 @@ void main() {
     vec2 uv = (vec2(floor(u), 5.0) + P + vec2(fract(u), 1.0 - clamp(v, 0.0, 1.0)) * (1.0 - 2.0 * P)) * vec2(0.25, 0.125);
     vec4 sf = textureGrad(uAtlas, uv, dFdx(vec2(u, -v)) * (1.0 - 2.0 * P) * vec2(0.25, 0.125), dFdy(vec2(u, -v)) * (1.0 - 2.0 * P) * vec2(0.25, 0.125));
     col = sf.rgb * (amb * 0.8 + 0.35 + key * max(dot(n, uSunDir), 0.0) * 0.4);   // interiors are lit from inside
-    emis = sf.rgb * sf.a * (0.25 + 1.1 * uNight);
+    emis = sf.rgb * sf.a * (0.25 + 1.7 * uNight);
   } else if (vMat == 4) {
     // pale lamps and lanterns look like frosted glass by day; coloured lights (pin, signs) keep their colour
     float sat = max(base.r, max(base.g, base.b)) - min(base.r, min(base.g, base.b));
@@ -340,7 +343,7 @@ void main() {
       pale = 0.0;
     }
       col = mix(base, vec3(0.92, 0.93, 0.95), (1.0 - uNight) * pale) * mix(1.0, 0.65, pale) * mix(1.0, 0.8, sat);
-    emis = base * vec3(1.0, 0.85, 0.6) * 1.4 * uNight;
+    emis = mix(base * vec3(1.0, 0.85, 0.6) * 1.4, base * 2.6, smoothstep(0.2, 0.5, sat)) * uNight;   // saturated signs burn like neon
   } else if (vMat == 3) {
     col += uSunCol * pow(max(dot(reflect(dir, n), uSunDir), 0.0), 24.0) * 0.35;
   } else if (vMat == 6) {

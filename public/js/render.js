@@ -4,10 +4,12 @@ import { PITCH, CHUNK } from './town.js';
 import { MB, M, SKY, MID } from './mb.js';
 import { hyp2, hyp3, persp, lookDir, mul, invert, planes, inFrustum } from './gfx.js';
 
-// keys: 0 noon, 1 sunset, 2 night, 3 dawn (cycle of 4)
+// keys: 0 noon, 1 sunset, 2 blue hour, 3 night, 4 dawn (cycle of 5)
 const KEYS = [
   { top: [0.14, 0.4, 0.86], hor: [0.64, 0.79, 0.95], sun: [1.3, 1.15, 0.95], sky: [0.28, 0.33, 0.43], gnd: [0.40, 0.34, 0.27], fog: [0.68, 0.79, 0.93], el: 0.62, night: 0 },
   { top: [0.22, 0.3, 0.62], hor: [1.0, 0.64, 0.42], sun: [1.05, 0.7, 0.42], sky: [0.42, 0.46, 0.62], gnd: [0.36, 0.3, 0.28], fog: [0.84, 0.66, 0.6], el: 0.12, night: 0.25 },
+  // blue hour (the default opening look): violet sky, a magenta glow on the horizon, lights on, the sun just set
+  { top: [0.05, 0.09, 0.3], hor: [0.78, 0.42, 0.55], sun: [0.36, 0.28, 0.38], sky: [0.34, 0.32, 0.43], gnd: [0.24, 0.19, 0.2], fog: [0.36, 0.3, 0.5], el: 0.05, night: 0.78 },
   { top: [0.015, 0.025, 0.08], hor: [0.06, 0.08, 0.18], sun: [0.22, 0.28, 0.42], sky: [0.26, 0.31, 0.5], gnd: [0.12, 0.12, 0.16], fog: [0.06, 0.08, 0.16], el: 0.9, night: 1 },
   { top: [0.3, 0.42, 0.75], hor: [1.0, 0.78, 0.62], sun: [1.0, 0.78, 0.56], sky: [0.45, 0.48, 0.65], gnd: [0.4, 0.34, 0.3], fog: [0.92, 0.8, 0.72], el: 0.14, night: 0.2 },
 ];
@@ -15,8 +17,8 @@ const KEYS = [
 const TOD_KEYS = ['top', 'hor', 'sun', 'sky', 'gnd', 'fog'];
 const TOD = { top: new Float32Array(3), hor: new Float32Array(3), sun: new Float32Array(3), sky: new Float32Array(3), gnd: new Float32Array(3), fog: new Float32Array(3), dir: new Float32Array(3), night: 0 };
 function todState(t) {
-  t = ((t % 4) + 4) % 4;
-  const i = Math.floor(t), f = t - i, a = KEYS[i], b = KEYS[(i + 1) % 4];
+  t = ((t % 5) + 5) % 5;
+  const i = Math.floor(t), f = t - i, a = KEYS[i], b = KEYS[(i + 1) % 5];
   const s = f * f * (3 - 2 * f);
   for (let j = 0; j < 6; j++) {
     const k = TOD_KEYS[j], x = a[k], y = b[k], o = TOD[k];
@@ -24,7 +26,7 @@ function todState(t) {
   }
   TOD.night = a.night + (b.night - a.night) * s;
   const el = a.el + (b.el - a.el) * s;
-  const az = 2.20 + t * 0.9;     // ART.md LOCKED (round J): day sun from the south-west, ~45° to the lanes. From the opening
+  const az = 2.20 + t * 0.72;     // ART.md LOCKED (round J): day sun from the south-west, ~45° to the lanes. From the opening
   // camera (looking north) street fronts take raking light, west walls are lit, east walls in shade, shadows fall east across the lanes
   TOD.dir[0] = Math.cos(el) * Math.cos(az); TOD.dir[1] = Math.sin(el); TOD.dir[2] = Math.cos(el) * Math.sin(az);
   return TOD;

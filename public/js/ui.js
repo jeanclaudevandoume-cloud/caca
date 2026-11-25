@@ -243,7 +243,7 @@ export function createUI(deps) {
   }
 
   // ---- buttons ----
-  const TODS = [0.22, 1, 2];
+  const TODS = [2, 0.22, 1, 3];   // evening first (the default), day, sunset, night
   $('#btn-time').onclick = () => { const i = TODS.findIndex((t) => Math.abs(t - app.tod) < 0.3); app.tod = TODS[(i + 1) % TODS.length]; };
   $('#btn-home').onclick = () => { seq.bump(); app.fly = { from: { ...cam }, to: { ...HOME }, dyaw: Math.atan2(Math.sin(HOME.yaw - cam.yaw), Math.cos(HOME.yaw - cam.yaw)), t0: performance.now(), dur: 3000, lift: 300 }; };
   $('#btn-help').onclick = () => { $('#help').hidden = !$('#help').hidden; };
