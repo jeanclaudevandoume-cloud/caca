@@ -88,7 +88,8 @@ export function createRenderer(d) {
     gl.useProgram(geo.p);
     setCommonU(geo.u, T, time, fogD);
     gl.uniformMatrix4fv(geo.u.uVP, false, VP);
-    const fadeA = r1 * 0.72, fadeB = r1 * 0.96, shadowR = isLow() ? LOW_SHADOW : 650 * quality.s;
+    const fadeA = r1 * 0.72, fadeB = d.nosink ? fadeA + 0.01 : r1 * 0.96,   // ?nosink: no tier sink (poptest's planted pop)
+      shadowR = isLow() ? LOW_SHADOW : 650 * quality.s;
     gl.uniform4f(geo.u.uLod, fadeA, fadeB, 0, 0);
     const R = CHUNK * PITCH * 0.75;
     const drawn = DRAWN;

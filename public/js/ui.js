@@ -216,6 +216,10 @@ export function createUI(deps) {
       if (q < p) nb.prepend(b); else nb.appendChild(b);
     });
   }
+  // the round buttons sit 12 px above the bottom sheet, whatever its height (neighbour row, long names)
+  if (typeof ResizeObserver === 'function') {
+    new ResizeObserver(() => { const c = $('#card'); document.documentElement.style.setProperty('--sheet-h', (c && !c.hidden ? c.offsetHeight : 0) + 'px'); }).observe($('#card'));
+  }
   $('#card-close').onclick = () => { seq.bump(); $('#card').hidden = true; app.pin = null; };
   $('#card-go').onclick = () => { seq.bump(); const p = +$('#card').dataset.p; if (p >= 0) arrive(p, $('#card').dataset.name); };
   $('#card-share').onclick = async () => {

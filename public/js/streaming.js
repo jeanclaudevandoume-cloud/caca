@@ -13,7 +13,7 @@ export const ckey = (x, z) => (x + 32768) * 65536 + (z + 32768);   // numeric ma
 const byWantD = (a, b) => a.d - b.d;
 const byTargetDist = (a, b) => (a.t.d || 0) - (b.t.d || 0);
 
-export function createStreamer({ sup, customFor, upload, release, isLow, radii, groundWin = { full: true }, onTick = () => {} }) {
+export function createStreamer({ sup, customFor, upload, release, isLow, radii, groundWin = { full: true }, hyst = true, onTick = () => {} }) {
   const chunks = new Map();     // key -> {cx,cz,lod,g,want,req,seen}
   const skies = new Map();      // key -> {rx,rz,g,req,seen}
   const mids = new Map();       // mid-band massing tiles beyond the house ring, same shape as skies
@@ -46,7 +46,7 @@ export function createStreamer({ sup, customFor, upload, release, isLow, radii, 
       if (d > r1) continue;
       const prev = chunks.get(ckey(cx, cz));
       const w = WANTP[want.length] || (WANTP[want.length] = { cx: 0, cz: 0, d: 0, lod: 0 });
-      w.cx = cx; w.cz = cz; w.d = d; w.lod = chunkLod(d, r0, prev ? prev.lod : -1);
+      w.cx = cx; w.cz = cz; w.d = d; w.lod = chunkLod(d, r0, prev && hyst ? prev.lod : -1);
       want.push(w);
     }
     want.sort(byWantD);
@@ -60,7 +60,7 @@ export function createStreamer({ sup, customFor, upload, release, isLow, radii, 
       if (!c) { c = { cx: w.cx, cz: w.cz, g: null, lod: -1, req: 0, loaded: false }; chunks.set(key, c); }
       c.seen = now; c.want = w.lod; c.d = w.d;
       // the outer half of the detail ring uses the lighter meshes (details there are sub-pixel anyway)
-      const lite = chunkLite(isLow(), w.lod, w.d, r0, c.lite);
+      const lite = chunkLite(isLow(), w.lod, w.d, r0, hyst ? c.lite : undefined);
       if ((c.lod !== w.lod || c.stale || (c.g && c.lite !== lite)) && !c.req && budget > 0) {
         const custom = customFor(w.cx, w.cz);
         if (custom === undefined) continue;          // still downloading

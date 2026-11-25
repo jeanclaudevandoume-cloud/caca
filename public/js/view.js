@@ -5,6 +5,13 @@ import { mulv } from './gfx.js';
 
 export const plotKey = (bx, bz, slot) => ((bx + 32768) * 65536 + (bz + 32768)) * 16 + slot;
 
+const PROJ = new Array(8);
+// screen-space area of a quad (corner indices into projected points; null corners count as 0)
+function quadArea(P, ix) {
+  let a = 0;
+  for (let k = 0; k < 4; k++) { const p = P[ix[k]], q = P[ix[(k + 1) & 3]]; if (!p || !q) return 0; a += p[0] * q[1] - q[0] * p[1]; }
+  return Math.abs(a) / 2;
+}
 export function createView(app) {
   // Per-plot footprint and top height, cached: tag scans and fly-to call these hundreds of times, and the
   // recipe allocates (round I: 16 KB/frame on the opening view while the camera turned).
@@ -95,6 +102,8 @@ export function createView(app) {
     const tv = Math.tan(vfov / 2), th = Math.tan(hfov / 2);
     const corners = [];
     for (const cx of [q[0], q[2]]) for (const cz of [q[1], q[3]]) for (const cy of [0, top]) corners.push([cx, cy, cz]);
+    // corner k = ix*4 + iz*2 + iy: the front face is the street-side z (iz = 0 when face < 0), the roof iy = 1
+    const fz = face < 0 ? 0 : 1, FRONT = [0 + fz * 2, 1 + fz * 2, 5 + fz * 2, 4 + fz * 2], ROOF4 = [1, 3, 7, 5];
     const project = (cam, yaw, pitch, P) => {
       const fx = Math.sin(yaw) * Math.cos(pitch), fy = Math.sin(pitch), fz = -Math.cos(yaw) * Math.cos(pitch);
       const rx = Math.cos(yaw), rz = Math.sin(yaw);                 // right = fwd x up (y up)
@@ -106,26 +115,29 @@ export function createView(app) {
     };
     const midY = (safe.top + safe.bottom) / 2;
     let best = null, bestOk = null;
+    const AIM = [0.7, 0.2, 0];                                       // aim near the facade (centred front) or the box centre
+    const DK = aspect > 1 ? [0.6, 0.8, 1, 1.25, 1.55, 1.9, 2.4, 3.0, 3.7, 4.5] : [0.6, 0.8, 1, 1.25, 1.55, 1.9, 2.4, 3.0];   // landscape: farther, flatter
     const wLo = aspect > 1 ? 0.15 : 0.45, wHi = aspect > 1 ? 0.4 : 0.68, wMid = (wLo + wHi) / 2;
-    for (const sd of [pref, -pref]) for (const ang of [0.15, 0.3, 0.45, 0.6]) for (const dk of [0.6, 0.8, 1, 1.25, 1.55, 1.9, 2.4, 3.0]) for (const lift of [3, 7, 12, 18, 26]) {
+    for (const sd of [pref, -pref]) for (const ang of [0.15, 0.3, 0.45, 0.6]) for (const dk of DK) for (const lift of [3, 7, 12, 18, 26]) for (const aim of AIM) {
       const d = dist * dk;
       const x = hx + sd * Math.sin(ang) * d, z = front + face * Math.cos(ang) * d;
       let y = Math.max(top + lift, heightAt(x, z) + 2);
       for (let ddz = -3; ddz <= 3; ddz += 3) for (let ddx = -3; ddx <= 3; ddx += 3) y = Math.max(y, heightAt(x + ddx, z + ddz) + 1.2);
       // aim at the home's centre, then tilt so it sits at the middle of the safe band
-      const ax = hx - x, az = hz - z, ah = Math.hypot(ax, az);
+      const az0 = hz + (front - hz) * aim, ax = hx - x, az = az0 - z, ah = Math.hypot(ax, az);   // aim near the facade, not the box centre: the front sits centred
       const yaw = Math.atan2(ax, -az);
       const pitch = -Math.atan2(y - top * 0.5, ah) - Math.atan(midY * tv);
       const cam = [x, y, z];
-      let ok = true, minX = 9, maxX = -9;
-      for (const c of corners) {
-        const pr = project(cam, yaw, pitch, c);
+      let ok = true, minX = 9, maxX = -9, minY = 9, maxY = -9;
+      const P = PROJ;
+      for (let k = 0; k < 8; k++) {
+        const pr = P[k] = project(cam, yaw, pitch, corners[k]);
         if (!pr || Math.abs(pr[0]) > safe.side || pr[1] > safe.top || pr[1] < safe.bottom) { ok = false; }
-        if (pr) { minX = Math.min(minX, pr[0]); maxX = Math.max(maxX, pr[0]); }
+        if (pr) { minX = Math.min(minX, pr[0]); maxX = Math.max(maxX, pr[0]); minY = Math.min(minY, pr[1]); maxY = Math.max(maxY, pr[1]); }
       }
       const width = (maxX - minX) / 2;                              // fraction of the screen width
       if (width < wLo || width > wHi) ok = false;
-      const pin = project(cam, yaw, pitch, [hx, top + 3.2, front - face * 2.5]);
+      const pin = project(cam, yaw, pitch, [hx, top + 3.2, front - face * 1.2]);
       if (!pin || pin[1] > safe.top) ok = false;
       // door sight line
       const door = [doorX, 1.2, front + face * 0.2];
@@ -142,14 +154,27 @@ export function createView(app) {
         if (hh > y - 2) occl += 2; else if (hh > 4 && fwd < 14) occl += 1;
       }
       if (heightAt(x, z) > 0) occl += 8;
-      const score = occl + Math.abs(width - wMid) * 4 + ang + (ok ? 0 : 100);
-      const c = { x, y, z, yaw, pitch, score };
+      // composition (round R, ranked inside the hard gates): the home 45-60 % of the safe band's height, the
+      // facade centred (x 45-55 %), and more facade than roof on screen
+      let comp = 0, cm = null;
+      if (ok) {
+        const hgt = (maxY - minY) / (safe.top - safe.bottom);
+        comp += Math.max(0, 0.45 - hgt, hgt - 0.6) * 12;
+        const fr = FRONT, fc = (P[fr[0]][0] + P[fr[1]][0] + P[fr[2]][0] + P[fr[3]][0]) / 4;
+        comp += Math.max(0, Math.abs(fc) - 0.1) * 10;
+        const fa = quadArea(P, fr), ra = quadArea(P, ROOF4);
+        if (fa < ra) comp += 3 + (ra - fa) / Math.max(fa, 1e-3);
+        cm = { hgt, fc, front: fa, roof: ra, pitch };
+        if (aspect > 1) comp += Math.max(0, -0.45 - pitch) * 20;     // landscape: flatter than -0.45 rad where the gates allow it
+      }
+      const score = occl + Math.abs(width - wMid) * 4 + ang + comp + (ok ? 0 : 100);
+      const c = { x, y, z, yaw, pitch, score, cm };
       if (ok && (!bestOk || score < bestOk.score)) bestOk = c;
       if (!best || score < best.score) best = c;
     }
     const pick = bestOk || best;
     const { x, y, z, yaw, pitch } = pick;
-    return { x, y, z, yaw, pitch, fixed: true, framed: !!bestOk, bx, bz, slot, zone, tx: hx, tz: hz, ty: top, px: hx, py: top + 0.6, pz: front - face * 2.5 };   // pin on the roof's front edge
+    return { x, y, z, yaw, pitch, fixed: true, framed: !!bestOk, comp: pick.cm, bx, bz, slot, zone, tx: hx, tz: hz, ty: top, px: hx, py: top + 0.6, pz: front - face * 1.2 };   // pin on the roof's front edge, clear of a custom's ornament (round R)
   }
   function lookAtYaw(v) {
     if (v.fixed) return v;                              // homeView already framed it

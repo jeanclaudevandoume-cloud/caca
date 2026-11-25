@@ -127,10 +127,10 @@ const sup = new Supervisor({
 const groundWin = createGroundWin();
 const streamer = createStreamer({
   sup, customFor: (cx, cz) => data.customFor(cx, cz), upload: gfx.upload, release: gfx.release, isLow, radii,
-  groundWin,
+  groundWin, hyst: !params.has('nohyst'),          // ?nohyst / ?nosink: planted pops for tools/poptest.cjs
   onTick: () => { if (!document.hidden) sup.sweep(); session.ensureAtlas(); },
 });
-const renderer = createRenderer({ gl, gfx, P, geoProg, app, streamer, quality, isLow, radii, hasStencil, atlasTex, canvas, groundWin, fullres: params.has('fullres'), frozenT, t0 });
+const renderer = createRenderer({ gl, gfx, P, geoProg, app, streamer, quality, isLow, radii, hasStencil, atlasTex, canvas, groundWin, fullres: params.has('fullres'), nosink: params.has('nosink'), frozenT, t0 });
 function flyTo(p, instant) {
   const v = view.lookAtYaw(view.homeView(p, innerWidth / innerHeight));
   app.fly = view.planFly(cam, v, performance.now(), instant);
