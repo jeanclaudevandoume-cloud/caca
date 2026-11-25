@@ -46,6 +46,10 @@ void main() {
   // vertex of a building makes the same decision and no slivers appear
   vec2 cc = floor((p.xz + 24.0) / 192.0) * 192.0 + 72.0;
   float dc = length(vec3(cc.x, 0.0, cc.y) - uCam);
+  // homes sink / mid-band masses grow by their BLOCK's distance, not the vertex's: a 30 m mass scaled per vertex
+  // had a sloping roof inside the fade band (round R)
+  vec2 bk = floor((p.xz + 24.0) / 48.0) * 48.0;
+  d = length(vec3(bk.x, 0.0, bk.y) - uCam);
   if (uLod.z < 0.5) {
     if (tall) { if (dc > uLod.x) { gl_Position = vec4(0.0, 0.0, 2.0, 1.0); return; } }
     else p.y *= 1.0 - smoothstep(uLod.x, uLod.y, d);

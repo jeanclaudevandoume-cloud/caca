@@ -313,6 +313,7 @@ export function buildMid(L, mx, mz) {
       let fl = zone === 1 ? 3 + (g % 3) + ((h >>> 3) % 2) : 2 + ((g >>> 4) % 2);
       if (h % 7 === 2) fl = zone === 1 ? 7 + ((h >>> 5) % 4) : 5 + ((h >>> 5) % 3);
       if (row && fl === (zone === 1 ? 3 + (g % 3) + ((hash3(bx, bz, 91) >>> 3) % 2) : 2 + ((g >>> 4) % 2))) fl += 1;
+      if (bz === RAIL_Z + 1 && row === 0) fl = Math.min(fl, 2);    // railside: the row in front of the viaduct (seen from the south) stays low
       const top = fl * FLOOR_H + (near ? 6.4 : 0) + (h % 3) * 0.4;   // blocks next to mid-rise still step up: the skyline ramps
       const x0 = X - 15, x1 = X + 15;
       const z0 = row ? Z + 2 : Z - 18, z1 = row ? Z + 18 : Z - 2;
