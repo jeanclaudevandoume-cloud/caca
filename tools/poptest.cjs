@@ -60,7 +60,7 @@ function popped(A, B) {
   const p = await b.newPage({ viewport: { width: 640, height: 360 } });
   p.on('pageerror', (e) => { console.log('pageerror', e.message); process.exitCode = 1; });
   // start over the suburbs, fly north-west towards downtown at 40 m, looking ahead and down
-  const x0 = 2184, z0 = 1500, dx = -3.7, dz = -5.9;
+  const sp = +(process.env.SPEED || 1), x0 = 2184, z0 = 1500, dx = -3.7 * sp, dz = -5.9 * sp;   // SPEED=0.25: a 27 m/s pan instead of 110 m/s
   await p.goto(`http://localhost:${process.env.PORT || 8080}/?shot&q=${process.env.Q || 'high'}&t=10&notags${extra}&cam=${x0},40,${z0},-0.56,-0.22`);
   await p.waitForFunction(() => { const t = window.__town; if (!t || !t.ready || !t.idle()) { window.__s = 0; return false; } return ++window.__s >= 4; }, null, { timeout: 150000, polling: 400 });
   const pops = [], peaks = [];
@@ -79,7 +79,7 @@ function popped(A, B) {
   }
   await b.close();
   const s = [...pops].sort((a, c) => a - c), pc = (v) => +(v * 100).toFixed(2);
-  const res = { steps, mean: pc(pops.reduce((a, c) => a + c, 0) / pops.length), p95: pc(s[Math.floor(s.length * 0.95)]), max: pc(s[s.length - 1]), framesOver05: pops.filter((v) => v > 0.005).length, peakMax: +Math.max(...peaks).toFixed(1), peakOver20: peaks.filter((v) => v > 20).length, preset: process.env.Q || 'high', extra };
+  const res = { steps, mean: pc(pops.reduce((a, c) => a + c, 0) / pops.length), p95: pc(s[Math.floor(s.length * 0.95)]), max: pc(s[s.length - 1]), framesOver05: pops.filter((v) => v > 0.005).length, peakMax: +Math.max(...peaks).toFixed(1), peakOver20: peaks.filter((v) => v > 20).length, preset: process.env.Q || 'high', speed: sp, extra };
   console.log(JSON.stringify(res));
   fs.mkdirSync('shots', { recursive: true });
   fs.appendFileSync('shots/poptest.jsonl', JSON.stringify({ at: new Date().toISOString(), ...res }) + '\n');
