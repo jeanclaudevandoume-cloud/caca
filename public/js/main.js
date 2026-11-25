@@ -255,7 +255,7 @@ window.__town = {
   cam, stats: renderer.stats, quality, chunks: streamer.chunks, skies: streamer.skies, flyToName: (n, i) => ui.flyToName(n, i), setTod: (t) => { app.tod = t; },
   get tagCount() { return tagState.used; },
   killWorker: (i) => sup.died(sup.workers[i], 'killed by test'),
-  probe: (n) => renderer.probe(n), spin, sim,
+  probe: (n) => renderer.probe(n), spin, sim, set lodCam(v) { app.lodCam = v; },
   get dbg() { return { reqs: reqs.size, upq: streamer.UPQ.length, budget: sup.workers.length * 3 - reqs.size, loads: sup.workers.map((w) => w.load) }; },
   get layout() { return app.L; }, get ready() { return session.ready; }, get VP() { return renderer.VP; },
   idle() { return session.ready && streamer.idle(); },

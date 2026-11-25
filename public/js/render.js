@@ -216,6 +216,7 @@ export function createRenderer(d) {
     gl.uniform3fv(u.uFogCol, T.fog); gl.uniform3fv(u.uSkyTop, T.top); gl.uniform3fv(u.uSkyHor, T.hor);
     gl.uniform1f(u.uFogD, fogD); gl.uniform1f(u.uNight, T.night); gl.uniform1f(u.uTime, time);
     gl.uniform3f(u.uCam, cam.x, cam.y, cam.z);
+    if (u.uLodCam) { const lc = app.lodCam || cam; gl.uniform3f(u.uLodCam, lc.x, lc.y, lc.z); }   // app.lodCam: poptest only
     if (u.uLowQ) gl.uniform1f(u.uLowQ, isLow() ? 1 : 0);
     if (u.uAtlas) { gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, d.atlasTex); gl.uniform1i(u.uAtlas, 1); gl.activeTexture(gl.TEXTURE0); }
   }

@@ -1,10 +1,11 @@
 // Flythrough pop metric (round Q, optimization review): fly a fixed path at drone height on the high preset and
 // measure how much of the screen changes abruptly while the camera is NOT moving.
 //   node tools/poptest.cjs [steps=90] [extra query]   Q=low for the phone preset   (server on PORT, default 8080; DUMP=1 saves pairs)
-// Per step the camera moves 7 m (4 frames at 60 fps ~ 110 m/s, a fast drone pass) and one frame is drawn: A.
-// The workers answer, then four more frames are drawn at the same pose (__town.sim, a virtual 60 fps clock, so
-// SwiftShader's real speed does not matter): B. Animation is frozen (?shot&t=), so A -> B differs only where
-// meshes were swapped in. A 16 px tile whose
+// Per step the camera moves 7 m (4 frames at 60 fps ~ 110 m/s, a fast drone pass). A = the new pose drawn
+// with the LOD state of the previous pose (__town.lodCam: LOD distances measured one step back) and the meshes
+// held so far; then the workers answer and four more frames are drawn on a virtual 60 fps clock (__town.sim)
+// with the pose's own LOD state: B. Animation is frozen (?shot&t=), camera motion cancels out, so A -> B is
+// what LOD changes in one step (vertex sink/grow, tier hand-overs, mesh swaps). A 16 px tile whose
 // mean change exceeds 3 levels is 'popped'; the report is the popped screen share per step (mean, p95, max),
 // the steps with > 0.5 % popped, and the abruptness: peak =
 // the largest single-tile change in one step (levels; > 20 reads as a pop), its max and how many steps exceed 20.
@@ -64,10 +65,13 @@ function popped(A, B) {
   await p.waitForFunction(() => { const t = window.__town; if (!t || !t.ready || !t.idle()) { window.__s = 0; return false; } return ++window.__s >= 4; }, null, { timeout: 150000, polling: 400 });
   const pops = [], peaks = [];
   for (let i = 0; i < steps; i++) {
-    await p.evaluate(([x, z]) => { const c = window.__town.cam; c.x = x; c.z = z; window.__town.sim(1); }, [x0 + dx * i, z0 + dz * i]);
+    // A: the new pose drawn with the LOD state of the previous pose (LOD distances measured from there) and the
+    // meshes held so far; B: the same pose with its own LOD state after the workers answered. Camera motion
+    // cancels out, so A -> B is exactly what LOD changes this step: vertex sink/grow, tier hand-overs, swaps.
+    await p.evaluate(([x, z, px, pz]) => { const t = window.__town, c = t.cam; t.lodCam = { x: px, y: c.y, z: pz }; c.x = x; c.z = z; t.sim(1); }, [x0 + dx * i, z0 + dz * i, x0 + dx * Math.max(0, i - 1), z0 + dz * Math.max(0, i - 1)]);
     const pngA = await p.screenshot();
     await p.waitForTimeout(150);                       // the workers answer in real time ...
-    await p.evaluate(() => window.__town.sim(4));      // ... then four simulated 60 fps frames at the same pose
+    await p.evaluate(() => { window.__town.lodCam = null; window.__town.sim(4); });   // ... then four 60 fps frames, own LOD state
     const pngB = await p.screenshot();
     const pp = popped(decodePNG(pngA), decodePNG(pngB));
     pops.push(pp.share); peaks.push(pp.peak);

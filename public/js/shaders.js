@@ -32,7 +32,7 @@ layout(location=2) in vec3 aN;
 layout(location=3) in float aMat;
 layout(location=4) in vec4 aCol;
 uniform mat4 uVP;
-uniform vec3 uOrigin, uCam;
+uniform vec3 uOrigin, uCam, uLodCam;   // uLodCam: where LOD distances are measured from (= uCam; poptest.cjs holds it one step back)
 uniform vec4 uLod;   // x fade start, y fade end, z mode (0 chunk, 1 skyline), w scale (0 = 1)
 uniform float uTime;
 out vec3 vW; out vec3 vN; out vec2 vUV; out vec4 vCol; flat out int vMat;
@@ -41,15 +41,15 @@ void main() {
   int mi = int(aMat + 0.5);
   bool tall = (mi & 8) != 0;
   int mat = mi & 7;
-  float d = length(p - uCam);
+  float d = length(p - uLodCam);
   // tall buildings hand over to the skyline per chunk (same chunk grid as main.js), so every
   // vertex of a building makes the same decision and no slivers appear
   vec2 cc = floor((p.xz + 24.0) / 192.0) * 192.0 + 72.0;
-  float dc = length(vec3(cc.x, 0.0, cc.y) - uCam);
+  float dc = length(vec3(cc.x, 0.0, cc.y) - uLodCam);
   // homes sink / mid-band masses grow by their BLOCK's distance, not the vertex's: a 30 m mass scaled per vertex
   // had a sloping roof inside the fade band (round R)
   vec2 bk = floor((p.xz + 24.0) / 48.0) * 48.0;
-  d = length(vec3(bk.x, 0.0, bk.y) - uCam);
+  d = length(vec3(bk.x, 0.0, bk.y) - uLodCam);
   if (uLod.z < 0.5) {
     if (tall) { if (dc > uLod.x) { gl_Position = vec4(0.0, 0.0, 2.0, 1.0); return; } }
     else p.y *= 1.0 - smoothstep(uLod.x, uLod.y, d);
