@@ -113,6 +113,32 @@ build; 10 = also clear margin under budget.
 1. Boot cost (layout/data at 1M and 10M). 2. Low-preset tris/draws per vantage. 3. Fill cost of
 full-screen passes. 4. Per-frame allocations. 5. LOD artifacts/pops. 6. GPU memory.
 
+## Process (meta-review 4, after rounds Q and R) — overrides everything below
+
+Rounds Q and R moved Design, Looks and Optimization by less than +1.0 each. Causes found: asks graded on things
+invisible from the graded camera (mid-band roofs seen edge-on), sight-line gates that passed while a train covered
+the home, the biggest ask per axis deferred twice, placeholder content shipped into the product moment, effort
+spent on tooling/refactors that change no pixels, regressions found by reviewers instead of before grading, and
+two frame-time methods disagreeing. Rules from here:
+
+1. **Pre-grading gate.** Nothing goes to reviewers unless, against the FROZEN baseline (the last accepted build,
+   served with `tools/vantage.cjs --base`): arrival framing + coverage pass (apptest: >= 80 % of the front visible,
+   50/50 both aspects); every vantage within its tris/draws row; geoMs <= 1.10x by ONE method (alternating A/B,
+   median of >= 5); poptest worst step <= 5 %; a side-by-side sheet (baseline | build) of phoneauto, arrivephone,
+   lowdrone is produced. The baseline does not change inside a round.
+2. **Asks name a vantage, a pixel region and a metric.** An ask that is not visible from phoneauto or arrivephone
+   at phone size does not take a round slot.
+3. **One big item per axis per round, plus fixes.** Tooling and refactors are not round items.
+4. **Optimization's anchor** is "no regression vs the accepted baseline beyond budget", not "vs the previous build".
+5. **Dropped:** the skyline impostor ring (~16 MB vs the 6 MB phone budget). **Overridden for round S:** Design's
+   avenue-lattice cap (the lattice is not the dominant read in phoneauto/arrivephone); if Design still caps on it
+   after S, it is round T's only Design item.
+6. Round S content (meta-review): arrival fixed by coverage + a detailed train/viaduct; a Tokyo street layer in
+   phoneauto's near field (kanban stacks, awnings, vending machines, bikes, kei cars, plants as atlas cards) and
+   mansion facades with balcony bands in the mid-band; the low-preset hand-over as per-home boxes with an
+   instant swap (no morph band). Target: the share of pixels with saturation > 0.45 in phoneauto's 65-80 % height
+   band back above 0.30 (rM 0.386, rR 0.124).
+
 ## Process (owner, round L) — overrides everything below
 
 - **A round must raise each graded axis by >= 1.0.** A round that does not is not finished: its change is
