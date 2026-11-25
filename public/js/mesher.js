@@ -9,7 +9,7 @@ import { occupied, regionOf, regionKey, lineIndex } from './layout.js';
 import { MB, M, SKY, MID, rcos, rsin, TALL, shade, CARS, BOX_COLS } from './mb.js';
 import { tree, wires, lamp, gardenItem } from './props.js';
 import { shrine, school, home, towerMass } from './homes.js';
-import { RAIL_Z, viaduct, viaductMid } from './rail.js';
+import { RAIL_Z, railAt, viaduct, viaductMid } from './rail.js';
 
 // ---------- chunk ----------
 function chunkOrigin(cx, cz) {
@@ -151,7 +151,7 @@ export function buildChunk(L, cx, cz, lod, customs, lite = false) {
       case K.PORT: port(mb, L, bx, bz, X, Z, lod); break;
       case K.SEA: break;
     }
-    if (bz === RAIL_Z && k !== K.SEA && k !== K.PORT && k !== K.COUNTRY) viaduct(mb, bx, X, Z, lod, mb.lite);
+    if (bz === RAIL_Z && railAt(L, bx)) viaduct(mb, bx, X, Z, lod, mb.lite);
   }
   // ships moored at the port (belong to whichever chunk holds their centre)
   const x0 = cx * CHUNK * PITCH - 24, x1 = x0 + CHUNK * PITCH, z0 = cz * CHUNK * PITCH - 24, z1 = z0 + CHUNK * PITCH;
@@ -287,7 +287,7 @@ export function buildMid(L, mx, mz) {
   mb.cast = false;
   for (let j = 0; j < MID; j++) for (let i = 0; i < MID; i++) {
     const bx = mx * MID + i, bz = mz * MID + j;
-    if (bz === RAIL_Z) { const kr = kindAt(L, bx, bz); if (kr !== K.SEA && kr !== K.PORT && kr !== K.COUNTRY) viaductMid(mb, bx, bx * PITCH, bz * PITCH); }
+    if (bz === RAIL_Z && railAt(L, bx)) viaductMid(mb, bx, bx * PITCH, bz * PITCH);
     if (cellKind(bx, bz) !== K.HOMES) continue;
     const zone = zoneLevel(bx, bz);
     if (zone >= 2) continue;                                     // mid-rise and towers come from the skyline

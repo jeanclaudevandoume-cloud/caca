@@ -3,11 +3,11 @@
 // road (piers in the median, deck 10 m up, clear of the 8 m utility wires), so the follower layout and the
 // ground shader do not change. A station every 12 blocks: a wide platform deck, a canopy and a name board.
 // Chunks build the full viaduct; mid-band tiles a deck and one pier per block.
-import { PITCH, mod, hash3 } from './town.js';
+import { PITCH, mod, hash3, kindAt, K } from './town.js';
 import { M, TALL, shade } from './mb.js';
 import { board } from './props.js';
 
-export const RAIL_Z = 21;                                      // the road on the +z side of block row 21: ~160 m ahead of the opening camera, above its low houses
+export const RAIL_Z = 19;                                      // the road on the +z side of block row 19: ~250 m ahead of the opening camera, > 100 m from the demo arrival (#120,001 at row 22)
 const isStation = (bx) => mod(bx, 12) === 5;
 const DECK = 0x9d9a93, DECK_TOP = 0x6f6c67, Y0 = 9.6, Y1 = 10.8, HW = 3.6;
 
@@ -65,10 +65,13 @@ export function viaductMid(mb, bx, X, Z) {
   if (ht % 2 === 0 && !isStation(bx)) mb.cbox(X, Y1 + 0.8, zr + ((ht >>> 4) & 1 ? 1.6 : -1.6), 46, 3.0, 2.9, 0xdfe2e4, M.METAL, ht & 255);
   mb.flag = flag;
 }
-// for camera collision (view.heightAt): the viaduct's top over its deck (it spans the town east to west)
-// inside the viaduct's slab (deck to train roof): the arrival camera may stand under the deck, not in it
-export const inRail = (x, y, z) => y >= Y0 - 0.4 && y <= Y1 + 4.6 && railHeight(x, z) > 0;
-export const railHeight = (x, z) => {
-  const dz = Math.abs(z - (RAIL_Z * PITCH + 24));
-  return dz <= (isStation(Math.floor((x + 24) / PITCH)) ? 7.8 : HW + 0.4) ? Y1 + 4.6 : 0;
-};
+// ONE predicate for 'the viaduct exists over block column bx' (round S, code review: collision said yes over ~3.6 km
+// of countryside where no mesh was built). The mesher and every collision test use it.
+export const railAt = (L, bx) => { const k = kindAt(L, bx, RAIL_Z); return k !== K.SEA && k !== K.PORT && k !== K.COUNTRY; };
+// the deck's footprint across z at x (stations are wider)
+const inBand = (x, z) => Math.abs(z - (RAIL_Z * PITCH + 24)) <= (isStation(Math.floor((x + 24) / PITCH)) ? 7.8 : HW + 0.4);
+export const RAIL_TOP = Y1 + 4.6;                              // deck, train and station canopy
+// the viaduct is a slab (Y0 - 0.4 .. RAIL_TOP), not a solid column: cameras and pick rays pass under it
+export const inRail = (L, x, y, z) => y >= Y0 - 0.4 && y <= RAIL_TOP && inBand(x, z) && railAt(L, Math.floor((x + 24) / PITCH));
+// its top where it exists (flight arcs and occluder scoring go over it), else 0
+export const railTop = (L, x, z) => (inBand(x, z) && railAt(L, Math.floor((x + 24) / PITCH)) ? RAIL_TOP : 0);

@@ -1,6 +1,6 @@
 // Where things are and where the camera goes: per-plot footprints and heights, picking, the home-arrival
 // camera and the fly-to arc. No DOM; the layout is read live from `app.L` (tools/apptest.mjs drives this).
-import { railHeight, inRail } from './rail.js';
+import { inRail as inRailL, railTop as railTopL } from './rail.js';
 import { PITCH, FLOOR_H, K, plotFrame, zoneLevel, kindAt, slotAt, homeRect, hash3, laneBlock } from './town.js';
 import { recipe } from './recipe.js';
 import { plotOf, plotIndex } from './layout.js';
@@ -33,13 +33,14 @@ export function createView(app) {
     return e;
   }
   const homeTop = (bx, bz, slot, zone) => plotInfo(bx, bz, slot, zone).top;
-  function heightAt(x, z, noRail = false) {
+  const inRail = (x, y, z) => !!app.L && inRailL(app.L, x, y, z);       // the viaduct as a slab (deck to train roof)
+  const railTop = (x, z) => (app.L ? railTopL(app.L, x, z) : 0);
+  // the ground-up height of buildings at (x, z); the viaduct is NOT part of it (see inRail / railTop)
+  function heightAt(x, z) {
     const L = app.L;
     if (!L) return 0;
     const bx = Math.floor((x + 24) / PITCH), bz = Math.floor((z + 24) / PITCH);
     if (bx === 0 && bz === 0 && Math.abs(x) < 7 && Math.abs(z) < 7) return 220;
-    const rh = railHeight(x, z);                                       // the elevated railway over its street
-    if (rh && !noRail && kindAt(L, bx, bz) !== K.SEA) return rh;
     if (kindAt(L, bx, bz) !== K.HOMES) return 0;
     const zone = zoneLevel(bx, bz);
     const s = slotAt(zone, x - bx * PITCH, z - bz * PITCH, laneBlock(bx, bz, zone));
@@ -67,6 +68,7 @@ export function createView(app) {
     for (let t = 0; t < 2500; t += 1.5) {
       const x = p[0] + d[0] * t, y = p[1] + d[1] * t, z = p[2] + d[2] * t;
       if (y < 0) break;
+      if (inRail(x, y, z)) return null;                            // the viaduct is in the way
       if (y < heightAt(x, z)) return plotAtWorld(x, z);
     }
     if (d[1] < 0) { const t = -cam.y / d[1]; return plotAtWorld(cam.x + d[0] * t, cam.z + d[2] * t); }
@@ -83,7 +85,7 @@ export function createView(app) {
     if (zone >= 2) {
       // city: hover above the tallest neighbour, a little toward the street, looking down at the roof
       let maxH = top;
-      for (let dz = -45; dz <= 45; dz += 7.5) for (let dx = -45; dx <= 45; dx += 7.5) maxH = Math.max(maxH, heightAt(f.x + dx, f.z + dz + face * 20));
+      for (let dz = -45; dz <= 45; dz += 7.5) for (let dx = -45; dx <= 45; dx += 7.5) maxH = Math.max(maxH, heightAt(f.x + dx, f.z + dz + face * 20), railTop(f.x + dx, f.z + dz + face * 20));
       const y = Math.max(top + 30, maxH + 14);
       return { x: f.x + 10, y, z: f.z + face * (24 + (y - top) * 0.75), yaw: 0, pitch: 0, bx, bz, slot, zone, tx: f.x, tz: f.z, ty: top / 0.6 };
     }
@@ -119,16 +121,18 @@ export function createView(app) {
       return [(dx * rx + dz * rz) / (zc * th), (dx * ux + dy * uy + dz * uz) / (zc * tv)];
     };
     const midY = (safe.top + safe.bottom) / 2;
-    let best = null, bestOk = null;
+    let best = null;
+    const OKS = [];
+    const LIFTS = [3, 7, 12, 18, 26];
     const AIM = [0.7, 0.2, 0];                                       // aim near the facade (centred front) or the box centre
     const DK = aspect > 1 ? [0.6, 0.8, 1, 1.25, 1.55, 1.9, 2.4, 3.0, 3.7, 4.5] : [0.6, 0.8, 1, 1.25, 1.55, 1.9, 2.4, 3.0];   // landscape: farther, flatter
     const wLo = aspect > 1 ? 0.15 : 0.45, wHi = aspect > 1 ? 0.4 : 0.68, wMid = (wLo + wHi) / 2;
-    for (const sd of [pref, -pref]) for (const ang of [0.15, 0.3, 0.45, 0.6]) for (const dk of DK) for (const lift of [3, 7, 12, 18, 26]) for (const aim of AIM) {
+    for (const sd of [pref, -pref]) for (const ang of [0.15, 0.3, 0.45, 0.6]) for (const dk of DK) for (const lift of LIFTS) for (const aim of AIM) {
       const d = dist * dk;
       const x = hx + sd * Math.sin(ang) * d, z = front + face * Math.cos(ang) * d;
       // the viaduct is an overhead slab here, not a solid: the camera may stand under it, never inside it
-      let y = Math.max(top + lift, heightAt(x, z, true) + 2);
-      for (let ddz = -3; ddz <= 3; ddz += 3) for (let ddx = -3; ddx <= 3; ddx += 3) y = Math.max(y, heightAt(x + ddx, z + ddz, true) + 1.2);
+      let y = Math.max(top + lift, heightAt(x, z) + 2);
+      for (let ddz = -3; ddz <= 3; ddz += 3) for (let ddx = -3; ddx <= 3; ddx += 3) y = Math.max(y, heightAt(x + ddx, z + ddz) + 1.2);
       if (inRail(x, y, z) || inRail(x, y, z - 3) || inRail(x, y, z + 3)) continue;
       // aim at the home's centre, then tilt so it sits at the middle of the safe band
       const az0 = hz + (front - hz) * aim, ax = hx - x, az = az0 - z, ah = Math.hypot(ax, az);   // aim near the facade, not the box centre: the front sits centred
@@ -150,14 +154,14 @@ export function createView(app) {
       const door = [doorX, 1.2, front + face * 0.2];
       for (let t = 0.08; t < 0.95 && ok; t += 0.06) {
         const sx = x + (door[0] - x) * t, sz = z + (door[2] - z) * t, sy = y + (door[1] - y) * t;
-        if (Math.hypot(sx - hx, sz - hz) > 6 && (heightAt(sx, sz, true) > sy || inRail(sx, sy, sz))) ok = false;
+        if (Math.hypot(sx - hx, sz - hz) > 6 && (heightAt(sx, sz) > sy || inRail(sx, sy, sz))) ok = false;
       }
       let occl = 0;
       const ux = ax / ah, uz = az / ah;
       for (let fwd = 2; fwd <= 22; fwd += 4) for (let lat = -8; lat <= 8; lat += 4) {
         const px = x + ux * fwd - uz * lat, pz = z + uz * fwd + ux * lat;
         if (Math.hypot(px - hx, pz - hz) < 7) continue;
-        const hh = heightAt(px, pz);
+        const hh = Math.max(heightAt(px, pz), railTop(px, pz));
         if (hh > y - 2) occl += 2; else if (hh > 4 && fwd < 14) occl += 1;
       }
       if (heightAt(x, z) > 0) occl += 8;
@@ -176,12 +180,40 @@ export function createView(app) {
       }
       const score = occl + Math.abs(width - wMid) * 4 + ang + comp + (ok ? 0 : 100);
       const c = { x, y, z, yaw, pitch, score, cm };
-      if (ok && (!bestOk || score < bestOk.score)) bestOk = c;
+      if (ok) OKS.push(c);
       if (!best || score < best.score) best = c;
     }
-    const pick = bestOk || best;
-    const { x, y, z, yaw, pitch } = pick;
-    return { x, y, z, yaw, pitch, fixed: true, framed: !!bestOk, comp: pick.cm, bx, bz, slot, zone, tx: hx, tz: hz, ty: top, px: hx, py: top + 0.6, pz: front - face * 1.2 };   // pin on the roof's front edge, clear of a custom's ornament (round R)
+    // coverage (round S, after the railside arrival regression): sight-line gates sampled a few points, so a
+    // deck or train across the facade passed. The accepted candidates are tried best-first until one sees
+    // >= 80 % (the looks acceptance bar) of 20 points on the front face past buildings and the viaduct; else the
+    // best-covered one.
+    OKS.sort((a, b) => a.score - b.score);
+    let bestOk = null, bestCov = -1;
+    for (let i = 0; i < OKS.length && i < 40; i++) {
+      const c = OKS[i], cov = coverage(c.x, c.y, c.z, q, top, front, face, hx, hz);
+      if (cov > bestCov) { bestCov = cov; bestOk = c; }
+      if (cov >= 0.8) break;
+    }
+    if (bestOk) bestOk.cov = bestCov;
+    const chosen = bestOk || best;
+    const { x, y, z, yaw, pitch } = chosen;
+    return { x, y, z, yaw, pitch, fixed: true, framed: !!bestOk && bestOk.cov >= 0.8, cov: chosen.cov, comp: chosen.cm, bx, bz, slot, zone, tx: hx, tz: hz, ty: top, px: hx, py: top + 0.6, pz: front - face * 1.2 };   // pin on the roof's front edge, clear of a custom's ornament (round R)
+  }
+  // share of 20 sample points on the home's front face visible from (x, y, z) (the facade is the subject; counting
+  // roof points pushed the pick toward high cameras looking down at roofs)
+  function coverage(x, y, z, q, top, front, face, hx, hz) {
+    let seen = 0, n = 0;
+    const test = (px, py, pz) => {
+      n++;
+      for (let t = 0.04; t < 0.97; t += 0.06) {
+        const sx = x + (px - x) * t, sy = y + (py - y) * t, sz = z + (pz - z) * t;
+        if (inRail(sx, sy, sz)) return;
+        if (Math.abs(sx - hx) > (q[2] - q[0]) / 2 + 1 || Math.abs(sz - hz) > (q[3] - q[1]) / 2 + 1) { if (heightAt(sx, sz) > sy) return; }
+      }
+      seen++;
+    };
+    for (let i = 0; i < 5; i++) for (let j = 0; j < 4; j++) test(q[0] + (q[2] - q[0]) * (0.1 + 0.2 * i), top * (0.12 + 0.25 * j), front + face * 0.05);
+    return seen / n;
   }
   function lookAtYaw(v) {
     if (v.fixed) return v;                              // homeView already framed it
@@ -203,7 +235,7 @@ export function createView(app) {
     let clear = 0;
     const steps = Math.max(32, Math.min(600, Math.ceil(d / 10)));   // every <= 10 m (up to 6 km)
     for (let k = 1; k < steps; k++) {
-      const t = k / steps, h = heightAt(from.x + (v.x - from.x) * t, from.z + (v.z - from.z) * t);
+      const t = k / steps, px = from.x + (v.x - from.x) * t, pz = from.z + (v.z - from.z) * t, h = Math.max(heightAt(px, pz), railTop(px, pz));   // flights arc over the viaduct
       const base = from.y + (v.y - from.y) * t, arc = Math.sin(Math.PI * t);
       if (h > 0 && h + 15 > base) clear = Math.max(clear, (h + 15 - base) / Math.max(0.05, arc));
     }
@@ -225,5 +257,5 @@ export function createView(app) {
     cam.pitch = t < 0.5 ? a.pitch + (midPitch - a.pitch) * Math.min(1, t * 3) : midPitch + (b.pitch - midPitch) * Math.min(1, (t - 0.5) * 2.2);
     return t >= 1 ? null : fly;
   }
-  return { plotInfo, homeTop, heightAt, plotAtWorld, pick, homeView, lookAtYaw, pinFor, planFly, stepFly, clear: () => PLOT.clear() };
+  return { plotInfo, homeTop, heightAt, inRail, railTop, plotAtWorld, pick, homeView, lookAtYaw, pinFor, planFly, stepFly, clear: () => PLOT.clear() };
 }

@@ -127,6 +127,7 @@ export function createUI(deps) {
   }
   function clampCam() {
     cam.y = Math.min(6000, Math.max(cam.y, 2, view.heightAt(cam.x, cam.z) + 3));
+    if (view.inRail(cam.x, cam.y, cam.z)) cam.y = view.railTop(cam.x, cam.z) + 1.5;   // out of the viaduct's slab (under it is fine)
     const lim = app.L ? (app.L.seaBx + 60) * PITCH : 20000;
     cam.x = Math.max(-lim, Math.min(lim, cam.x)); cam.z = Math.max(-lim, Math.min(lim, cam.z));
   }

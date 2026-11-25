@@ -70,7 +70,7 @@ export function scanTags(st, now, cam, L, flying, view, nameOf) {
     t.hidden = false;
     for (let k = 1; k < 6 && !t.hidden; k++) {
       const f = k / 6, x = cam.x + (t.x - cam.x) * f, y = cam.y + (t.y - cam.y) * f, z = cam.z + (t.z - cam.z) * f;
-      if (hyp2(x - t.x, z - t.z) > 8 && y < view.heightAt(x, z)) t.hidden = true;
+      if (hyp2(x - t.x, z - t.z) > 8 && (y < view.heightAt(x, z) || view.inRail(x, y, z))) t.hidden = true;
     }
   }
   for (const t of list) {

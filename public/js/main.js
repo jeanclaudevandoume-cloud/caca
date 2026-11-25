@@ -239,7 +239,8 @@ function tags(now) {
   if (placeTags(tagState, renderer.VP, innerWidth, innerHeight, ui.rects, pinKey, ui.measure)) ui.drawTags(tagState);
 }
 // Run the whole frame loop body n times without waiting for vsync (allocation measurements).
-// Simulated frames on a virtual 60 fps clock (poptest.cjs): the rAF loop stops, every call draws n frames 16 ms apart.
+// Simulated frames on a virtual 60 fps clock (poptest.cjs): once called, the rAF loop stops for good (a test-only
+// hook: reload the page to get the real loop back); every call draws n frames 16 ms apart.
 let simClock = 0;
 function sim(n = 4) {
   if (!simClock) simClock = lastFrame || performance.now();

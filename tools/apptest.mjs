@@ -401,18 +401,43 @@ function sessionHarness({ maxTex = 1e9 } = {}) {
     app.safe = safe;
     let framed = 0, n = 0, sd = 7;
     const r2 = () => ((sd = (sd * 1103515245 + 12345) >>> 0) / 4294967296);
-    let tall = 0, centred = 0, facade = 0;
+    let tall = 0, centred = 0, facade = 0, seen = 0;
     while (n < 50) {
       const p = Math.floor(r2() * L.n); const b = T.plotOf(L, p); if (T.zoneLevel(b.bx, b.bz) >= 2) continue; n++;
       const v = view.homeView(p, asp);
-      if (v.framed) framed++; else if (process.env.DBG) console.log("unframed", asp.toFixed(2), b.bx, b.bz, b.slot);
+      if (process.env.DBG2) console.log("cov", asp.toFixed(2), b.bx, b.bz, b.slot, v.cov && v.cov.toFixed(2));
+      if (v.framed) framed++; else if (process.env.DBG) console.log("unframed", asp.toFixed(2), b.bx, b.bz, b.slot, v.cov);
+      if (v.cov >= 0.8) seen++;
       if (v.comp) { if (v.comp.hgt >= 0.3) tall++; if (Math.abs(v.comp.fc) <= 0.15) centred++; if (v.comp.front >= v.comp.roof) facade++; }
     }
     // composition (round R): ranked, not gated, so the floors are below 50
-    check(`view: arrival composition, aspect ${asp.toFixed(2)}: the facade outweighs the roof in >= 40/50, centred (|x| <= 15 %) in >= 40/50`, facade >= 40 && centred >= 40, `facade ${facade}/50, centred ${centred}/50, height >= 30 % of the band ${tall}/50`);
+    // round S: the front must be >= 80 % unobscured (20 sample rays past buildings and the viaduct slab); that costs a
+    // few facade-over-roof picks (front-on views are the ones houses across the street block), hence 35, not 40
+    check(`view: arrival coverage, aspect ${asp.toFixed(2)}: >= 80 % of the front visible in 50/50`, seen === 50, `${seen}/50`);
+    check(`view: arrival composition, aspect ${asp.toFixed(2)}: the facade outweighs the roof in >= 35/50, centred (|x| <= 15 %) in >= 40/50`, facade >= 35 && centred >= 40, `facade ${facade}/50, centred ${centred}/50, height >= 30 % of the band ${tall}/50`);
     check(`view: 50 low-zone arrivals framed (box in the safe area, 45-68% / 15-40% wide, door visible, pin below the bar), aspect ${asp.toFixed(2)}`, framed === 50, `${framed}/50`);
   }
   delete app.safe;
+  {
+    // the viaduct (round S, code review): collision exists exactly where a mesh is built (the mesher calls the same
+    // railAt), and it is a slab
+    const R = await import('../public/js/rail.js');
+    for (const n of [100000, 1000000]) {
+      const Ln = n === L.n ? L : T.buildLayout(n);
+      let bad = 0, cols = 0;
+      for (let bx = -400; bx <= 400; bx++) {
+        const has = R.railAt(Ln, bx), coll = R.inRail(Ln, bx * 48, 11, R.RAIL_Z * 48 + 24);
+        if (has) cols++;
+        if (has !== coll) bad++;
+      }
+      check(`rail: collision only where the viaduct is built (n=${n}, ${cols} columns)`, bad === 0 && cols > 10, `${bad} mismatches`);
+    }
+    const appR = { L }, vR = createView(appR);
+    let bx0 = 0; while (!R.railAt(L, bx0)) bx0++;
+    const zr = R.RAIL_Z * 48 + 24;
+    check('rail: the deck is a slab (under it is free, inside it is not)', !vR.inRail(bx0 * 48, 5, zr) && vR.inRail(bx0 * 48, 11, zr) && vR.heightAt(bx0 * 48, zr) === 0 && vR.railTop(bx0 * 48, zr) > 14);
+    check('rail: no collision over the countryside', !R.inRail(L, 5000 * 48, 11, zr));
+  }
   check('view: every flight clears the buildings under it', through === 0, `through=${through}`);
   check('view: every flight ends exactly on the arrival view', offEnd === 0, `off=${offEnd}`);
   check('view: plotKey is unique per plot', plotKey(1, 2, 3) !== plotKey(1, 3, 2) && plotKey(-1, 0, 0) !== plotKey(0, -1, 0));
