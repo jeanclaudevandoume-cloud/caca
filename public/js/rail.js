@@ -7,7 +7,7 @@ import { PITCH, mod, hash3 } from './town.js';
 import { M, TALL, shade } from './mb.js';
 import { board } from './props.js';
 
-export const RAIL_Z = 17;                                      // the road on the +z side of block row 17 (~350 m ahead of the opening camera)
+export const RAIL_Z = 21;                                      // the road on the +z side of block row 21: ~160 m ahead of the opening camera, above its low houses
 export const isStation = (bx) => mod(bx, 12) === 5;
 const DECK = 0x9d9a93, DECK_TOP = 0x6f6c67, Y0 = 9.6, Y1 = 10.8, HW = 3.6;
 
@@ -62,6 +62,10 @@ export function viaductMid(mb, bx, X, Z) {
   if (ht % 2 === 0 && !isStation(bx)) mb.cbox(X, Y1 + 0.8, zr + ((ht >>> 4) & 1 ? 1.6 : -1.6), 46, 3.0, 2.9, 0xdfe2e4, M.METAL, ht & 255);
   mb.flag = flag;
 }
-// for camera collision (view.heightAt): the viaduct's top within 8 m of its centre line (towns of any size: it
-// spans the whole east-west extent)
-export const railHeight = (z) => (Math.abs(z - (RAIL_Z * PITCH + 24)) <= 8 ? Y1 + 4.6 : 0);
+// for camera collision (view.heightAt): the viaduct's top over its deck (it spans the town east to west)
+// inside the viaduct's slab (deck to train roof): the arrival camera may stand under the deck, not in it
+export const inRail = (x, y, z) => y >= Y0 - 0.4 && y <= Y1 + 4.6 && railHeight(x, z) > 0;
+export const railHeight = (x, z) => {
+  const dz = Math.abs(z - (RAIL_Z * PITCH + 24));
+  return dz <= (isStation(Math.floor((x + 24) / PITCH)) ? 7.8 : HW + 0.4) ? Y1 + 4.6 : 0;
+};

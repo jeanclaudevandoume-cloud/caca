@@ -1,6 +1,6 @@
 // Where things are and where the camera goes: per-plot footprints and heights, picking, the home-arrival
 // camera and the fly-to arc. No DOM; the layout is read live from `app.L` (tools/apptest.mjs drives this).
-import { railHeight } from './rail.js';
+import { railHeight, inRail } from './rail.js';
 import { PITCH, FLOOR_H, K, plotOf, plotFrame, recipe, zoneLevel, kindAt, slotAt, plotIndex, homeRect, hash3, laneBlock } from './town.js';
 import { mulv } from './gfx.js';
 
@@ -31,13 +31,13 @@ export function createView(app) {
     return e;
   }
   const homeTop = (bx, bz, slot, zone) => plotInfo(bx, bz, slot, zone).top;
-  function heightAt(x, z) {
+  function heightAt(x, z, noRail = false) {
     const L = app.L;
     if (!L) return 0;
     const bx = Math.floor((x + 24) / PITCH), bz = Math.floor((z + 24) / PITCH);
     if (bx === 0 && bz === 0 && Math.abs(x) < 7 && Math.abs(z) < 7) return 220;
-    const rh = railHeight(z);                                       // the elevated railway over its street
-    if (rh && kindAt(L, bx, bz) !== K.SEA) return rh;
+    const rh = railHeight(x, z);                                       // the elevated railway over its street
+    if (rh && !noRail && kindAt(L, bx, bz) !== K.SEA) return rh;
     if (kindAt(L, bx, bz) !== K.HOMES) return 0;
     const zone = zoneLevel(bx, bz);
     const s = slotAt(zone, x - bx * PITCH, z - bz * PITCH, laneBlock(bx, bz, zone));
@@ -124,8 +124,10 @@ export function createView(app) {
     for (const sd of [pref, -pref]) for (const ang of [0.15, 0.3, 0.45, 0.6]) for (const dk of DK) for (const lift of [3, 7, 12, 18, 26]) for (const aim of AIM) {
       const d = dist * dk;
       const x = hx + sd * Math.sin(ang) * d, z = front + face * Math.cos(ang) * d;
-      let y = Math.max(top + lift, heightAt(x, z) + 2);
-      for (let ddz = -3; ddz <= 3; ddz += 3) for (let ddx = -3; ddx <= 3; ddx += 3) y = Math.max(y, heightAt(x + ddx, z + ddz) + 1.2);
+      // the viaduct is an overhead slab here, not a solid: the camera may stand under it, never inside it
+      let y = Math.max(top + lift, heightAt(x, z, true) + 2);
+      for (let ddz = -3; ddz <= 3; ddz += 3) for (let ddx = -3; ddx <= 3; ddx += 3) y = Math.max(y, heightAt(x + ddx, z + ddz, true) + 1.2);
+      if (inRail(x, y, z) || inRail(x, y, z - 3) || inRail(x, y, z + 3)) continue;
       // aim at the home's centre, then tilt so it sits at the middle of the safe band
       const az0 = hz + (front - hz) * aim, ax = hx - x, az = az0 - z, ah = Math.hypot(ax, az);   // aim near the facade, not the box centre: the front sits centred
       const yaw = Math.atan2(ax, -az);
@@ -146,7 +148,7 @@ export function createView(app) {
       const door = [doorX, 1.2, front + face * 0.2];
       for (let t = 0.08; t < 0.95 && ok; t += 0.06) {
         const sx = x + (door[0] - x) * t, sz = z + (door[2] - z) * t, sy = y + (door[1] - y) * t;
-        if (Math.hypot(sx - hx, sz - hz) > 6 && heightAt(sx, sz) > sy) ok = false;
+        if (Math.hypot(sx - hx, sz - hz) > 6 && (heightAt(sx, sz, true) > sy || inRail(sx, sy, sz))) ok = false;
       }
       let occl = 0;
       const ux = ax / ah, uz = az / ah;

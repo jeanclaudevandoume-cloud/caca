@@ -403,7 +403,7 @@ function sessionHarness({ maxTex = 1e9 } = {}) {
     while (n < 50) {
       const p = Math.floor(r2() * L.n); const b = T.plotOf(L, p); if (T.zoneLevel(b.bx, b.bz) >= 2) continue; n++;
       const v = view.homeView(p, asp);
-      if (v.framed) framed++;
+      if (v.framed) framed++; else if (process.env.DBG) console.log("unframed", asp.toFixed(2), b.bx, b.bz, b.slot);
       if (v.comp) { if (v.comp.hgt >= 0.3) tall++; if (Math.abs(v.comp.fc) <= 0.15) centred++; if (v.comp.front >= v.comp.roof) facade++; }
     }
     // composition (round R): ranked, not gated, so the floors are below 50
