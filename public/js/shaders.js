@@ -159,7 +159,11 @@ void main() {
     if (k < 0.05) {
       // phone, far walls: the window pattern has faded to its average anyway, so skip all per-window work
       vec3 refl0 = mix(mix(vec3(0.3, 0.36, 0.42), vec3(0.18, 0.22, 0.27), glass), uSkyHor, mix(0.35, 0.15, glass)) * (0.55 + 0.45 * (1.0 - uNight));
-      col = mix(col * mix(1.0, 0.45, glass * uNight), refl0 * jitter * mix(0.85, 1.15, glass * smoothstep(0.0, 160.0, vW.y)), mix(0.22, 0.75, glass) * step(0.3, v));
+      // tower families (homes.js towerMass, facade = seed & 3): light concrete and warm stone keep their wall colour
+      // (little glass), bronze glass is tinted; arithmetic selects only, no new branch on the phone shader
+      float solid = max(smoothstep(0.32, 0.6, dot(base, vec3(0.3, 0.55, 0.15))), float((seed & 3u) == 2u)) * glass;
+      refl0 *= mix(vec3(1.0), vec3(1.12, 0.86, 0.6), float((seed & 3u) == 3u) * glass);
+      col = mix(col * mix(1.0, 0.45, glass * uNight) * (1.0 + 0.22 * solid), refl0 * jitter * mix(0.85, 1.15, glass * smoothstep(0.0, 160.0, vW.y)), mix(0.22, 0.75, glass) * (1.0 - 0.62 * solid) * step(0.3, v));
       // floors still read at a kilometre: anti-aliased spandrel lines every floor, a plant band every 8 floors
       float fy = vW.y / 3.2, fwy = fwidth(fy);
       float spand = (1.0 - smoothstep(0.22 - fwy, 0.22 + fwy, fract(fy))) * clamp(1.6 - fwy * 2.2, 0.0, 1.0);
@@ -280,37 +284,18 @@ void main() {
 #ifdef LOWQ
     }
 #endif
-#ifndef LOWQ
-  } else if (vMat == 0 && vN.y > 0.9 && (uint(vCol.a * 255.0 + 0.5) == 250u || uint(vCol.a * 255.0 + 0.5) == 246u)) {
-    // mid-band roofs (round Q): one 30 m mass per row of homes reads as four houses: per-house colour from a
-    // roof palette, dark party gaps, and (jutaku, 250) a fake ridge lit from the sun side. No extra triangles.
-    vec2 bq = mod(vW.xz + 24.0, 48.0) - 24.0;                  // position in the block: rows centred on z = -10 / +10
-    float cell = floor((bq.x + 15.0) / 7.5);
-    uint hc = ih(uint(int(floor((vW.x + 24.0) / 48.0)) * 73 + int(floor((vW.z + 24.0) / 48.0)) * 9157 + int(cell) * 31 + (bq.y > 0.0 ? 7 : 0)) + 911u);
-    bool jt = uint(vCol.a * 255.0 + 0.5) == 250u;
-    float lf = dot(col, vec3(0.333)) / max(dot(base, vec3(0.333)), 0.02);   // this pixel's lighting, reused for the palette colour
-    uint pi = hc & 3u;                                             // roof palette by selects (a dynamically indexed
-    vec3 rp = pi == 0u ? vec3(0.55, 0.27, 0.2) : pi == 1u ? vec3(0.3, 0.38, 0.5) : pi == 2u ? vec3(0.32, 0.33, 0.36) : vec3(0.3, 0.45, 0.36);   // const array cost +47 ms geo on the phone probe)
-    col = mix(col, rp * lf, jt ? 0.55 : 0.0) * (0.86 + 0.24 * float((hc >> 4) & 15u) / 15.0);
-    float gx = abs(fract((bq.x + 15.0) / 7.5 + 0.5) - 0.5) * 7.5;  // metres to the nearest party line
-    float fwx = max(fwidth(vW.x), 0.02);
-    col *= 1.0 - (jt ? 0.4 : 0.25) * (1.0 - smoothstep(0.15, 0.15 + fwx * 1.5, gx));
-    if (!jt) {                                                     // villa roofs: a stair hut and a tank block per house
-      vec2 lc = vec2(fract((bq.x + 15.0) / 7.5) * 7.5, abs(bq.y) - 2.0);   // metres inside the house's roof
-      vec2 hp = vec2(1.2 + float((hc >> 8) & 3u) * 1.1, 3.0 + float((hc >> 10) & 7u) * 1.3);
-      vec2 dh = abs(lc - hp) - vec2(1.1, 1.2);
-      float fw2 = max(fwx, 0.02) * 1.5;
-      float hut = 1.0 - smoothstep(0.0, fw2, max(dh.x, dh.y));
-      col = mix(col, vec3(0.78, 0.77, 0.74) * lf, hut * 0.85);
-      col *= 1.0 - 0.35 * (1.0 - smoothstep(0.0, fw2 + 0.25, abs(max(dh.x, dh.y)))) * (1.0 - hut * 0.5);   // its shadowed rim
-    }
-    if (jt) {                                                      // fake ridge along x: the sunward slope is lighter
-      float side = bq.y - (bq.y > 0.0 ? 10.0 : -10.0);
-      vec3 sn = normalize(vec3(0.0, 1.0, sign(side) * 0.55));
-      col *= 0.78 + 0.4 * max(dot(sn, uSunDir), 0.0);
-      col *= 1.0 - 0.3 * (1.0 - smoothstep(0.0, 0.15 + fwx * 1.5, abs(side)));   // ridge line
-    }
-#endif
+  } else if (vMat == 0 && vN.y > 0.9 && (sa == 250u || sa == 246u)) {
+    // mid-band roofs (round R): one 30 m mass per row of homes reads as four houses from one atlas fetch (row 7:
+    // per-house roofs, party lines, ridges, stair huts / tanks with baked shadows). u = 2 * tile + x fraction, v = z.
+    float u = vUV.x / 8.0, t = floor(u * 0.5);
+    vec2 lq = vec2(clamp(u - 2.0 * t, 0.0, 1.0), vUV.y / 4.0);
+    const float P = 6.0 / 256.0;
+    vec2 uv = (vec2(t, 7.0) + P + lq * (1.0 - 2.0 * P)) * vec2(0.25, 0.125);
+    // the band is seen at a grazing angle (16 m of depth in a few pixels): the mip level follows the x footprint
+    // and a sixth of the z one (a cheap 6:1 anisotropy), so the four houses keep their own colours
+    vec2 sc = (1.0 - 2.0 * P) * vec2(0.25, 0.125 / 6.0);
+    vec4 rt = textureGrad(uAtlas, uv, dFdx(lq) * sc, dFdy(lq) * sc);
+    col = mix(col, rt.rgb * (dot(col, vec3(0.333)) / max(dot(base, vec3(0.333)), 0.02)), rt.a);
   } else if (vMat == 7 && (uint(vCol.a * 255.0 + 0.5) & 3u) == 3u) {
     // flat roofs (round M): membrane / asphalt / pavers / stained membrane from atlas row 4, 4 m a tile
     uint t = (uint(vCol.a * 255.0 + 0.5) >> 2u) & 3u;
