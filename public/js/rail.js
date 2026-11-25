@@ -18,7 +18,7 @@ export function viaduct(mb, bx, X, Z, lod, lite) {
   const zr = Z + 24, x0 = X - 23.99, x1 = X + 23.99, st = isStation(bx), hw = st ? 7.5 : HW;
   const flag = mb.flag; mb.flag = TALL;
   mb.box(x0, Y0, zr - hw, x1, Y1, zr + hw, DECK, DECK_TOP, M.PLAIN, 3);
-  mb.fqY(x0, Y0, zr - hw, x1, Y0, zr - hw, x1, Y0, zr + hw, x0, Y0, zr + hw, M.PLAIN, shade(DECK, 0.55), 3, -1);   // underside, seen from the street
+  if (!lite) mb.fqY(x0, Y0, zr - hw, x1, Y0, zr - hw, x1, Y0, zr + hw, x0, Y0, zr + hw, M.PLAIN, shade(DECK, 0.55), 3, -1);   // underside, seen from the street
   for (const px of lite || lod ? [X] : [X - 12, X + 12]) mb.cbox(px, 0, zr, 1.6, Y0, 2.6, shade(DECK, 0.92), M.PLAIN, 3, -1);
   if (!lod && !lite) {
     const cast = mb.cast; mb.cast = false;
@@ -52,12 +52,15 @@ export function viaduct(mb, bx, X, Z, lod, lite) {
   mb.flag = flag;
 }
 
-// the mid-band's cheap version: the deck, one pier a block and the trains (16-26 tris)
+// the mid-band's cheap version: the deck, a flat pier and the trains (14-24 tris)
 export function viaductMid(mb, bx, X, Z) {
   const zr = Z + 24, hw = isStation(bx) ? 7.5 : HW, flag = mb.flag;
   mb.flag = TALL;
   mb.box(X - 23.99, Y0, zr - hw, X + 23.99, Y1 + 0.8, zr + hw, DECK, DECK_TOP, M.PLAIN, 3, 0);
-  mb.cbox(X, 0, zr, 1.8, Y0, 2.6, shade(DECK, 0.9), M.PLAIN, 3, -1);
+  // the pier as one double-sided plane across the street (4 tris, not 8: round R, phone under 60k); a deck
+  // without legs would float
+  const pc = shade(DECK, 0.9);
+  mb.wq(X - 0.9, X + 0.9, 0, Y0, zr, 1, pc, M.PLAIN, 3); mb.wq(X - 0.9, X + 0.9, 0, Y0, zr, -1, pc, M.PLAIN, 3);
   const ht = hash3(bx, RAIL_Z, 71);                            // the same trains as the chunks (silver reads from afar)
   if (ht % 2 === 0 && !isStation(bx)) mb.cbox(X, Y1 + 0.8, zr + ((ht >>> 4) & 1 ? 1.6 : -1.6), 46, 3.0, 2.9, 0xdfe2e4, M.METAL, ht & 255);
   mb.flag = flag;
