@@ -12,6 +12,7 @@
 //   row 5: shopfronts: 0 lit shelves with goods, 1 noren over a dark entrance, 2 roller shutter, 3 vending pair
 //   row 6: kanban lettering (round Q): one vertical column of four kanji-like glyphs per tile; rgb white,
 //          alpha = ink. Signs map u across the board and v down the column (tategaki).
+//   row 7: mid-band roof strips (round R): 0-1 jutaku rows, 2-3 villa rows (stair huts, tanks, AC, NE shadows)
 export const ATLAS_TILES = 4, ATLAS_SIZE = 1024, ATLAS_ROWS = 8, ATLAS_H = 2048;
 const T = ATLAS_SIZE / ATLAS_TILES, PAD = 6;   // a gutter inside each tile so mip levels don't bleed
 
@@ -158,7 +159,9 @@ export function buildAtlas() {
     g.fillStyle = grey(95); for (let k = 1; k < 3; k++) g.fillRect(0, k * s / 3 - 2, s, 3);
   });
   tile(g, 2, 4, (s) => {                                                            // concrete pavers, 0.6 m grid
-    for (let j = 0; j < 6; j++) for (let i = 0; i < 6; i++) { g.fillStyle = grey(140 + R() * 22); g.fillRect(i * s / 6, j * s / 6, s / 6 - 4, s / 6 - 4); }
+    // round R: low-contrast joints (the old 4 px dark gaps read as a swimming-pool grid under cyan membranes)
+    g.fillStyle = grey(134); g.fillRect(0, 0, s, s);
+    for (let j = 0; j < 6; j++) for (let i = 0; i < 6; i++) { g.fillStyle = grey(140 + R() * 7); g.fillRect(i * s / 6 + 1, j * s / 6 + 1, s / 6 - 2, s / 6 - 2); }
   });
   tile(g, 3, 4, (s) => {                                                            // membrane with rust stains under the clutter
     g.fillStyle = grey(138); g.fillRect(0, 0, s, s);
@@ -228,6 +231,69 @@ export function buildAtlas() {
       if (kind < 0.35) rad(Math.floor(R() * 10), 0, 0, 1, 1);                                // one radical (kana-like)
       else if (kind < 0.75) { rad(Math.floor(R() * 10), 0, 0, 0.42, 1); rad(Math.floor(R() * 10), 0.52, 0, 0.48, 1); }   // left + right
       else { rad(Math.floor(R() * 10), 0, 0, 1, 0.42); rad(Math.floor(R() * 10), 0, 0.52, 1, 0.48); }                    // top + bottom
+    }
+  });
+
+  // ---- row 7: mid-band roof strips (round R): one 30 m x 16 m row of four houses seen from above, x across the
+  // tile, z down it (north at the top). rgb = roof albedo, alpha = how much it replaces the row's vertex roof colour.
+  // Sun from the south-west: baked shadows fall to the north-east (right and up).
+  const RW = ['#8c4533', '#4d6180', '#4f5259', '#4d735c', '#6e5038', '#34507a', '#9a3c31', '#5e6670'];
+  const MEM = ['#4f8a6e', '#3f8c84', '#8d918c', '#4a6f9a', '#6a8f5a', '#b8b4a8'];
+  const shadeHex = (hex, k) => { const n = parseInt(hex.slice(1), 16); const f = (v) => Math.max(0, Math.min(255, Math.round(v * k))); return `rgb(${f(n >> 16)},${f((n >> 8) & 255)},${f(n & 255)})`; };
+  const amask = (i, x, y, w, h, a) => { gm.fillStyle = grey(Math.round(a * 255)); gm.fillRect(i * T + PAD + x, 7 * T + PAD + y, w, h); };
+  for (let i = 0; i < 4; i++) tile(g, i, 7, (s) => {
+    const villa = i >= 2, mz = s / 16;                   // px per metre along z (16 m)
+    // house widths: 6.5..8.5 m, summing to 30 m
+    const ws = [], wr = []; let sum = 0;
+    for (let k = 0; k < 4; k++) { const w = 6.5 + R() * 2; ws.push(w); sum += w; }
+    let x = 0;
+    for (let k = 0; k < 4; k++) { const w = ws[k] * s / sum; wr.push([Math.round(x), Math.round(x + w)]); x += w; }
+    // the strip's base: a dark lane gap all round (rows of houses stand back from the edge of the mass)
+    g.fillStyle = '#3c3d40'; g.fillRect(-PAD, -PAD, s + 2 * PAD, s + 2 * PAD); amask(i, -PAD, -PAD, s + 2 * PAD, s + 2 * PAD, 0.9);
+    for (let k = 0; k < 4; k++) {
+      const [x0, x1] = wr[k], w = x1 - x0, y0 = Math.round(mz * (0.4 + R() * 0.8)), y1 = s - Math.round(mz * (0.4 + R() * 0.8));
+      const mpx = w / (ws[k]);                             // px per metre along x for this house
+      if (!villa && !(i === 1 && (k === 1 || k === 3))) {
+        // jutaku: low gable, ridge along x; the south slope (lower half) takes the sun
+        const c = RW[Math.floor(R() * RW.length)], ry = Math.round((y0 + y1) / 2 + (R() - 0.5) * mz * 2);
+        g.fillStyle = shadeHex(c, 0.74); g.fillRect(x0 + 1, y0, w - 2, ry - y0);               // north slope, in shade
+        g.fillStyle = shadeHex(c, 1.08); g.fillRect(x0 + 1, ry, w - 2, y1 - ry);               // south slope, lit
+        g.fillStyle = 'rgba(0,0,0,0.10)'; for (let yy = y0 + 4; yy < y1; yy += 6) g.fillRect(x0 + 1, yy, w - 2, 2);   // tile courses
+        g.fillStyle = shadeHex(c, 1.3); g.fillRect(x0 + 1, ry - 2, w - 2, 3);                  // ridge cap
+        g.fillStyle = 'rgba(0,0,0,0.35)'; g.fillRect(x0 + 1, y1 - 3, w - 2, 3);                // eave line (south)
+        amask(i, x0 + 1, y0, w - 2, y1 - y0, 0.82);
+      } else {
+        // flat roof: membrane with a light parapet, a stair hut, a water tank and AC units, shadows to the NE
+        const c = villa ? MEM[Math.floor(R() * MEM.length)] : ['#8d918c', '#7d8186', '#a7a59c'][Math.floor(R() * 3)];
+        g.fillStyle = shadeHex(c, 1.0); g.fillRect(x0 + 1, y0, w - 2, y1 - y0);
+        g.fillStyle = 'rgba(0,0,0,0.08)'; for (let yy = y0 + 10; yy < y1; yy += 22) g.fillRect(x0 + 1, yy, w - 2, 2);   // membrane seams
+        g.fillStyle = '#d9d6ce'; g.fillRect(x0 + 1, y0, w - 2, 3); g.fillRect(x0 + 1, y1 - 3, w - 2, 3); g.fillRect(x0 + 1, y0, 2, y1 - y0); g.fillRect(x1 - 3, y0, 2, y1 - y0);   // parapet coping
+        const sh = (bx, by, bw, bh, len) => {                // shadow to the NE: right and up
+          g.fillStyle = 'rgba(16,18,24,0.7)';
+          g.beginPath(); g.moveTo(bx + bw, by + bh); g.lineTo(bx + bw + len * 0.6, by + bh - len); g.lineTo(bx + bw + len * 0.6, by - len); g.lineTo(bx + len * 0.6, by - len); g.lineTo(bx, by); g.lineTo(bx + bw, by); g.closePath(); g.fill();
+        };
+        // stair hut 3.2 x 4.6 m, on the south or north half
+        const hw = Math.round(3.2 * mpx), hh = Math.round(4.6 * mz), hx = x0 + Math.round(mpx * (0.7 + R() * (ws[k] - 4.9))), hy = R() < 0.5 ? y0 + Math.round(mz * 2.5) : y1 - hh - Math.round(mz * 2.5);
+        sh(hx, hy, hw, hh, mz * 2.6);
+        g.fillStyle = '#f2efe8'; g.fillRect(hx, hy, hw, hh);
+        g.fillStyle = '#b7b2a6'; g.fillRect(hx, hy, hw, Math.round(hh * 0.3));                // its roof slab, north edge darker
+        g.fillStyle = '#f0ede6'; g.fillRect(hx, hy + hh - 3, hw, 3);
+        // water tank: a round tank (Korean villas: stainless or blue / yellow fibreglass)
+        const tr = Math.round(1.3 * mz), tx = x0 + (hx - x0 > w / 2 ? Math.round(w * 0.28) : Math.round(w * 0.7)), ty = hy < s / 2 ? y1 - Math.round(mz * 3.5) : y0 + Math.round(mz * 3.5);
+        g.fillStyle = 'rgba(20,24,30,0.42)'; g.beginPath(); g.ellipse(tx + tr * 0.7, ty - tr * 0.9, tr * 0.6, tr, 0, 0, 7); g.fill();
+        g.fillStyle = ['#cfd3d6', '#3d7fa8', '#d9c27a'][Math.floor(R() * 3)]; g.beginPath(); g.ellipse(tx, ty, tr * 0.6, tr, 0, 0, 7); g.fill();
+        g.fillStyle = 'rgba(255,255,255,0.35)'; g.beginPath(); g.ellipse(tx - tr * 0.15, ty + tr * 0.2, tr * 0.25, tr * 0.4, 0, 0, 7); g.fill();
+        // two AC units
+        for (let q = 0; q < 2; q++) {
+          const ax = x0 + Math.round(w * (0.2 + 0.5 * R())), ay = y0 + Math.round((y1 - y0) * (0.2 + 0.6 * R())), aw = Math.round(0.9 * mpx), ah = Math.round(0.6 * mz);
+          sh(ax, ay, aw, ah, mz * 0.6);
+          g.fillStyle = '#ecebe6'; g.fillRect(ax, ay, aw, ah);
+        }
+        amask(i, x0 + 1, y0, w - 2, y1 - y0, villa ? 0.85 : 0.75);
+        amask(i, hx - 2, hy - Math.round(mz * 2.7), hw + Math.round(mz * 1.7) + 4, hh + Math.round(mz * 2.7) + 2, 1);   // hut + shadow: fully baked
+        amask(i, tx - tr - 2, ty - tr * 2 - 2, tr * 2.4 + 4, tr * 3 + 4, 1);
+      }
+      g.fillStyle = 'rgba(15,16,18,0.65)'; g.fillRect(x1 - 1, 0, 2, s); amask(i, x1 - 1, 0, 2, s, 1);   // party line
     }
   });
 

@@ -437,7 +437,18 @@ export function towerMass(mb, f, r, bx, bz, slot, lite, near) {
     mb.box(cx0, y2, cz0, cx1, top, cz1, wall, roof, M.GLASS, aw, y2 / FLOOR_H);
   }
   // crown
-  const crown = lite ? ((h >>> 11) & 1) : (h >>> 11) & 3, mx = (cx0 + cx1) / 2, mz = (cz0 + cz1) / 2;   // lite: penthouse or sloped cut only
+  const crown = (h >>> 11) & 3, mx = (cx0 + cx1) / 2, mz = (cz0 + cz1) / 2;
+  if (lite) {
+    // lite (phone skyline): every top gets a cheap crown, ~10 tris like the old penthouse (the phone vantage is at
+    // its 60k budget): a setback tier in the facade colour with a light cap, a pale lantern, a dark plant box, or a
+    // three-sided spire. Caps read in the family's own colour instead of one tan slab.
+    const t2 = top + 2 * FLOOR_H, cap = fam === 0 ? 0xc9ccd0 : shade(wall, 1.12);
+    if (crown === 0) mb.box(cx0 + 2.2, top, cz0 + 1.8, cx1 - 2.2, t2, cz1 - 1.8, wall, cap, M.GLASS, aw, r.floors);   // setback tier
+    else if (crown === 1) mb.box(cx0 + 2.4, top, cz0 + 2.2, cx1 - 2.4, top + 2.6 * FLOOR_H, cz1 - 2.2, 0xf0e2c0, 0xd8d4ca, M.METAL, aw);   // lantern
+    else if (crown === 2) mb.box(cx0 + 3, top, cz0 + 2.6, cx1 - 5, top + 2.2 * FLOOR_H, cz1 - 3.2, 0x5b6066, 0x7d8288, M.METAL, aw);   // plant box
+    else mb.cyl(mx, top, mz, 2.2, top + 22, 0, 3, 0xe4e6ea, M.METAL, aw, false);   // spire (3 tris)
+    return;
+  }
   if (crown === 0) {                                     // mechanical penthouse with louvre bands
     mb.box(cx0 + 1.5, top, cz0 + 1.5, cx1 - 1.5, top + 2 * FLOOR_H, cz1 - 1.5, 0x8a8f94, 0x5e615f, M.METAL, aw);
   } else if (crown === 1) {                              // a sloped cut across the top

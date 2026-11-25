@@ -307,9 +307,10 @@ export function buildMid(L, mx, mz) {
       const z0 = row ? Z + 2 : Z - 18, z1 = row ? Z + 18 : Z - 2;
       const roof = zone === 1 ? (r.roofMem || 0x4f8a6e) : ROOF[r.roof];
       mb.box(x0, 0, z0, x1, top, z1, r.wall, -1, M_.WIN, (h & 0xfc) | 1, 0, row ? 2 : 1);
-      // the roof: plain, alpha 250 (jutaku: per-house colours and a fake ridge on the high preset) or 246 (villa
-      // membranes), see shaders.js. Plain, not M.ROOF: the roof-tile hash on every far pixel cost the phone geo pass.
-      mb.q(x0, top, z1, x1, top, z1, x1, top, z0, x0, top, z0, 0, 1, 0, 0, 0, 0, 0, M_.PLAIN, roof, zone === 1 ? 246 : 250);   // the faces across the 4 m lane are never seen from the mid band
+      // the roof: plain, alpha 250 (jutaku) or 246 (villa), textured from atlas row 7 (round R: four baked houses per
+      // strip, one fetch on every preset). u = 2 * tile + x fraction (mirrored on jutaku rows), v = z fraction (0 north).
+      const tile = (zone === 1 ? 2 : 0) + ((h >>> 8) & 1), mir = zone === 0 && ((h >>> 9) & 1);
+      mb.q(x0, top, z1, x1, top, z1, x1, top, z0, x0, top, z0, 0, 1, 0, 2 * tile + mir, 1, 2 * tile + 1 - mir, 0, M_.PLAIN, roof, zone === 1 ? 246 : 250);   // the faces across the 4 m lane are never seen from the mid band
     }
   }
   return mb.finish();
@@ -343,7 +344,7 @@ export function buildSkyline(L, sx, sz, lite = false) {
       const top = r.floors * FLOOR_H;
       if (zone === 3 && !r.sig) { towerMass(mb, f, r, bx, bz, s, lite, false); continue; }
       mb.box(f.x - r.w / 2, 0, f.z - r.d / 2, f.x + r.w / 2, top, f.z + r.d / 2, r.wall, 0x8d9199, r.mat, (r.hash & 0xfc) | (zone === 3 ? 0 : 3));
-      if (lite) continue;                                          // lite: plain boxes, no crowns
+      if (lite && !(zone === 3 && r.sig)) continue;                // lite: plain boxes (signature towers keep their crown)
       const sig = zone === 3 && r.sig;
       if (r.crown === 1 && !sig) mb.box(f.x - r.w / 2 + 1.4, top, f.z - r.d / 2 + 2, f.x + r.w / 2 - 1.4, top + 3 * FLOOR_H, f.z + r.d / 2 - 2, r.wall, 0x8d9199, r.mat, (r.hash & 0xfc) | (zone === 3 ? 0 : 3), r.floors);
       if (top >= 30 * FLOOR_H && !sig) mb.cbox(f.x - r.w / 2 + 0.4, top, f.z - r.d / 2 + 0.4, 0.9, 0.9, 0.9, 0xff3030, M_.LIGHT, r.hash & 255);
