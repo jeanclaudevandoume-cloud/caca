@@ -8,6 +8,7 @@ import {
 import { MB as MB_, M as M_, rcos, rsin, TALL, shade, ctx, CARS, BOX_COLS } from './mb.js';
 import { tree, wires, lamp, gardenItem } from './props.js';
 import { shrine, school, home, towerMass } from './homes.js';
+import { RAIL_Z, viaduct, viaductMid } from './rail.js';
 
 export const MB = MB_;
 export const M = M_;
@@ -153,6 +154,7 @@ export function buildChunk(L, cx, cz, lod, customs, lite = false) {
       case K.PORT: port(mb, L, bx, bz, X, Z, lod); break;
       case K.SEA: break;
     }
+    if (bz === RAIL_Z && k !== K.SEA && k !== K.PORT && k !== K.COUNTRY) viaduct(mb, bx, X, Z, lod, ctx.LITE);
   }
   // ships moored at the port (belong to whichever chunk holds their centre)
   const x0 = cx * CHUNK * PITCH - 24, x1 = x0 + CHUNK * PITCH, z0 = cz * CHUNK * PITCH - 24, z1 = z0 + CHUNK * PITCH;
@@ -290,6 +292,7 @@ export function buildMid(L, mx, mz) {
   mb.cast = false;
   for (let j = 0; j < MID; j++) for (let i = 0; i < MID; i++) {
     const bx = mx * MID + i, bz = mz * MID + j;
+    if (bz === RAIL_Z) { const kr = kindAt(L, bx, bz); if (kr !== K.SEA && kr !== K.PORT && kr !== K.COUNTRY) viaductMid(mb, bx, bx * PITCH, bz * PITCH); }
     if (cellKind(bx, bz) !== K.HOMES) continue;
     const zone = zoneLevel(bx, bz);
     if (zone >= 2) continue;                                     // mid-rise and towers come from the skyline
@@ -302,7 +305,15 @@ export function buildMid(L, mx, mz) {
       if (slot >= occ) continue;
       const r = recipe(bx, bz, slot, zone, null), h = hash3(bx, bz, 91 + slot);
       const near = zoneLevel(bx + 1, bz) >= 2 || zoneLevel(bx - 1, bz) >= 2 || zoneLevel(bx, bz + 1) >= 2 || zoneLevel(bx, bz - 1) >= 2;
-      const top = (zone === 1 ? 12.5 : 6.6) + (near ? 6.4 : 0) + (h % 6) * 0.7;   // blocks next to mid-rise step up: the skyline ramps
+      // massing variety (round R, design review: the mid-band read as identical slab rows): storeys from a hash
+      // shared by 2x2-block groups (neighbours correlate) plus a per-row offset, one row in 7 a taller mansion,
+      // one in 9 a gap (coin parking), and the two rows of a block never level.
+      if (h % 9 === 4) continue;
+      const g = hash3(fdiv(bx, 2), fdiv(bz, 2), 92);
+      let fl = zone === 1 ? 3 + (g % 3) + ((h >>> 3) % 2) : 2 + ((g >>> 4) % 2);
+      if (h % 7 === 2) fl = zone === 1 ? 7 + ((h >>> 5) % 4) : 5 + ((h >>> 5) % 3);
+      if (row && fl === (zone === 1 ? 3 + (g % 3) + ((hash3(bx, bz, 91) >>> 3) % 2) : 2 + ((g >>> 4) % 2))) fl += 1;
+      const top = fl * FLOOR_H + (near ? 6.4 : 0) + (h % 3) * 0.4;   // blocks next to mid-rise still step up: the skyline ramps
       const x0 = X - 15, x1 = X + 15;
       const z0 = row ? Z + 2 : Z - 18, z1 = row ? Z + 18 : Z - 2;
       const roof = zone === 1 ? (r.roofMem || 0x4f8a6e) : ROOF[r.roof];

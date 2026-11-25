@@ -1,5 +1,6 @@
 // Where things are and where the camera goes: per-plot footprints and heights, picking, the home-arrival
 // camera and the fly-to arc. No DOM; the layout is read live from `app.L` (tools/apptest.mjs drives this).
+import { railHeight } from './rail.js';
 import { PITCH, FLOOR_H, K, plotOf, plotFrame, recipe, zoneLevel, kindAt, slotAt, plotIndex, homeRect, hash3, laneBlock } from './town.js';
 import { mulv } from './gfx.js';
 
@@ -35,6 +36,8 @@ export function createView(app) {
     if (!L) return 0;
     const bx = Math.floor((x + 24) / PITCH), bz = Math.floor((z + 24) / PITCH);
     if (bx === 0 && bz === 0 && Math.abs(x) < 7 && Math.abs(z) < 7) return 220;
+    const rh = railHeight(z);                                       // the elevated railway over its street
+    if (rh && kindAt(L, bx, bz) !== K.SEA) return rh;
     if (kindAt(L, bx, bz) !== K.HOMES) return 0;
     const zone = zoneLevel(bx, bz);
     const s = slotAt(zone, x - bx * PITCH, z - bz * PITCH, laneBlock(bx, bz, zone));
