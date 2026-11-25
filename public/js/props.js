@@ -214,6 +214,7 @@ export function door(mb, x, zw, fs, r, rc, a) {
     mb.cbox(x, 0, zw + fs * 0.55, 1.8, 0.18, 1.0, 0xbdb8ae, M.PLAIN, a);
     mb.cbox(x + 0.95, 2.05, zw + fs * 0.1, 0.22, 0.3, 0.12, 0xffe2a8, M.LIGHT, a);
   }
+  else mb.wq(x + 0.85, x + 1.05, 1.92, 2.28, zw + fs * 0.06, fs, 0xffe2a8, M.LIGHT, a);   // lite: the door lamp as one lit quad (lights the street at dusk)
   mb.cast = cast;
   if (mb.lite) return;
   if (hash3(r.hash, 7, 3) % 10 < 3) {            // porch: roof on two posts

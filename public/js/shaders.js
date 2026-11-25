@@ -116,7 +116,12 @@ void atlasWindow(inout vec3 col, inout vec3 emis, vec2 f, vec2 g, vec2 r0, vec2 
   wc = mix(wc, wc * 0.55 + refl * 0.55, at.a * 0.4 * (1.0 - uNight));      // the sky in the glass
   wc *= mix(1.0, 0.35, at.a * uNight);                                        // dark glass at night
   col = mix(col, wc, inW);
-  emis = warm * lit * at.a * inW * smoothstep(0.05, 0.6, uNight) * 1.5;
+  // lit rooms: mostly warm, many cool-white fluorescent (very Tokyo), a few deep orange; brighter under the ceiling,
+  // and the curtain/blind pattern of the atlas tints the light so lit windows are not flat stickers
+  uint tc = (cell >> 20u) % 20u;
+  vec3 lc = tc < 11u ? warm : tc < 18u ? vec3(0.8, 0.9, 1.05) : vec3(1.0, 0.5, 0.26);
+  float gy = clamp((f.y - r0.y) / max(r1.y - r0.y, 1e-3), 0.0, 1.0);
+  emis = lc * (0.65 + 0.55 * gy) * mix(vec3(1.0), at.rgb * 1.5, 0.45) * lit * at.a * inW * smoothstep(0.05, 0.6, uNight) * 1.4;
 }
 void main() {
   vec3 n = normalize(vN);
@@ -343,7 +348,7 @@ void main() {
       pale = 0.0;
     }
       col = mix(base, vec3(0.92, 0.93, 0.95), (1.0 - uNight) * pale) * mix(1.0, 0.65, pale) * mix(1.0, 0.8, sat);
-    emis = mix(base * vec3(1.0, 0.85, 0.6) * 1.4, base * 2.6, smoothstep(0.2, 0.5, sat)) * uNight;   // saturated signs burn like neon
+    emis = mix(base * vec3(1.0, 0.85, 0.6) * 1.4, base * base * 1.8, smoothstep(0.2, 0.5, sat)) * uNight;   // saturated signs burn like neon
   } else if (vMat == 3) {
     col += uSunCol * pow(max(dot(reflect(dir, n), uSunDir), 0.0), 24.0) * 0.35;
   } else if (vMat == 6) {
@@ -356,6 +361,7 @@ void main() {
   float rim = pow(1.0 - abs(dot(n, dir)), 3.0) * max(dot(n, uSunDir) + 0.2, 0.0) * (1.0 - uSunDir.y) * (1.0 - uNight) * float(vMat != 5);
 #endif
   col += uSunCol * rim * 0.22;
+  col += uSkyHor * base * 0.35 * uNight * smoothstep(0.5, 0.95, n.y);   // roofs catch the glow of the dusk sky
   col = col * (1.0 - 0.5 * uNight) + emis;
   o = vec4(tone(fogMix(col, dir, dist * mix(1.0, mix(0.6, 0.35, uLowQ), smoothstep(40.0, 200.0, vW.y)))), 1.0);   // tall towers keep contrast
 }`;
@@ -724,13 +730,14 @@ vec3 sky(vec3 dir) {
     float cl = vnoise(cp * 1.4) * 0.65 + vnoise(cp * 3.1) * 0.35;
     cl = smoothstep(0.55, 0.85, cl) * smoothstep(0.02, 0.25, dir.y);
     vec3 cc = mix(vec3(1.0), uSunCol * 0.9 + uSkyHor * 0.3, 0.35) * (1.0 - uNight * 0.85);
+    cc = mix(cc, uSkyHor * vec3(1.05, 0.8, 0.85) + vec3(0.04, 0.02, 0.06), smoothstep(0.4, 0.75, uNight) * (1.0 - smoothstep(0.85, 1.0, uNight)));   // dusk: clouds lit pink from below
     c = mix(c, cc, cl * 0.75);
   }
   if (uNight > 0.5 && dir.y > 0.0) {
     vec2 sp = dir.xz / (dir.y + 0.3) * 260.0;
     uint hs = h2(ivec2(floor(sp)));
     float st = float((hs & 1023u) < 4u) * (1.0 - length(fract(sp) - 0.5) * 2.0);
-    c += vec3(st) * (uNight - 0.5) * 2.0;
+    c += vec3(st) * smoothstep(0.82, 1.0, uNight);
   }
   return c;
 }
@@ -749,18 +756,27 @@ void main() {
     float cloud = uFar.z > 0.5 ? 0.82 + 0.18 * smoothstep(0.3, 0.7, vnoise(p.xz * 0.0018 + vec2(uTime * 0.006, 0.0))) : 1.0;
     col *= uGndCol * 0.6 + uSkyCol * 0.55 + uSunCol * max(uSunDir.y, 0.0) * 0.95 * cloud;
     if (uNight > 0.2) {
-      col *= 1.0 - 0.55 * uNight;
+      col *= (1.0 - 0.6 * uNight) * mix(vec3(1.0), vec3(0.8, 0.85, 1.08), uNight);   // cool dusk asphalt
       if (g.a == 0.0) {
         // pools of street light: each intersection cell holds its two corner lamps; cell edges fall
-        // in the middle of blocks where the light is ~0, so there are no seams
+        // in the middle of blocks where the light is ~0, so there are no seams. The asphalt is damp: each pool
+        // is stretched toward the camera like a reflection, and one lamp in three is a shop's neon spill
         vec2 cc = floor(p.xz / 48.0) * 48.0 + 24.0;
         uint lh = h2(ivec2(cc));
+        vec2 vd = normalize(dir.xz + vec2(1e-5)), vs = vec2(-vd.y, vd.x);
         vec2 d1 = p.xz - (cc - 4.7), d2 = p.xz - (cc + 4.7);
-        float lamp = (exp(-dot(d1, d1) * 0.016) + exp(-dot(d2, d2) * 0.016)) * uNight * (1.0 - smoothstep(900.0, 2600.0, t));
-        vec3 lc = mix(vec3(1.0, 0.7, 0.4), vec3(0.95, 0.9, 0.8), float(lh & 1u));
+        float st = mix(0.75, 0.3, smoothstep(40.0, 140.0, t));   // the reflection streak only shows at grazing angles
+        d1 = vec2(dot(d1, vs), dot(d1, vd) * st); d2 = vec2(dot(d2, vs), dot(d2, vd) * st);
+        float far = 1.0 - smoothstep(900.0, 2600.0, t);
+        float l1 = exp(-dot(d1, d1) * 0.06) * uNight * far, l2 = exp(-dot(d2, d2) * 0.06) * uNight * far;
+        vec3 lc = mix(vec3(1.0, 0.68, 0.38), vec3(0.95, 0.9, 0.8), float(lh & 1u));
+        uint nh = (lh >> 4u) % 6u;
+        vec3 neon = nh == 0u ? vec3(1.0, 0.25, 0.55) : nh == 1u ? vec3(0.2, 0.75, 1.0) : nh == 2u ? vec3(0.75, 0.35, 1.0) : lc;
+        float gain = 0.55 + 0.35 * float((lh >> 1u) & 3u) / 3.0;
         // from altitude the pools merge into a soft street glow instead of a polka-dot grid
-        float pool = mix(1.0 - exp(-lamp * (0.5 + 0.3 * float((lh >> 1u) & 3u) / 3.0)), 0.12 * uNight, smoothstep(1.5, 6.0, w));
-        col += mix(lc, vec3(1.0, 0.72, 0.42), 0.5) * 0.75 * min(pool, 0.6);
+        float sm = smoothstep(1.5, 6.0, w);
+        vec3 glow = lc * mix(min(l1 * gain, 0.7), 0.08 * uNight, sm) + neon * mix(min(l2 * gain, 0.7), 0.05 * uNight, sm);
+        col += glow * 0.8;
       }
     }
   } else col *= 1.0 - 0.6 * uNight;
