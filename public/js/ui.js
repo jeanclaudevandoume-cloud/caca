@@ -39,10 +39,11 @@ export function createUI(deps) {
   }
   // a name's pill (white rounded box, shadow, pointer), rendered once at device resolution; LRU of 96
   const TAGBMP = new Map();
+  let tagTick = 0;
   resizeTags();
   function measure(name) {
     let b = TAGBMP.get(name);
-    if (b) { TAGBMP.delete(name); TAGBMP.set(name, b); return b; }   // refresh LRU order
+    if (b) { b.t = ++tagTick; return b; }   // LRU by a use stamp: delete + set on a hit churned the Map's table every frame
     const dpr = tagDpr, font = `600 ${12 * dpr}px system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif`;
     const m = document.createElement('canvas').getContext('2d');
     m.font = font;
@@ -58,9 +59,13 @@ export function createUI(deps) {
     g.beginPath(); g.moveTo(1 + cw / 2 - 4, 21); g.lineTo(1 + cw / 2 + 4, 21); g.lineTo(1 + cw / 2, 25); g.fill();
     g.fillStyle = '#1d2433'; g.font = font.replace(`${12 * dpr}px`, '12px'); g.textBaseline = 'middle';
     g.fillText(name, 9, 11.5);
-    b = { img: cv, cw: cw + 2, ch, id: ++tagIds };
+    b = { img: cv, cw: cw + 2, ch, id: ++tagIds, t: ++tagTick };
     TAGBMP.set(name, b);
-    if (TAGBMP.size > 96) TAGBMP.delete(TAGBMP.keys().next().value);
+    if (TAGBMP.size > 96) {                       // evict the least recently used (rare: only when a new name is drawn)
+      let old = null, ot = Infinity;
+      for (const [k, v] of TAGBMP) if (v.t < ot) { ot = v.t; old = k; }
+      TAGBMP.delete(old);
+    }
     return b;
   }
   function drawTags(st) {

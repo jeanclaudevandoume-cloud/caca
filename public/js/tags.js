@@ -15,7 +15,7 @@ export function createTagState() {
   return {
     list: [], lastScan: 0, cand: [], sort: [], f: {}, cam: new Float64Array([NaN, 0, 0, 0, 0]),
     epoch: 0, memo: new Map(),            // plotKey -> name, so tags never blink between scans
-    placed: [], tv: [0, 0, 0, 1], tc: [0, 0, 0, 0],
+    placed: new Float64Array(MAX_TAGS * 3), tv: new Float64Array([0, 0, 0, 1]), tc: new Float64Array(4),   // typed: an Array cleared with length = 0 reallocated every frame (round Q: 7.5 KB/frame)
     draw: [], keys: [], xy: new Float64Array(MAX_TAGS * 3), used: -1, sig: 0,   // used -1: the first placement always draws
   };
 }
@@ -94,9 +94,10 @@ export function scanTags(st, now, cam, L, flying, view, nameOf) {
 // Writes st.draw[i] (the measure result), st.keys[i] (the plot), st.xy[i*3..] = x, y, opacity*20; returns true if anything changed.
 export function placeTags(st, VP, W, H, ui, pinKey, measure) {
   const placed = st.placed, TV = st.tv, TC = st.tc;
-  placed.length = 0;
-  let used = 0, sig = 0;
-  for (const t of st.list) {
+  let used = 0, sig = 0, np = 0;
+  const list = st.list;
+  for (let i = 0; i < list.length; i++) {             // indexed: for-of allocated iterator results here (~7 KB/frame)
+    const t = list[i];
     if (!t.name || used >= MAX_TAGS) continue;
     TV[0] = t.x; TV[1] = t.y; TV[2] = t.z; TV[3] = 1;
     const c = mulv(VP, TV, TC);
@@ -109,9 +110,9 @@ export function placeTags(st, VP, W, H, ui, pinKey, measure) {
     const w = b.cw;
     if (sy - 26 < ui.top || (sx + w / 2 > ui.toolsX && sy > ui.toolsY)) continue;
     let clash = false;
-    for (let q = 0; q < placed.length; q += 3) if (Math.abs(placed[q] - sx) < (placed[q + 2] + w) / 2 && Math.abs(placed[q + 1] - sy) < 20) { clash = true; break; }
+    for (let q = 0; q < np; q += 3) if (Math.abs(placed[q] - sx) < (placed[q + 2] + w) / 2 && Math.abs(placed[q + 1] - sy) < 20) { clash = true; break; }
     if (clash) continue;
-    placed.push(sx, sy, w);
+    placed[np] = sx; placed[np + 1] = sy; placed[np + 2] = w; np += 3;
     const ix = Math.round(sx), iy = Math.round(sy), op = Math.round(Math.max(0.45, 1 - t.d / 400) * 20);
     st.draw[used] = b; st.keys[used] = t.key; st.xy[used * 3] = ix; st.xy[used * 3 + 1] = iy; st.xy[used * 3 + 2] = op;
     sig = (sig * 31 + ix * 7 + iy * 13 + op + b.id) | 0;

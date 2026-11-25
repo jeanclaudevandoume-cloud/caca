@@ -87,8 +87,14 @@ const V = {
       walk(prof.profile.head);
       if (process.env.TOP) {
         const by = {};
-        const w2 = (nd) => { const k = nd.callFrame.functionName + ':' + nd.callFrame.lineNumber; by[k] = (by[k] || 0) + nd.selfSize; (nd.children || []).forEach(w2); };
-        w2(prof.profile.head);
+        // TOP=2: key by the call chain (3 frames), to see through inlining
+        const deep = process.env.TOP === '2';
+        const w2 = (nd, chain) => {
+          const me = nd.callFrame.functionName + ':' + nd.callFrame.lineNumber, ch = deep ? (chain ? chain + ' < ' : '') + me : me;
+          const k = deep ? ch.split(' < ').slice(-3).join(' < ') : me;
+          by[k] = (by[k] || 0) + nd.selfSize; (nd.children || []).forEach((c) => w2(c, ch));
+        };
+        w2(prof.profile.head, '');
         console.log(Object.entries(by).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([k, v]) => k + ' ' + Math.round(v / 20) + 'B/f').join('\n'));
       }
       perf[n] = { ...t, kbPerFrame: +(alloc / 20 / 1024).toFixed(1), downloadKB: Math.round(bytes / 1024) };
