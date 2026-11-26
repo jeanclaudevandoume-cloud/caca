@@ -545,8 +545,8 @@ vec3 water(vec2 p, vec3 dir, float t, vec3 deep) {
   vec3 r = reflect(dir, n);
   c += uSunCol * pow(max(dot(r, uSunDir), 0.0), 220.0) * 1.6 * (1.0 - uNight * 0.7);
   // slow swell: the surface is never one flat colour, and darkens toward deep water
-  if (t < 1500.0) c *= 0.9 + 0.2 * vnoise(p * 0.035 + vec2(uTime * 0.02, 0.0));
-  if (uNight > 0.2) {
+  if (t < 700.0) c *= 0.9 + 0.2 * vnoise(p * 0.035 + vec2(uTime * 0.02, 0.0)) * (1.0 - t / 700.0) + 0.1 * t / 700.0;   // fades to its mean: no seam
+  if (uNight > 0.2 && t < 1200.0) {
     // city light on the water: broken glints stretched toward the viewer like reflections in a harbour
     // polar around the viewer: streaks run straight toward the camera like real reflections
     vec2 dp = p - uCam.xz;
