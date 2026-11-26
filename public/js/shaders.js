@@ -393,7 +393,7 @@ void main() {
   } else if (vMat == 6) {
     col = mix(base, uSkyHor, 0.35) + uSunCol * pow(max(dot(reflect(dir, n), uSunDir), 0.0), 60.0);
   }
-  if (city && wall > 0.5 && vW.y < 4.2 && dist < 400.0) {
+  if (city && wall > 0.5 && vW.y < 4.2 && dist < 150.0) {
     // downtown ground floor: shops and lobbies with a lit glass front and mullions every 2.4 m, a dark fascia over it
     float along = abs(n.x) > 0.5 ? vW.z : vW.x;
     uint bay = (uint(int(floor(along / 4.8)) + 8192) * 2654435761u + seedAll * 40503u) >> 8u;
@@ -770,7 +770,7 @@ vec4 groundBase(vec2 p, vec3 dir, float t, float w) {
     vec3 bc = blockCol(c, bx, bz, clamp(l, -19.9, 19.9), p, t, w, grass);
     vec3 rc = k == 8u ? vec3(0.62, 0.62, 0.6) : countryish(k) ? grass * vec3(1.0, 0.98, 0.85) : asphalt(p, t);
     // from altitude the boulevards and the ring road are threads of traffic light (amber and red trails)
-    if (k == 5u || k == 7u) gEmit += vec3(1.0, 0.55, 0.28) * 0.4 * smoothstep(2.5, 9.0, w) * smoothstep(0.25, 0.75, vnoise(p * 0.004 + 3.0)) * (1.0 - cv.x * cv.y * 0.7);   // busy stretches glow, quiet ones fade
+    if (k == 5u || k == 7u) gEmit += vec3(1.0, 0.55, 0.28) * 0.4 * smoothstep(2.5, 9.0, w) * float((hash3(fdiv(bx, 3), fdiv(bz, 3), 77) & 3u) != 0u) * (1.0 - cv.x * cv.y * 0.7);   // busy stretches glow, quiet ones fade
     return vec4(mix(rc, bc, cv.x * cv.y), lampOk);
   }
   if (al.x < 20.0 && al.y < 20.0) return vec4(blockCol(c, bx, bz, l, p, t, w, grass), lampOk);
