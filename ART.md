@@ -13,6 +13,8 @@ night stay one tap away (time button). The opening camera is low over the lane (
   street light washes ground floors; door lamps on every house (lite too)
 - viaduct: lit train windows cut by the shader (alpha 248), lit station soffit and platform edges
 - sky: pink-lit clouds at dusk, stars only after dark
+- close-up: flat roofs keep their light coping on the phone, a floor line at every slab, lantern crowns on
+  some towers glow after dusk, the viaduct carries a line-colour fascia stripe and a shadowed girder band
 Process: no graded rounds. Each pass is judged on the owner's phone from a before/after of the opening and
 arrival views; frame cost is checked A/B against the previous commit (lowdrone, alternating runs).
 

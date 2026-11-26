@@ -9,7 +9,7 @@ import { board } from './props.js';
 
 export const RAIL_Z = 19;                                      // the road on the +z side of block row 19: ~250 m ahead of the opening camera, > 100 m from the demo arrival (#120,001 at row 22)
 const isStation = (bx) => mod(bx, 12) === 5;
-const DECK = 0x9d9a93, DECK_TOP = 0x6f6c67, Y0 = 9.6, Y1 = 10.8, HW = 3.6;
+const DECK = 0x9d9a93, DECK_TOP = 0x6f6c67, LINE = 0x2f9e5f, Y0 = 9.6, Y1 = 10.8, HW = 3.6;
 
 // one block's 48 m of viaduct, centred on the road at Z + 24
 export function viaduct(mb, bx, X, Z, lod, lite) {
@@ -18,6 +18,11 @@ export function viaduct(mb, bx, X, Z, lod, lite) {
   const zr = Z + 24, x0 = X - 23.99, x1 = X + 23.99, st = isStation(bx), hw = st ? 7.5 : HW;
   const flag = mb.flag; mb.flag = TALL;
   mb.box(x0, Y0, zr - hw, x1, Y1, zr + hw, DECK, DECK_TOP, M.PLAIN, 3);
+  // the line colour along the deck fascia and a shadowed girder band under it: reads as a railway by day (4+4 tris)
+  for (const s of [-1, 1]) {
+    mb.wq(x0, x1, Y1 - 0.62, Y1 - 0.3, zr + s * (hw + 0.01), s, LINE, M.PLAIN, 3);
+    mb.wq(x0, x1, Y0, Y0 + 0.35, zr + s * (hw + 0.01), s, shade(DECK, 0.6), M.PLAIN, 3);
+  }
   if (!lite) mb.fqY(x0, Y0, zr - hw, x1, Y0, zr - hw, x1, Y0, zr + hw, x0, Y0, zr + hw, M.PLAIN, shade(DECK, 0.55), 3, -1);   // underside, seen from the street
   for (const px of lite || lod ? [X] : [X - 12, X + 12]) mb.cbox(px, 0, zr, 1.6, Y0, 2.6, shade(DECK, 0.92), M.PLAIN, 3, -1);
   if (!lod && !lite) {
@@ -60,6 +65,7 @@ export function viaductMid(mb, bx, X, Z) {
   const zr = Z + 24, hw = isStation(bx) ? 7.5 : HW, flag = mb.flag;
   mb.flag = TALL;
   mb.box(X - 23.99, Y0, zr - hw, X + 23.99, Y1 + 0.8, zr + hw, DECK, DECK_TOP, M.PLAIN, 3, 0);
+  for (const s of [-1, 1]) mb.wq(X - 23.99, X + 23.99, Y1 - 0.62, Y1 - 0.3, zr + s * (hw + 0.01), s, LINE, M.PLAIN, 3);
   // the pier as one double-sided plane across the street (4 tris, not 8: round R, phone under 60k); a deck
   // without legs would float
   const pc = shade(DECK, 0.9);

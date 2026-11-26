@@ -144,9 +144,10 @@ export class MB {
     this.wq(x0, x1, y, yt, z1, 1, sideC, M.PLAIN, a); this.wq(x0, x1, y, yt, z0, -1, sideC, M.PLAIN, a);
     this.xq(x1, z0, z1, y, yt, 1, sideC, M.PLAIN, a); this.xq(x0, z0, z1, y, yt, -1, sideC, M.PLAIN, a);
     const top = (ax0, az0, ax1, az1) => this.q(ax0, yt, az1, ax1, yt, az1, ax1, yt, az0, ax0, yt, az0, 0, 1, 0, 0, 0, 0, 0, M.PLAIN, capC, a);
-    if (!this.lite) {                                 // lite: no coping (sub-pixel at lite range; the wall band carries the rim)
-      top(x0, z0, x1, z0 + t); top(x0, z1 - t, x1, z1); top(x0, z0 + t, x0 + t, z1 - t); top(x1 - t, z0 + t, x1, z1 - t);
-    }
+    // coping on every preset (round S: at the phone's arrival distance the 0.22 m rim is 6-8 px and is what makes
+    // a flat roof read as a parapet rather than a box that just stops); lite: front and back only (4 tris)
+    top(x0, z0, x1, z0 + t); top(x0, z1 - t, x1, z1);
+    if (!this.lite) { top(x0, z0 + t, x0 + t, z1 - t); top(x1 - t, z0 + t, x1, z1 - t); }
     if (!this.lite) {
       const ic = shade(sideC, 0.8);
       this.wq(x0 + t, x1 - t, y, yt, z1 - t, -1, ic, M.PLAIN, a); this.wq(x0 + t, x1 - t, y, yt, z0 + t, 1, ic, M.PLAIN, a);

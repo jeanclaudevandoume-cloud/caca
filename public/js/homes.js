@@ -457,7 +457,7 @@ export function towerMass(mb, f, r, bx, bz, slot, lite, near) {
     // three-sided spire. Caps read in the family's own colour instead of one tan slab.
     const t2 = top + 2 * FLOOR_H, cap = fam === 0 ? 0xc9ccd0 : shade(wall, 1.12);
     if (crown === 0) mb.box(cx0 + 2.2, top, cz0 + 1.8, cx1 - 2.2, t2, cz1 - 1.8, wall, cap, M.GLASS, aw, r.floors);   // setback tier
-    else if (crown === 1) mb.box(cx0 + 2.4, top, cz0 + 2.2, cx1 - 2.4, top + 2.6 * FLOOR_H, cz1 - 2.2, 0xf0e2c0, 0xd8d4ca, M.METAL, aw);   // lantern
+    else if (crown === 1) mb.box(cx0 + 2.4, top, cz0 + 2.2, cx1 - 2.4, top + 2.6 * FLOOR_H, cz1 - 2.2, 0xf0e2c0, 0xd8d4ca, M.LIGHT, aw);   // lantern: frosted by day, a lit crown after dusk
     else if (crown === 2) mb.box(cx0 + 3, top, cz0 + 2.6, cx1 - 5, top + 2.2 * FLOOR_H, cz1 - 3.2, 0x5b6066, 0x7d8288, M.METAL, aw);   // plant box
     else mb.cyl(mx, top, mz, 2.2, top + 22, 0, 3, 0xe4e6ea, M.METAL, aw, false);   // spire (3 tris)
     // aviation light (3 tris, blinks in the shader: alpha 249): the red dots that mark a Tokyo skyline at dusk

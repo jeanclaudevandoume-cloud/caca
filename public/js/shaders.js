@@ -189,6 +189,7 @@ void main() {
       float mx, my0, my1, has; uint wt;
       winLayout(seed, cell, glass, style, g, n, wt, has, mx, my0, my1);
       if (glass < 0.5) col *= mix(0.7, 1.0, smoothstep(0.42, 0.48, vW.y)) * (1.0 - 0.06 * step(0.94, fract(vW.y / 0.45)) * k);   // plinth + cheap panel courses
+      if (glass < 0.5) col *= 1.0 - 0.16 * step(0.955, fract(vW.y / 3.2)) * step(1.0, vW.y) * k;   // floor line at each slab: the storeys read on the phone
       vec2 e = vec2(0.07 / sp, 0.022);
       if (glass < 0.5) {
         // homes: the whole window is one atlas fetch (no procedural frame/pane work on the phone)
@@ -794,7 +795,7 @@ void main() {
         float gain = 0.55 + 0.35 * float((lh >> 1u) & 3u) / 3.0;
         // from altitude the pools merge into a soft street glow instead of a polka-dot grid
         float sm = smoothstep(1.5, 6.0, w);
-        vec3 glow = lc * mix(min(l1 * gain, 0.7), 0.08 * uNight, sm) + neon * mix(min(l2 * gain, 0.7), 0.05 * uNight, sm);
+        vec3 glow = lc * mix(min(l1 * gain, 0.7), 0.08 * uNight, sm) + neon * mix(min(l2 * gain * 0.75, 0.45), 0.05 * uNight, sm);
         col += glow * 0.8;
       }
     }
