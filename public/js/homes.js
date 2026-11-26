@@ -9,6 +9,18 @@ import {
   tree, kanban, board, shape, gardenItem, door, roofClutter,
 } from './props.js';
 
+// Home business on a house street (izakaya, salon, tiny shop): a lit kanban blade beside the door (6 tris, all
+// presets) and, on full meshes, a red paper lantern under the eave. About one house in three: residential lanes
+// in Tokyo and Seoul are dotted with small lit signs, not only the shopping streets.
+function homeBiz(mb, x, wallZ, fs, r, y0, a) {
+  if ((r.hash >>> 3) % 3 !== 0) return;
+  const cast = mb.cast; mb.cast = false;
+  const kh = 2.0 + ((r.hash >>> 5) & 3) * 0.6;
+  kanban(mb, x, wallZ + fs * 0.5, y0, kh, 0.18, 0.85, 'z', fs, ACCENT_SIGN[(r.hash >>> 15) % ACCENT_SIGN.length], r.hash >>> 6);
+  if (!mb.lite && (r.hash >>> 9) & 1) mb.cyl(x + 0.9, 2.0, wallZ + fs * 0.45, 0.24, 2.6, 0.24, 6, 0xe0322a, M.LIGHT, a, true, 0x2a2a2a);
+  mb.cast = cast;
+}
+
 // Shop house on a shotengai (town.js shopLaneX): ground-floor shop facing the lane (r.shop = +-1 along x),
 // recessed glazing with a warm interior, an awning, a lit vertical sign; flats above with city windows.
 const AWNING = [0x2f6f8f, 0xb8452f, 0x3d7a4f, 0x7a3b5e];
@@ -218,6 +230,7 @@ export function home(mb, bx, bz, f, r, lod) {
       }
       mb.cast = true;
       door(mb, doorX, wallZ, fs, r, rc, a);
+      homeBiz(mb, doorX - 1.5, wallZ, fs, r, 1.9, a);
       mb.noCast = false;
     }
     if (!lod) {
@@ -273,6 +286,7 @@ export function home(mb, bx, bz, f, r, lod) {
       if (!mb.lite) mb.cyl(x0 + 1.6, top, (z0 + z1) / 2, 0.9, top + 1.6, 0.9, 6, (r.hash >>> 7) & 1 ? 0x2f6fb0 : 0xd9a441, M.METAL, a);
       if (!r.mansard) roofClutter(mb, x0 + 2.6, z0, x1, z1, top, r.wall, r.hash >>> 3, a);
       door(mb, f.x, wallZ, fs, r, ROOF[r.roof], a);
+      homeBiz(mb, f.x - 1.6, wallZ, fs, r, FLOOR_H + 0.2, a);   // villas: the sign hangs over the parking storey
       mb.noCast = false;
     }
   } else {

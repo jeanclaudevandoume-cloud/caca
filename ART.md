@@ -1,5 +1,21 @@
 # Follower Town — art direction and review rubric
 
+## Evening direction (owner, after round R) — overrides the light rules below where they conflict
+The town opens at blue hour (render.js key 2): violet sky, magenta horizon, dim sun, lights on. Day, sunset and
+night stay one tap away (time button). The opening camera is low over the lane (24 m, pitch -0.17; landscape
+26 m, -0.2) so the lit street canyon leads to the skyline. Lights carry the look:
+- windows: 13-74 % lit on homes; warm / cool fluorescent / deep orange rooms, brighter under the ceiling
+- far towers: lit floors in 3-window groups down to ~1.5 px, then a dim average (no grey glow); blinking red
+  aviation lights (alpha 249); walls fall to silhouette after dusk
+- signs: saturated emission is squared (neon keeps its hue through the tone curve); a lit kanban on one house
+  in three on residential streets (homes.js homeBiz)
+- street: damp asphalt, lamp pools stretched toward the camera at grazing angles, one in three a neon spill;
+  street light washes ground floors; door lamps on every house (lite too)
+- viaduct: lit train windows cut by the shader (alpha 248), lit station soffit and platform edges
+- sky: pink-lit clouds at dusk, stars only after dark
+Process: no graded rounds. Each pass is judged on the owner's phone from a before/after of the opening and
+arrival views; frame cost is checked A/B against the previous commit (lowdrone, alternating runs).
+
 ## LOCKED DECISION (four-reviewer round A)
 Follower Town is **a Tokyo/Seoul city rendered as a sunlit miniature**. Homes use Japanese and Korean residential
 types only: narrow 2–3 storey *jūtaku* (built-in garage, balcony, mono-pitch or low gable roof with thin eaves, or a

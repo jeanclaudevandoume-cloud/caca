@@ -33,6 +33,8 @@ export function viaduct(mb, bx, X, Z, lod, lite) {
   if (st) {                                                    // station: canopy on columns, a name board each side
     mb.box(X - 20, Y1 + 4.2, zr - 6.5, X + 20, Y1 + 4.6, zr + 6.5, 0xe9e6df, 0x9aa0a6, M.PLAIN, 3);
     if (!lite && !lod) for (const cx of [X - 16, X, X + 16]) for (const s of [-1, 1]) mb.cbox(cx, Y1, zr + s * 4.5, 0.4, 4.2, 0.4, 0x7a7f86, M.METAL, 0);
+    mb.q(X - 19, Y1 + 4.18, zr + 6, X + 19, Y1 + 4.18, zr + 6, X + 19, Y1 + 4.18, zr - 6, X - 19, Y1 + 4.18, zr - 6, 0, -1, 0, 0, 0, 0, 0, M.LIGHT, 0xf6f2e6, 0);   // lit canopy soffit
+    for (const s of [-1, 1]) mb.wq(X - 23.99, X + 23.99, Y1 - 0.25, Y1, zr + s * hw, s, 0xfff0c8, M.LIGHT, 0);   // platform edge lights
     if (!lod) {
       const h = hash3(bx, RAIL_Z, 73);
       board(mb, 'z', zr - 6.55, X - 6, X + 6, Y1 + 4.7, Y1 + 6.3, -1, 0x2f6f8f, h);
@@ -44,9 +46,10 @@ export function viaduct(mb, bx, X, Z, lod, lite) {
   if (ht % 2 === 0 && !st) {
     const tz = zr + ((ht >>> 4) & 1 ? 1.6 : -1.6);
     mb.cbox(X, Y1 + 0.3, tz, 46, 3.4, 2.9, 0xdfe2e4, M.METAL, ht & 255);
+    if (lod) for (const s of [-1, 1]) mb.wq(X - 22.5, X + 22.5, Y1 + 1.7, Y1 + 2.8, tz + s * 1.47, s, 0xf4ecd8, M.LIGHT, 248);
     if (!lod) for (const s of [-1, 1]) {
       mb.wq(X - 23, X + 23, Y1 + 1.0, Y1 + 1.35, tz + s * 1.47, s, (ht >>> 6) & 1 ? 0x2f9e5f : 0xe07a2f, M.PLAIN, 0);
-      mb.wq(X - 22.5, X + 22.5, Y1 + 1.7, Y1 + 2.8, tz + s * 1.47, s, 0x2b3240, M.GLASS, ht & 255);
+      mb.wq(X - 22.5, X + 22.5, Y1 + 1.7, Y1 + 2.8, tz + s * 1.47, s, 0xf4ecd8, M.LIGHT, 248);   // lit carriages: pale by day, warm at dusk
     }
   }
   mb.flag = flag;
@@ -62,7 +65,11 @@ export function viaductMid(mb, bx, X, Z) {
   const pc = shade(DECK, 0.9);
   mb.wq(X - 0.9, X + 0.9, 0, Y0, zr, 1, pc, M.PLAIN, 3); mb.wq(X - 0.9, X + 0.9, 0, Y0, zr, -1, pc, M.PLAIN, 3);
   const ht = hash3(bx, RAIL_Z, 71);                            // the same trains as the chunks (silver reads from afar)
-  if (ht % 2 === 0 && !isStation(bx)) mb.cbox(X, Y1 + 0.8, zr + ((ht >>> 4) & 1 ? 1.6 : -1.6), 46, 3.0, 2.9, 0xdfe2e4, M.METAL, ht & 255);
+  if (ht % 2 === 0 && !isStation(bx)) {
+    const tz = zr + ((ht >>> 4) & 1 ? 1.6 : -1.6);
+    mb.cbox(X, Y1 + 0.8, tz, 46, 3.0, 2.9, 0xdfe2e4, M.METAL, ht & 255);
+    for (const s of [-1, 1]) mb.wq(X - 22.5, X + 22.5, Y1 + 1.9, Y1 + 2.9, tz + s * 1.47, s, 0xf4ecd8, M.LIGHT, 248);
+  }
   mb.flag = flag;
 }
 // ONE predicate for 'the viaduct exists over block column bx' (round S, code review: collision said yes over ~3.6 km

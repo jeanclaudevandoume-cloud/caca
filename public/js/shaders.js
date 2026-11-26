@@ -320,9 +320,18 @@ void main() {
   } else if (vMat == 7) {
     // roof tiles: courses along the slope, darker eaves, faded with distance
     float kt = clamp(1.2 - fwidth(vW.y) * 5.0, 0.0, 1.0);
-    if ((uint(vCol.a * 255.0 + 0.5) & 2u) != 0u) col *= 1.0 - 0.2 * step(0.88, fract(dot(vW.xz, vec2(1.0, 0.0)) / 0.45)) * kt;   // metal: standing seams
-    else col *= 1.0 - 0.15 * (1.0 - smoothstep(0.0, 0.25, fract(vW.y / 0.16))) * kt;                                  // tile courses
-    col *= 0.92 + 0.08 * fract(sin(dot(floor(vW.xz * 1.6), vec2(12.9, 78.2))) * 437.5) * kt;
+    if (kt > 0.0) {                                    // far roofs: the pattern has averaged out, skip it
+      vec2 sd = n.xz * inversesqrt(dot(n.xz, n.xz) + 1e-6);      // down-slope direction
+      float across = dot(vW.xz, vec2(-sd.y, sd.x));              // runs along the eave
+      if ((uint(vCol.a * 255.0 + 0.5) & 2u) != 0u) col *= 1.0 - 0.22 * step(0.86, fract(across / 0.45)) * kt;   // metal: standing seams run down the slope
+      else {
+        // kawara: each course has a shadowed lip and catches light toward its top; S-tiles ripple along the eave
+        float c = fract(vW.y / 0.16);
+        col *= mix(1.0, 0.74 + 0.32 * min(c * 2.5, 1.0), kt);
+        col *= 1.0 - 0.28 * abs(fract(across * 3.333) - 0.5) * kt;
+      }
+      col *= 0.9 + 0.1 * fract(sin(dot(floor(vW.xz * 1.6), vec2(12.9, 78.2))) * 437.5) * kt;   // tile-to-tile colour
+    }
   } else if (vMat == 2) {
     col += base * 0.18 * sun;                                             // leaves glow a bit in the sun
   } else if (vMat == 4 && uint(vCol.a * 255.0 + 0.5) == 255u) {
@@ -352,6 +361,11 @@ void main() {
     }
       col = mix(base, vec3(0.92, 0.93, 0.95), (1.0 - uNight) * pale) * mix(1.0, 0.65, pale) * mix(1.0, 0.8, sat);
     emis = mix(base * vec3(1.0, 0.85, 0.6) * 1.4, base * base * 1.8, smoothstep(0.2, 0.5, sat)) * uNight;
+    if (sa4 == 248u) {                                 // train windows (rail.js): 1.6 m bays, a dark gap every 20 m carriage
+      float tw = step(0.22, fract(vW.x / 1.6)) * step(0.06, fract(vW.x / 20.0 + 0.03)) * step(fract(vW.x / 20.0 + 0.03), 0.97);
+      tw = mix(0.55, tw, clamp(1.5 - fwidth(vW.x / 1.6) * 2.0, 0.0, 1.0));
+      col *= mix(0.35, 1.0, tw); emis *= tw * 0.8;
+    }
     if (sa4 == 249u) emis = vec3(1.6, 0.08, 0.04) * (0.2 + 0.8 * step(0.45, fract(uTime * 0.5 + float(ih(uint(int(vW.x * 0.1) + 4096) * 7919u + uint(int(vW.z * 0.1) + 4096)) & 255u) / 255.0))) * max(uNight, 0.3);   // aviation lights blink   // saturated signs burn like neon
   } else if (vMat == 3) {
     col += uSunCol * pow(max(dot(reflect(dir, n), uSunDir), 0.0), 24.0) * 0.35;
