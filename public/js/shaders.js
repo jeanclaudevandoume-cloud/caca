@@ -396,10 +396,11 @@ void main() {
   if (city && wall > 0.5 && vW.y < 4.2 && dist < 400.0) {
     // downtown ground floor: shops and lobbies with a lit glass front and mullions every 2.4 m, a dark fascia over it
     float along = abs(n.x) > 0.5 ? vW.z : vW.x;
-    uint bay = ih(uint(int(floor(along / 4.8)) + 8192) * 7919u + seedAll * 131u);
+    uint bay = (uint(int(floor(along / 4.8)) + 8192) * 2654435761u + seedAll * 40503u) >> 8u;
     float mull = step(0.08, fract(along / 1.2)) * step(0.5, vW.y) * step(vW.y, 3.1) * float((bay & 7u) != 0u);   // a dark bay now and then
     uint sk = (bay >> 4u) % 6u;   // convenience store white, warm cafe, amber, pale blue lobby, neon pink, neon cyan
-    vec3 shop = sk == 0u ? vec3(0.95, 0.98, 1.0) : sk == 1u ? vec3(1.0, 0.72, 0.42) : sk == 2u ? vec3(1.0, 0.85, 0.55) : sk == 3u ? vec3(0.65, 0.8, 1.0) : sk == 4u ? vec3(1.0, 0.35, 0.6) : vec3(0.3, 0.85, 1.0);
+    float fk = float(sk);
+    vec3 shop = mix(0.62 + 0.38 * cos(6.2831 * (fk / 5.0 + vec3(0.0, 0.33, 0.67))), vec3(0.95, 0.97, 1.0), step(fk, 0.5));   // a convenience-store white or a hue around the wheel
     float inner = 0.55 + 0.45 * smoothstep(3.1, 0.6, vW.y);   // brighter low: shelves and counters, not a light panel
     col = mix(col, mix(vec3(0.14, 0.15, 0.17), shop * 0.4 * inner, mull) * (amb + key * sun * 0.5), step(vW.y, 4.2));
     col = mix(col, shop * 0.25, step(3.1, vW.y) * step(vW.y, 4.2));   // fascia in the shop's colour
@@ -545,14 +546,17 @@ vec3 water(vec2 p, vec3 dir, float t, vec3 deep) {
   vec3 r = reflect(dir, n);
   c += uSunCol * pow(max(dot(r, uSunDir), 0.0), 220.0) * 1.6 * (1.0 - uNight * 0.7);
   // slow swell: the surface is never one flat colour, and darkens toward deep water
-  if (t < 700.0) c *= 0.9 + 0.2 * vnoise(p * 0.035 + vec2(uTime * 0.02, 0.0)) * (1.0 - t / 700.0) + 0.1 * t / 700.0;   // fades to its mean: no seam
+  c *= 0.95 + 0.1 * sin(p.x * 0.031 + p.y * 0.017 + uTime * 0.3) * sin(p.y * 0.023 - uTime * 0.2);   // slow swell (two sines, no noise)
   if (uNight > 0.2 && t < 1200.0) {
     // city light on the water: broken glints stretched toward the viewer like reflections in a harbour
     // polar around the viewer: streaks run straight toward the camera like real reflections
-    vec2 dp = p - uCam.xz;
-    vec2 q = vec2(atan(dp.y, dp.x) * 260.0, length(dp) * 0.5 + uTime * 0.6);
-    float g = smoothstep(0.7, 0.9, vnoise(vec2(q.x, q.y * 0.04))) * smoothstep(0.55, 0.85, vnoise(q * vec2(0.5, 0.5) + 7.0));
-    c += mix(vec3(1.0, 0.62, 0.3), vec3(0.65, 0.78, 1.0), step(0.6, vnoise(q * 0.05))) * g * uNight * 0.45 * (1.0 - smoothstep(300.0, 1200.0, t));
+    // (p - cam) is dir * t, so the bearing comes from dir: a diamond angle instead of atan, hashed cells instead of noise
+    vec2 dn = dir.xz / (abs(dir.x) + abs(dir.z));
+    float ang = dn.y >= 0.0 ? 1.0 - dn.x : 3.0 + dn.x;
+    vec2 q = vec2(ang * 420.0, t * 0.05 + uTime * 0.3);
+    uint gh = h2(ivec2(floor(q)));
+    float g = float((gh & 15u) == 0u) * smoothstep(0.5, 0.0, abs(fract(q.x) - 0.5)) * smoothstep(0.0, 0.3, fract(q.y)) * smoothstep(1.0, 0.6, fract(q.y));
+    c += mix(vec3(1.0, 0.62, 0.3), vec3(0.65, 0.78, 1.0), float((gh >> 8u) & 1u)) * g * uNight * 0.6 * (1.0 - smoothstep(300.0, 1200.0, t));
   }
   return c;
 }
