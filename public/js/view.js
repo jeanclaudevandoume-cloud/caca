@@ -4,7 +4,7 @@ import { inRail as inRailL, railTop as railTopL } from './rail.js';
 import { PITCH, FLOOR_H, K, plotFrame, zoneLevel, kindAt, slotAt, homeRect, hash3, laneBlock } from './town.js';
 import { recipe } from './recipe.js';
 import { plotOf, plotIndex } from './layout.js';
-import { mulv } from './gfx.js';
+import { mulv, vfovFor } from './gfx.js';
 
 export const plotKey = (bx, bz, slot) => ((bx + 32768) * 65536 + (bz + 32768)) * 16 + slot;
 
@@ -94,7 +94,7 @@ export function createView(app) {
     // bottom sheet never covers it. Both sides are tried; the one with a clear sight line wins.
     const q = plotInfo(bx, bz, slot, zone).q, hx = (q[0] + q[2]) / 2, hz = (q[1] + q[3]) / 2, hw = q[2] - q[0];
     const front = face < 0 ? q[1] : q[3];
-    const vfov = Math.PI / 3, hfov = 2 * Math.atan(Math.tan(vfov / 2) * aspect);
+    const vfov = vfovFor(aspect), hfov = 2 * Math.atan(Math.tan(vfov / 2) * aspect);
     const dist = Math.max(16, Math.min(40, (hw / 0.52) / (2 * Math.tan(hfov / 2))));
     const pref = (hash3(bx, bz, slot) & 1) ? 1 : -1;
     // round Q: hard framing constraints. A candidate camera is accepted only if, with its final yaw / pitch,
@@ -123,9 +123,9 @@ export function createView(app) {
     const midY = (safe.top + safe.bottom) / 2;
     let best = null;
     const OKS = [];
-    const LIFTS = [3, 7, 12, 18, 26];
+    const LIFTS = aspect > 1 ? [3, 7, 12, 18, 26, 34] : [3, 7, 12, 18, 26];
     const AIM = [0.7, 0.2, 0];                                       // aim near the facade (centred front) or the box centre
-    const DK = aspect > 1 ? [0.6, 0.8, 1, 1.25, 1.55, 1.9, 2.4, 3.0, 3.7, 4.5] : [0.6, 0.8, 1, 1.25, 1.55, 1.9, 2.4, 3.0];   // landscape: farther, flatter
+    const DK = aspect > 1 ? [0.6, 0.8, 1, 1.25, 1.55, 1.9, 2.4, 3.0, 3.7, 4.5, 5.5] : [0.6, 0.8, 1, 1.25, 1.55, 1.9, 2.4, 3.0];   // landscape: farther, flatter
     const wLo = aspect > 1 ? 0.15 : 0.45, wHi = aspect > 1 ? 0.4 : 0.68, wMid = (wLo + wHi) / 2;
     for (const sd of [pref, -pref]) for (const ang of [0.15, 0.3, 0.45, 0.6]) for (const dk of DK) for (const lift of LIFTS) for (const aim of AIM) {
       const d = dist * dk;

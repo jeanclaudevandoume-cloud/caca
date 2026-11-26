@@ -14,6 +14,7 @@ import { createTownData } from './data.js';
 import { createView } from './view.js';
 import { createTagState, resetTags, scanTags, placeTags } from './tags.js';
 import { createRenderer } from './render.js';
+import { createHero } from './hero.js';
 import { createUI } from './ui.js';
 import { createSession, createGroundWin } from './session.js';
 import { createGovernor } from './governor.js';
@@ -78,7 +79,7 @@ gl.uniform3fv(P.full.u.uRoof, new Float32Array(ROOF.flatMap((c) => [((c >> 16) &
 // ART.md composition (round F): a low drone over dense jutaku and villa lanes south-west of the river, the
 // towers and spire as the backdrop. The product is "your follower's home", so homes fill the opening frame.
 const HOME = { x: -176, y: 24, z: 1190, yaw: 0.12, pitch: -0.17 };   // low over a north-south lane: a lit street canyon leads the eye to the towers
-if (innerWidth / innerHeight > 1.2) Object.assign(HOME, { y: 26, pitch: -0.2 });   // landscape: wider frame; a little steeper so the far field (tris, draws) stays in budget
+if (innerWidth / innerHeight > 1.2) Object.assign(HOME, { y: 24, pitch: -0.12 });   // landscape: the 46° lens (gfx.js vfovFor) needs a flatter tilt to keep the skyline under the search bar
 const cam = { ...HOME };
 const PRESETS = { low: { s: 0.55, pr: 1 }, mid: { s: 0.8, pr: 1.5 }, high: { s: 1, pr: 2 } };
 const isPhone = PHONE;
@@ -131,7 +132,7 @@ const streamer = createStreamer({
   groundWin, hyst: !params.has('nohyst'),          // ?nohyst / ?nosink: planted pops for tools/poptest.cjs
   onTick: () => { if (!document.hidden) sup.sweep(); session.ensureAtlas(); },
 });
-const renderer = createRenderer({ gl, gfx, P, geoProg, app, streamer, quality, isLow, radii, hasStencil, atlasTex, canvas, groundWin, fullres: params.has('fullres'), nosink: params.has('nosink'), frozenT, t0 });
+const renderer = createRenderer({ hero: createHero({ gfx, data }), gl, gfx, P, geoProg, app, streamer, quality, isLow, radii, hasStencil, atlasTex, canvas, groundWin, fullres: params.has('fullres'), nosink: params.has('nosink'), frozenT, t0 });
 function flyTo(p, instant) {
   const v = view.lookAtYaw(view.homeView(p, innerWidth / innerHeight));
   app.fly = view.planFly(cam, v, performance.now(), instant);

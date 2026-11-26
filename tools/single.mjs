@@ -28,7 +28,7 @@ const die = (msg) => { console.error('single.mjs: ' + msg); process.exit(1); };
 
 // ---- modules -> scoped registry ----
 // The main bundle carries only the mesh modules main needs (mb.js for render.js; rail.js and props.js for view.js's
-// rail collision); homes.js and mesher.js live in the worker bundle only.
+// rail collision, homes.js for hero.js's pinned home at full detail); mesher.js lives in the worker bundle only.
 const IMPORT = /^import\s*\{([^}]*)\}\s*from\s*'(\.\/[a-z]+\.js)';[ \t]*$/gm;
 function wrap(file) {
   let src = fs.readFileSync(path.join(ROOT, 'public/js', file), 'utf8');
@@ -97,7 +97,7 @@ window.fetch = (u, o) => {
   return Promise.resolve(p in TOWN_FILES ? new Response(TOWN_FILES[p], { status: 200 }) : new Response('', { status: 404 }));
 };
 `;
-const mainSrc = '"use strict";\n' + RUNTIME + prelude + ['town.js', 'names.js', 'recipe.js', 'layout.js', 'mb.js', 'props.js', 'rail.js', 'shaders.js', 'supervisor.js', 'session.js', 'governor.js', 'atlas.js', 'gfx.js', 'view.js', 'data.js', 'streaming.js', 'tags.js', 'render.js', 'ui.js', 'main.js'].map(wrap).join('') + "__req('./main.js');\n";
+const mainSrc = '"use strict";\n' + RUNTIME + prelude + ['town.js', 'names.js', 'recipe.js', 'layout.js', 'mb.js', 'props.js', 'homes.js', 'rail.js', 'shaders.js', 'supervisor.js', 'session.js', 'governor.js', 'atlas.js', 'gfx.js', 'view.js', 'data.js', 'streaming.js', 'tags.js', 'hero.js', 'render.js', 'ui.js', 'main.js'].map(wrap).join('') + "__req('./main.js');\n";
 
 // ---- checks ----
 for (const [label, src] of [['main bundle', mainSrc], ['worker bundle', workerSrc]]) {

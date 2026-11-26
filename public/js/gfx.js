@@ -5,6 +5,9 @@ export const hyp3 = (a, b, c) => Math.sqrt(a * a + b * b + c * c);
 
 const M_PROJ = new Float32Array(16), M_VIEW = new Float32Array(16), M_VP = new Float32Array(16), M_INV = new Float32Array(16);
 const INV64 = new Float64Array(16);
+// vertical field of view: 60° in portrait; 46° in landscape, where 60° meant a 104° fish-eye across a wide phone
+// (the arrival home came out small and the far ring paid for chunks at the screen edges). view.js frames with it.
+export const vfovFor = (aspect) => (aspect > 1.2 ? 46 : 60) * Math.PI / 180;
 export function persp(fovy, aspect, n, f) {
   const t = 1 / Math.tan(fovy / 2), o = M_PROJ;
   o.fill(0); o[0] = t / aspect; o[5] = t; o[10] = (f + n) / (n - f); o[11] = -1; o[14] = (2 * f * n) / (n - f);

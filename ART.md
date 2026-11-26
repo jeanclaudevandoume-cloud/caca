@@ -15,6 +15,11 @@ night stay one tap away (time button). The opening camera is low over the lane (
 - sky: pink-lit clouds at dusk, stars only after dark
 - close-up: flat roofs keep their light coping on the phone, a floor line at every slab, lantern crowns on
   some towers glow after dusk, the viaduct carries a line-colour fascia stripe and a shadowed girder band
+- arrival: the pinned home and its side-by-side neighbours are rebuilt at full detail on the phone (hero.js,
+  ~0.9k tris each, drawn with a polygon offset over the lite copies): porch, plants, sills, AC units, parapet
+- lens: 60° vertical in portrait, 46° in landscape (gfx.js vfovFor); landscape opening 24 m, pitch -0.12
+- viaduct: a 0.66 m line-colour fascia and a line of deck lights, so it reads from the opening camera by day
+  and at dusk
 Process: no graded rounds. Each pass is judged on the owner's phone from a before/after of the opening and
 arrival views; frame cost is checked A/B against the previous commit (lowdrone, alternating runs).
 

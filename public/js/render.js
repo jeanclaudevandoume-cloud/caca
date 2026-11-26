@@ -2,7 +2,7 @@
 // sky and ground (half resolution on the low preset), planar shadows, and the perf probe. No DOM.
 import { PITCH, CHUNK } from './town.js';
 import { MB, M, SKY, MID } from './mb.js';
-import { hyp2, hyp3, persp, lookDir, mul, invert, planes, inFrustum } from './gfx.js';
+import { hyp2, hyp3, vfovFor, persp, lookDir, mul, invert, planes, inFrustum } from './gfx.js';
 
 // keys: 0 noon, 1 sunset, 2 blue hour, 3 night, 4 dawn (cycle of 5)
 const KEYS = [
@@ -70,7 +70,7 @@ export function createRenderer(d) {
     fwd[0] = Math.sin(cam.yaw) * Math.cos(cam.pitch); fwd[1] = Math.sin(cam.pitch); fwd[2] = -Math.cos(cam.yaw) * Math.cos(cam.pitch);
     EYE[0] = cam.x; EYE[1] = cam.y; EYE[2] = cam.z;
     const near = Math.min(20, Math.max(0.4, cam.y * 0.02));
-    const proj = persp((60 * Math.PI) / 180, W / H, near, 40000);
+    const proj = persp(vfovFor(W / H), W / H, near, 40000);
     const VP = r.VP = mul(proj, lookDir(EYE, fwd));
     r.invVP = invert(VP);
     const PL = r.PL = planes(VP);
@@ -147,6 +147,17 @@ export function createRenderer(d) {
 
     tier.mid = Math.round(tris) - tier.chunk - tier.sky;
     const pin = app.pin;
+    // phone: the pinned home at full detail over its lite copy (hero.js)
+    const hero = pin && isLow() && d.hero && PROBE !== 'full' ? d.hero.get(pin, app.L) : null;
+    if (hero) {
+      gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(-1, -8);
+      gl.uniform4f(geo.u.uLod, 1e9, 2e9, 0, 0);
+      gl.uniform3f(geo.u.uOrigin, hero.ox, 0, hero.oz);
+      gl.bindVertexArray(hero.mesh.vao);
+      gl.drawElements(gl.TRIANGLES, hero.mesh.n, hero.mesh.it, hero.mesh.so);
+      gl.disable(gl.POLYGON_OFFSET_FILL);
+      tris += hero.mesh.n / 3; draws++;
+    }
     if (pin && app.L && PROBE !== 'full') {
       if (!pinMesh) {
         const mb = new MB(0, 0, 256);
