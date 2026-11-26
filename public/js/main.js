@@ -77,8 +77,8 @@ gl.uniform3fv(P.full.u.uRoof, new Float32Array(ROOF.flatMap((c) => [((c >> 16) &
 // ---------------- state ----------------
 // ART.md composition (round F): a low drone over dense jutaku and villa lanes south-west of the river, the
 // towers and spire as the backdrop. The product is "your follower's home", so homes fill the opening frame.
-const HOME = { x: -176, y: 24, z: 1190, yaw: 0.12, pitch: -0.17 };   // low over a north-south lane: a lit street canyon leads the eye to the towers   // over a north-south lane: the street leads the eye to the towers
-if (innerWidth / innerHeight > 1.2) Object.assign(HOME, { y: 34, pitch: -0.30 });   // landscape: wider frame; a little steeper so the far field (tris, draws) stays in budget
+const HOME = { x: -176, y: 24, z: 1190, yaw: 0.12, pitch: -0.17 };   // low over a north-south lane: a lit street canyon leads the eye to the towers
+if (innerWidth / innerHeight > 1.2) Object.assign(HOME, { y: 26, pitch: -0.2 });   // landscape: wider frame; a little steeper so the far field (tris, draws) stays in budget
 const cam = { ...HOME };
 const PRESETS = { low: { s: 0.55, pr: 1 }, mid: { s: 0.8, pr: 1.5 }, high: { s: 1, pr: 2 } };
 const isPhone = PHONE;

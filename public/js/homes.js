@@ -446,6 +446,8 @@ export function towerMass(mb, f, r, bx, bz, slot, lite, near) {
     else if (crown === 1) mb.box(cx0 + 2.4, top, cz0 + 2.2, cx1 - 2.4, top + 2.6 * FLOOR_H, cz1 - 2.2, 0xf0e2c0, 0xd8d4ca, M.METAL, aw);   // lantern
     else if (crown === 2) mb.box(cx0 + 3, top, cz0 + 2.6, cx1 - 5, top + 2.2 * FLOOR_H, cz1 - 3.2, 0x5b6066, 0x7d8288, M.METAL, aw);   // plant box
     else mb.cyl(mx, top, mz, 2.2, top + 22, 0, 3, 0xe4e6ea, M.METAL, aw, false);   // spire (3 tris)
+    // aviation light (3 tris, blinks in the shader: alpha 249): the red dots that mark a Tokyo skyline at dusk
+    if (top >= 24 * FLOOR_H) { const py = crown === 3 ? top + 22 : crown === 0 ? t2 : crown === 1 ? top + 2.6 * FLOOR_H : top + 2.2 * FLOOR_H; mb.cyl(mx, py, mz, 1.7, py + 2.6, 0, 3, 0xff2a1f, M.LIGHT, 249, false); }
     return;
   }
   if (crown === 0) {                                     // mechanical penthouse with louvre bands
@@ -458,7 +460,7 @@ export function towerMass(mb, f, r, bx, bz, slot, lite, near) {
     mb.cyl(mx, top, mz, Math.min(cx1 - cx0, cz1 - cz0) * 0.45, top + 0.9, Math.min(cx1 - cx0, cz1 - cz0) * 0.45, lite ? 6 : 10, 0x4a4d52, M.PLAIN, aw);
     if (!lite) mb.cyl(mx, top + 0.9, mz, Math.min(cx1 - cx0, cz1 - cz0) * 0.46, top + 1.05, Math.min(cx1 - cx0, cz1 - cz0) * 0.46, 10, 0xd8342c, M.LIGHT, aw);
   }
-  if (top >= 30 * FLOOR_H && !lite) mb.cbox(cx0 + 0.4, top, cz0 + 0.4, 0.9, 0.9, 0.9, 0xff3030, M.LIGHT, h & 255);   // aviation light
+  if (top >= 24 * FLOOR_H) mb.cbox(mx, crown === 0 ? top + 2 * FLOOR_H : crown === 1 ? top + 3 * FLOOR_H : crown === 2 ? top + 2.6 * FLOOR_H : top + 1.05, mz, 1.4, 1.4, 1.4, 0xff2a1f, M.LIGHT, 249);   // aviation light (blinks: alpha 249)
   if (near) {                                            // lobby glass and a lit sign over the entrance
     const fs = f.face < 0 ? -1 : 1, pz = f.z + fs * hd, sign = ACCENT_SIGN[(h >>> 13) % ACCENT_SIGN.length];
     const cast = mb.cast; mb.cast = false;

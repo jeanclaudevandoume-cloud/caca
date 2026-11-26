@@ -163,7 +163,7 @@ void main() {
 #ifdef LOWQ
     if (k < 0.05) {
       // phone, far walls: the window pattern has faded to its average anyway, so skip all per-window work
-      vec3 refl0 = mix(mix(vec3(0.3, 0.36, 0.42), vec3(0.18, 0.22, 0.27), glass), uSkyHor, mix(0.35, 0.15, glass)) * (0.55 + 0.45 * (1.0 - uNight));
+      vec3 refl0 = mix(mix(vec3(0.3, 0.36, 0.42), vec3(0.18, 0.22, 0.27), glass), uSkyHor, mix(0.35, 0.15, glass)) * (0.3 + 0.7 * (1.0 - uNight));   // little sky in the glass after dusk
       // tower families (homes.js towerMass, facade = seed & 3): light concrete and warm stone keep their wall colour
       // (little glass), bronze glass is tinted; arithmetic selects only, no new branch on the phone shader
       float solid = max(smoothstep(0.32, 0.6, dot(base, vec3(0.3, 0.55, 0.15))), float((seed & 3u) == 2u)) * glass;
@@ -174,11 +174,14 @@ void main() {
       float spand = (1.0 - smoothstep(0.22 - fwy, 0.22 + fwy, fract(fy))) * clamp(1.6 - fwy * 2.2, 0.0, 1.0);
       float plant = smoothstep(0.85 - fwy * 0.125, 0.85 + fwy * 0.125, fract(fy / 8.0));   // top floor of every 8: plant band
       col *= 1.0 - (0.22 * spand + 0.25 * plant * step(20.0, vW.y)) * mix(0.5, 1.0, glass) * (1.0 - uNight);
-      float share0 = (18.0 + float(ih(seed * 31u + 7u) % 82u)) * 1.9;
+      float share0 = (18.0 + float(ih(seed * 31u + 7u) % 82u)) * 1.15;   // towers: fewer lit floors than homes, so small towers keep dark walls
       // lit floors read from across town at dusk: a hashed band per floor and per 3-window group (arithmetic only)
-      float bandOn = float(float(ih(uint(int(floor(fy)) + 64) * 7919u + uint(int(floor(g.x / 3.0)) + 4096) * 104729u + seed * 31u) & 255u) < share0 * 1.0);
-      float lit0 = mix(share0 / 512.0, bandOn * 0.75, clamp(1.4 - fwy * 1.6, 0.0, 1.0));
-      emis = mix(vec3(1.0, 0.76, 0.42), vec3(0.85, 0.9, 1.0), float((seed & 3u) == 1u)) * lit0 * mix(0.35, 0.9, glass) * smoothstep(0.05, 0.6, uNight) * (1.0 - spand * 0.7);
+      col *= mix(1.0, 0.5, uNight);   // after dusk the far walls fall into silhouette; only the lit floors read
+      uint bh = ih(uint(int(floor(fy)) + 64) * 7919u + uint(int(floor(g.x / 3.0)) + 4096) * 104729u + seed * 31u);
+      float bandOn = float(float(bh & 255u) < share0 * 1.0);
+      float lit0 = mix(share0 / 700.0, bandOn * (0.45 + 0.4 * float((bh >> 8u) & 3u) / 3.0), clamp(2.2 - fwy * 1.2, 0.0, 1.0));   // lit floors persist down to ~1.5 px, then a dim average
+      // office floors are cool white, homes and hotels warm; each lit group varies a little in brightness
+      emis = mix(vec3(1.0, 0.76, 0.42), vec3(0.8, 0.9, 1.05), clamp(float((seed & 3u) == 1u) + float(((bh >> 12u) & 7u) == 0u) + glass * float(((bh >> 16u) & 1u)), 0.0, 1.0)) * lit0 * mix(0.35, 0.9, glass) * smoothstep(0.05, 0.6, uNight) * (1.0 - spand * 0.7);
     } else {
       // phone, near walls: one hash, hard-edged frame and pane (MSAA is off on the low preset), no mullions/sills/reveals
       uint face = uint(dot(step(0.5, abs(n)), vec3(1.0, 2.0, 3.0)) + 3.0 * step(0.0, n.x + n.z));
@@ -348,7 +351,8 @@ void main() {
       pale = 0.0;
     }
       col = mix(base, vec3(0.92, 0.93, 0.95), (1.0 - uNight) * pale) * mix(1.0, 0.65, pale) * mix(1.0, 0.8, sat);
-    emis = mix(base * vec3(1.0, 0.85, 0.6) * 1.4, base * base * 1.8, smoothstep(0.2, 0.5, sat)) * uNight;   // saturated signs burn like neon
+    emis = mix(base * vec3(1.0, 0.85, 0.6) * 1.4, base * base * 1.8, smoothstep(0.2, 0.5, sat)) * uNight;
+    if (sa4 == 249u) emis = vec3(1.6, 0.08, 0.04) * (0.2 + 0.8 * step(0.45, fract(uTime * 0.5 + float(ih(uint(int(vW.x * 0.1) + 4096) * 7919u + uint(int(vW.z * 0.1) + 4096)) & 255u) / 255.0))) * max(uNight, 0.3);   // aviation lights blink   // saturated signs burn like neon
   } else if (vMat == 3) {
     col += uSunCol * pow(max(dot(reflect(dir, n), uSunDir), 0.0), 24.0) * 0.35;
   } else if (vMat == 6) {
@@ -362,6 +366,7 @@ void main() {
 #endif
   col += uSunCol * rim * 0.22;
   col += uSkyHor * base * 0.35 * uNight * smoothstep(0.5, 0.95, n.y);   // roofs catch the glow of the dusk sky
+  col += base * vec3(1.0, 0.68, 0.42) * 0.55 * uNight * (1.0 - smoothstep(0.5, 7.0, vW.y)) * (1.0 - abs(n.y)) * (1.0 - smoothstep(300.0, 900.0, dist));   // street light washes the ground floors
   col = col * (1.0 - 0.5 * uNight) + emis;
   o = vec4(tone(fogMix(col, dir, dist * mix(1.0, mix(0.6, 0.35, uLowQ), smoothstep(40.0, 200.0, vW.y)))), 1.0);   // tall towers keep contrast
 }`;
