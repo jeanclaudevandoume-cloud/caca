@@ -97,7 +97,7 @@ export function kanban(mb, cx, cz, y0, kh, t, dep, axis, fs, c, h) {
 // plane 'z': z = c0, spanning x in [a0, a1]; plane 'x': x = c0, spanning z. 2 tris.
 export function board(mb, plane, c0, a0, a1, y0, y1, fs, c, h) {
   const nc = Math.max(1, Math.round((a1 - a0) / 1.5)), ng = Math.max(1, Math.min(4, Math.round((y1 - y0) / 1.0)));
-  const u0 = h & 3, u1 = u0 + nc, v1 = 16 - ((h >>> 3) & 3) / 4, v0 = v1 - ng / 4, a = ((h >>> 2) & 3) === 0 ? 253 : 254;
+  const u0 = h & 3, u1 = u0 + nc, v1 = 16 - ((h >>> 3) & 3) / 4, v0 = v1 - ng / 4, a = 254;   // billboards: always a lit coloured board with light lettering (pale boards washed out)
   if (plane === 'z') {
     if (fs > 0) mb.q(a0, y0, c0, a1, y0, c0, a1, y1, c0, a0, y1, c0, 0, 0, 1, u0, v0, u1, v1, M.LIGHT, c, a);
     else mb.q(a1, y0, c0, a0, y0, c0, a0, y1, c0, a1, y1, c0, 0, 0, -1, u0, v0, u1, v1, M.LIGHT, c, a);

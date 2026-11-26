@@ -398,7 +398,7 @@ export function home(mb, bx, bz, f, r, lod) {
           for (let i = 0; i < n; i++) kanban(mb, r.hash & 1 ? x1 - 0.4 : x0 + 0.4, fz + fs * 0.45, 4.2 + i * 4.0, 3.5, 0.25, 0.6, 'z', fs, ACCENT_SIGN[((r.hash >>> 9) + i * 3) % ACCENT_SIGN.length], (r.hash >>> 11) + i);
         }
         if ((r.hash >>> 26) % 4 === 0) {           // rooftop billboard (lite: a double-sided panel, 4 tris)
-          const bc = ACCENT[(r.hash >>> 4) % ACCENT.length];
+          const bc = ACCENT_SIGN[(r.hash >>> 4) % ACCENT_SIGN.length];   // sign colours, not the wall accents
           const by0 = roofTop + 2.5, by1 = roofTop + 5.5;
           if (mb.lite) { board(mb, 'z', f.z, f.x - 3, f.x + 3, by0, by1, 1, bc, r.hash >>> 3); board(mb, 'z', f.z, f.x - 3, f.x + 3, by0, by1, -1, bc, r.hash >>> 5); }
           else {
