@@ -6,12 +6,15 @@ import { hyp2, hyp3, vfovFor, persp, lookDir, mul, invert, planes, inFrustum } f
 
 // keys: 0 noon, 1 sunset, 2 blue hour, 3 night, 4 dawn (cycle of 5)
 const KEYS = [
-  { top: [0.14, 0.4, 0.86], hor: [0.64, 0.79, 0.95], sun: [1.3, 1.15, 0.95], sky: [0.28, 0.33, 0.43], gnd: [0.40, 0.34, 0.27], fog: [0.68, 0.79, 0.93], el: 0.62, night: 0 },
-  { top: [0.22, 0.3, 0.62], hor: [1.0, 0.64, 0.42], sun: [1.05, 0.7, 0.42], sky: [0.42, 0.46, 0.62], gnd: [0.36, 0.3, 0.28], fog: [0.84, 0.66, 0.6], el: 0.12, night: 0.25 },
+  // noon: crisp and saturated, a clear blue sky, little haze
+  { top: [0.1, 0.36, 0.86], hor: [0.58, 0.77, 0.97], sun: [1.36, 1.2, 0.98], sky: [0.26, 0.33, 0.47], gnd: [0.40, 0.34, 0.27], fog: [0.62, 0.76, 0.95], el: 0.62, night: 0 },
+  // sunset: a low burning sun (west faces orange), violet shadow side, a hot horizon, first windows and signs on
+  { top: [0.16, 0.2, 0.52], hor: [1.0, 0.52, 0.3], sun: [1.55, 0.78, 0.36], sky: [0.34, 0.34, 0.6], gnd: [0.32, 0.25, 0.26], fog: [0.92, 0.58, 0.48], el: 0.085, night: 0.36 },
   // blue hour (the default opening look): violet sky, a magenta glow on the horizon, lights on, the sun just set
   { top: [0.05, 0.09, 0.3], hor: [0.78, 0.42, 0.55], sun: [0.36, 0.28, 0.38], sky: [0.34, 0.32, 0.43], gnd: [0.24, 0.19, 0.2], fog: [0.36, 0.3, 0.5], el: 0.05, night: 0.78 },
   { top: [0.015, 0.025, 0.08], hor: [0.06, 0.08, 0.18], sun: [0.22, 0.28, 0.42], sky: [0.26, 0.31, 0.5], gnd: [0.12, 0.12, 0.16], fog: [0.06, 0.08, 0.16], el: 0.9, night: 1 },
-  { top: [0.3, 0.42, 0.75], hor: [1.0, 0.78, 0.62], sun: [1.0, 0.78, 0.56], sky: [0.45, 0.48, 0.65], gnd: [0.4, 0.34, 0.3], fog: [0.92, 0.8, 0.72], el: 0.14, night: 0.2 },
+  // dawn: peach horizon under a clear pale blue, soft cool light, a few windows still lit
+  { top: [0.22, 0.4, 0.8], hor: [1.0, 0.72, 0.58], sun: [1.15, 0.82, 0.6], sky: [0.4, 0.46, 0.68], gnd: [0.38, 0.32, 0.3], fog: [0.86, 0.76, 0.78], el: 0.14, night: 0.22 },
 ];
 // Writes into one preallocated object (the frame loop allocates nothing).
 const TOD_KEYS = ['top', 'hor', 'sun', 'sky', 'gnd', 'fog'];
@@ -50,7 +53,7 @@ export function createRenderer(d) {
   const ORDER = [], DRAWN = [], SKYORD = [], NONE = [], MIDORD = [];
   const pushOrder = (c) => { if (c.g) ORDER.push(c); }, pushSky = (s) => { if (s.g) SKYORD.push(s); }, pushMid = (s) => { if (s.g) MIDORD.push(s); };
   const FWD = new Float64Array(3), EYE = new Float64Array(3), SHD = new Float32Array(3);
-  let pinMesh = null;
+  let pinMesh = null, ringMesh = null;
   let groundTex = null, groundExt = 0, groundBytes = 0;
   // The ground data texture is a window of at most 641^2 blocks (1.6 MB) (layout.js buildGround): the whole town when it
   // fits, otherwise centred near the camera and replaced by a worker-built window when the camera has moved
@@ -159,6 +162,20 @@ export function createRenderer(d) {
       tris += hero.mesh.n / 3; draws++;
     }
     if (pin && app.L && PROBE !== 'full') {
+      if (!ringMesh) {
+        // a glowing pink ring on the ground around the follower's home: the home is singled out, not only the pin
+        const mb = new MB(0, 0, 256);
+        for (let i = 0; i < 20; i++) {
+          const a0 = i / 20 * Math.PI * 2, a1 = (i + 1) / 20 * Math.PI * 2, R = 8.2, r = 7.75, y = 0.07;
+          mb.fq(Math.cos(a0) * R, y, Math.sin(a0) * R, Math.cos(a0) * r, y, Math.sin(a0) * r, Math.cos(a1) * r, y, Math.sin(a1) * r, Math.cos(a1) * R, y, Math.sin(a1) * R, M.LIGHT, 0xff4f7b, 0);
+        }
+        ringMesh = gfx.upload(mb.finish());
+      }
+      gl.uniform4f(geo.u.uLod, 1e9, 2e9, 0, 0);
+      gl.uniform3f(geo.u.uOrigin, pin.x, 0, pin.z);
+      gl.bindVertexArray(ringMesh.vao);
+      gl.drawElements(gl.TRIANGLES, ringMesh.n, ringMesh.it, 0);
+      draws++;
       if (!pinMesh) {
         const mb = new MB(0, 0, 256);
         mb.cyl(0, 0, 0, 0.01, 5, 1.6, 10, 0xff4f7b, M.LIGHT, 0, false);
@@ -203,7 +220,7 @@ export function createRenderer(d) {
       gl.uniform3f(sh.u.uCam, cam.x, cam.y, cam.z);
       gl.uniform3fv(sh.u.uShadowDir, shDir);
       const k = 1 - T.night * 1.4;
-      gl.uniform3f(sh.u.uShadowCol, 1 - 0.42 * k, 1 - 0.38 * k, 1 - 0.26 * k);
+      gl.uniform3f(sh.u.uShadowCol, 1 - 0.4 * k, 1 - 0.33 * k, 1 - 0.16 * k);   // sky-lit shade: lighter and blue, not a grey slab
       gl.uniform1f(sh.u.uShadowFar, shadowR);
       gl.enable(gl.BLEND); gl.blendFunc(gl.DST_COLOR, gl.ZERO);
       gl.enable(gl.STENCIL_TEST); gl.stencilFunc(gl.EQUAL, 0, 0xff); gl.stencilOp(gl.KEEP, gl.KEEP, gl.INCR);

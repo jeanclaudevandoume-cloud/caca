@@ -88,7 +88,7 @@
     #card-go, #card-share { padding: 11px 16px; min-height: 44px; }
     body:has(#card:not([hidden])) #tools { bottom: calc(var(--sheet-h, 150px) + 12px); }   /* ui.js tracks the sheet's real height */
   }
-  @media (max-height: 460px) { #card { bottom: max(8px, env(safe-area-inset-bottom)); max-width: calc(100vw - 180px); } #tools { flex-direction: column; } }
+  @media (max-height: 460px) { #card { bottom: max(8px, env(safe-area-inset-bottom)); max-width: min(260px, 36vw); } #tools { flex-direction: column; } }
 </style>
 </head>
 <body>

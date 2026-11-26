@@ -198,7 +198,9 @@ function resize() {
   {
     const H = innerHeight, top = document.getElementById('top'), tb = top ? top.getBoundingClientRect().bottom + 16 : 80;
     const sheet = innerWidth <= 600 && innerHeight > innerWidth ? 200 : 0.12 * H;
-    app.safe = { top: 1 - 2 * tb / H, bottom: -1 + 2 * (sheet + 16) / H, side: 0.88 };
+    // landscape phone: the card sits bottom-left (index.html), so the home is framed in the space right of it
+    const W = innerWidth, land = H <= 460 && W > H;
+    app.safe = { top: 1 - 2 * tb / H, bottom: land ? -0.8 : -1 + 2 * (sheet + 16) / H, side: 0.88, left: land ? -1 + 2 * (12 + Math.min(260, W * 0.36) + 16) / W : -0.88 };
   }
   ui.resizeTags();
   const pr = Math.min(window.devicePixelRatio || 1, quality.pr);

@@ -18,7 +18,7 @@ vec3 fogMix(vec3 col, vec3 dir, float dist) {
   vec3 fc = uFogCol + uSunCol * s * 0.25 * (1.0 - uNight);
   // aerial perspective (round L): from a few hundred metres on, colours lose saturation and drift toward the
   // haze, so near homes, the roofscape and the towers separate into planes instead of one flat sheet
-  float a = (1.0 - exp(-dist / 1500.0)) * 0.42 * (1.0 - 0.7 * uNight);
+  float a = (1.0 - exp(-dist / 2000.0)) * 0.32 * (1.0 - 0.7 * uNight);   // lighter by day: the town stays vibrant
   col = mix(col, mix(vec3(dot(col, vec3(0.3, 0.55, 0.15))), fc, 0.6), a);
   return mix(col, fc, clamp(f, 0.0, 1.0));
 }
@@ -177,11 +177,17 @@ void main() {
       float share0 = (18.0 + float(ih(seed * 31u + 7u) % 82u)) * 1.15;   // towers: fewer lit floors than homes, so small towers keep dark walls
       // lit floors read from across town at dusk: a hashed band per floor and per 3-window group (arithmetic only)
       col *= mix(1.0, 0.5, uNight);   // after dusk the far walls fall into silhouette; only the lit floors read
+      // whole floors are lit or dark (an office floor, a hotel floor), and within a lit floor most window
+      // groups are on: horizontal bands with dark storeys between them, not uniform speckle
+      uint fh = ih(uint(int(floor(fy)) + 64) * 7919u + seed * 31u + 5u);
       uint bh = ih(uint(int(floor(fy)) + 64) * 7919u + uint(int(floor(g.x / 3.0)) + 4096) * 104729u + seed * 31u);
-      float bandOn = float(float(bh & 255u) < share0 * 1.0);
-      float lit0 = mix(share0 / 700.0, bandOn * (0.45 + 0.4 * float((bh >> 8u) & 3u) / 3.0), clamp(2.2 - fwy * 1.2, 0.0, 1.0));   // lit floors persist down to ~1.5 px, then a dim average
-      // office floors are cool white, homes and hotels warm; each lit group varies a little in brightness
-      emis = mix(vec3(1.0, 0.76, 0.42), vec3(0.8, 0.9, 1.05), clamp(float((seed & 3u) == 1u) + float(((bh >> 12u) & 7u) == 0u) + glass * float(((bh >> 16u) & 1u)), 0.0, 1.0)) * lit0 * mix(0.35, 0.9, glass) * smoothstep(0.05, 0.6, uNight) * (1.0 - spand * 0.7);
+      float bandOn = float(float(fh & 255u) < share0 * 1.25) * float((bh & 255u) < 205u);
+      float lit0 = mix(share0 / 560.0, bandOn * (0.5 + 0.5 * float((fh >> 8u) & 3u) / 3.0), clamp(2.2 - fwy * 1.2, 0.0, 1.0));   // lit floors persist down to ~1.5 px, then a dim average
+      // a tower is mostly office (cool white, some pale blue) or hotel/flats (warm amber); a few floors break the rule
+      float cool = clamp(float((seed & 3u) == 1u) + glass * float((seed & 4u) != 0u), 0.0, 1.0);
+      cool = abs(cool - float(((fh >> 12u) & 7u) == 0u));
+      vec3 lc0 = mix(vec3(1.0, 0.72, 0.38), mix(vec3(0.85, 0.93, 1.05), vec3(0.55, 0.75, 1.1), float(((fh >> 16u) & 3u) == 0u)), cool);
+      emis = lc0 * lit0 * mix(0.4, 1.0, glass) * smoothstep(0.05, 0.6, uNight) * (1.0 - spand * 0.7);
     } else {
       // phone, near walls: one hash, hard-edged frame and pane (MSAA is off on the low preset), no mullions/sills/reveals
       uint face = uint(dot(step(0.5, abs(n)), vec3(1.0, 2.0, 3.0)) + 3.0 * step(0.0, n.x + n.z));
@@ -194,12 +200,19 @@ void main() {
       if (glass < 0.5) {
         // homes: the whole window is one atlas fetch (no procedural frame/pane work on the phone)
         float share = (18.0 + float(ih(seed * 31u + 7u) % 82u)) * 1.9;
-        float lit = mix(share / 512.0, float(float(cell & 255u) < share), k);
+        float on = float(float(cell & 255u) < share);
+        if (city) {   // downtown mid-rises: lit and dark storeys like the towers, not a cream checkerboard
+          uint fh = ih(uint(int(floor(vW.y / 3.2)) + 64) * 7919u + seed * 31u + 5u);
+          on = float(float(fh & 255u) < share * 0.8) * float((cell & 255u) < 200u);
+          share *= 0.62;
+        }
+        float lit = mix(share / 512.0, on, k);
         vec3 refl = mix(vec3(0.3, 0.38, 0.46), uSkyHor, 0.4);
         if (step(0.3, v) > 0.0) atlasWindow(col, emis, f, g, vec2(mx, my0) - e, vec2(1.0 - mx, my1) + e, has, wt, cell, n, amb * ao, key, refl, lit, vec3(1.0, 0.75, 0.42));
       } else {
       float frame = step(mx - e.x, f.x) * step(f.x, 1.0 - mx + e.x) * step(my0 - e.y, f.y) * step(f.y, my1 + e.y) * has * step(0.3, v);
-      float pane = step(mx, f.x) * step(f.x, 1.0 - mx) * step(my0, f.y) * step(f.y, my1) * has * step(0.3, v);
+      vec2 aw = w * 0.75;   // anti-aliased pane edges (no MSAA on the phone): no stair-steps along the canyon
+      float pane = smoothstep(mx - aw.x, mx + aw.x, f.x) * smoothstep(mx - aw.x, mx + aw.x, 1.0 - f.x) * smoothstep(my0 - aw.y, my0 + aw.y, f.y) * smoothstep(-my1 - aw.y, -my1 + aw.y, -f.y) * has * step(0.3, v);
       pane = mix(mix(0.22, 0.75, glass), pane, k); frame *= k;
       float fy = clamp((f.y - my0) / (my1 - my0), 0.0, 1.0);
       vec3 refl = mix(vec3(0.15, 0.2, 0.25), mix(vec3(0.49, 0.59, 0.69), uSkyHor, 0.4), mix(0.5, fy, k)) * (1.0 - 0.4 * step(0.88, fy) * k);   // recess shadow
@@ -209,9 +222,13 @@ void main() {
       float mullC = (glass < 0.5 && wt <= 1u) ? step(abs(f.x - 0.5), 0.025 / sp) * k : 0.0;   // centre mullion on sliding sashes
       col = mix(col, mix(refl * (0.55 + 0.45 * (1.0 - uNight)), sashC, mullC), pane);
       col *= 1.0 - 0.35 * step(my1 + e.y, f.y) * step(f.y, my1 + 0.07) * has * k * step(0.3, v);   // lintel shadow
-      float share = (18.0 + float(ih(seed * 31u + 7u) % 82u)) * 1.9;
-      float lit = mix(share / 512.0, float(float(cell & 255u) < share), k);
-      emis = vec3(1.0, 0.75, 0.42) * lit * pane * smoothstep(0.05, 0.6, uNight) * 1.5;
+      // towers up close: the same floor-by-floor pattern as from afar (lit storeys, dark storeys)
+      float share = (18.0 + float(ih(seed * 31u + 7u) % 82u)) * 1.15;
+      uint fh = ih(uint(int(floor(vW.y / 3.2)) + 64) * 7919u + seed * 31u + 5u);
+      float on = float(float(fh & 255u) < share * 1.25) * float((cell & 255u) < 190u) * (0.55 + 0.45 * float((cell >> 8u) & 7u) / 7.0);
+      float lit = mix(share / 560.0, on, k);
+      float cool = abs(clamp(float((seed & 3u) == 1u) + float((seed & 4u) != 0u), 0.0, 1.0) - float(((fh >> 12u) & 7u) == 0u));
+      emis = mix(vec3(1.0, 0.75, 0.42), vec3(0.85, 0.93, 1.05), cool) * lit * pane * smoothstep(0.05, 0.6, uNight) * 1.5 * (0.6 + 0.4 * float((fh >> 8u) & 3u) / 3.0);
       }
 #else
 
@@ -355,13 +372,16 @@ void main() {
       vec2 uv = (vec2(mod(floor(u), 4.0), 6.0) + P + vec2(fract(u), 1.0 - fract(v)) * (1.0 - 2.0 * P)) * vec2(0.25, 0.125);
       float ink = textureGrad(uAtlas, uv, dFdx(vec2(u, -v)) * sc, dFdy(vec2(u, -v)) * sc).a;
       bool rev = sa4 == 253u;                          // pale board with coloured ink, or coloured board with white ink
-      vec3 board = rev ? vec3(0.95, 0.94, 0.9) : base, inkC = rev ? base * 0.75 : vec3(1.0);
-      base = mix(board, inkC, ink * 0.9);
-      sat = rev ? 0.35 : sat;                          // a pale board still reads as a sign, not a lamp
+      vec3 board = rev ? mix(vec3(0.95, 0.94, 0.9), base, 0.3) : base, inkC = rev ? base * 0.7 : vec3(1.0, 0.97, 0.9);
+      // far off the glyphs average out: keep the board colour instead of washing it to pastel
+      float far = clamp(length(fwidth(vUV)) * 0.6, 0.0, 1.0);
+      base = mix(board, inkC, ink * mix(0.9, 0.12, far));
+      sat = rev ? 0.45 : max(sat, 0.5);                // a sign is never a pale lamp
       pale = 0.0;
+      emis = (rev ? base * mix(vec3(1.0), board, 0.5) * 1.4 : base * base * 1.9 + 0.04) * max(uNight, 0.12);   // signs burn brighter than any window
     }
       col = mix(base, vec3(0.92, 0.93, 0.95), (1.0 - uNight) * pale) * mix(1.0, 0.65, pale) * mix(1.0, 0.8, sat);
-    emis = mix(base * vec3(1.0, 0.85, 0.6) * 1.4, base * base * 1.8, smoothstep(0.2, 0.5, sat)) * uNight;
+    if (sa4 != 253u && sa4 != 254u) emis = mix(base * vec3(1.0, 0.85, 0.6) * 1.4, base * base * 1.8, smoothstep(0.2, 0.5, sat)) * uNight;
     if (sa4 == 248u) {                                 // train windows (rail.js): 1.6 m bays, a dark gap every 20 m carriage
       float tw = step(0.22, fract(vW.x / 1.6)) * step(0.06, fract(vW.x / 20.0 + 0.03)) * step(fract(vW.x / 20.0 + 0.03), 0.97);
       tw = mix(0.55, tw, clamp(1.5 - fwidth(vW.x / 1.6) * 2.0, 0.0, 1.0));
@@ -373,6 +393,15 @@ void main() {
   } else if (vMat == 6) {
     col = mix(base, uSkyHor, 0.35) + uSunCol * pow(max(dot(reflect(dir, n), uSunDir), 0.0), 60.0);
   }
+  if (city && wall > 0.5 && vW.y < 4.2 && dist < 400.0) {
+    // downtown ground floor: shops and lobbies with a lit glass front and mullions every 2.4 m, a dark fascia over it
+    float along = abs(n.x) > 0.5 ? vW.z : vW.x;
+    float mull = step(0.12, fract(along / 2.4)) * step(0.5, vW.y) * step(vW.y, 3.3);
+    vec3 shop = mix(vec3(1.0, 0.82, 0.55), vec3(0.85, 0.95, 1.0), float(seedAll & 1u));
+    col = mix(col, mix(vec3(0.16, 0.18, 0.2), shop * 0.55, mull) * (amb + key * sun * 0.5), step(vW.y, 4.2));
+    col = mix(col, vec3(0.08, 0.08, 0.1), step(3.3, vW.y) * step(vW.y, 4.2));
+    emis = mix(emis, shop * mull * (0.35 + 1.3 * uNight), step(vW.y, 4.2));
+  }
   // warm rim on edges turned toward a low sun keeps shapes readable at sunset
 #ifdef LOWQ
   float rim = 0.0;
@@ -382,6 +411,7 @@ void main() {
   col += uSunCol * rim * 0.22;
   col += uSkyHor * base * 0.35 * uNight * smoothstep(0.5, 0.95, n.y);   // roofs catch the glow of the dusk sky
   col += base * vec3(1.0, 0.68, 0.42) * 0.55 * uNight * (1.0 - smoothstep(0.5, 7.0, vW.y)) * (1.0 - abs(n.y)) * (1.0 - smoothstep(300.0, 900.0, dist));   // street light washes the ground floors
+  col += base * vec3(0.09, 0.1, 0.19) * uNight * wall * (vMat == 5 ? 0.5 : 1.0);   // cool sky fill after dusk: walls stay readable, not brown-black
   col = col * (1.0 - 0.5 * uNight) + emis;
   o = vec4(tone(fogMix(col, dir, dist * mix(1.0, mix(0.6, 0.35, uLowQ), smoothstep(40.0, 200.0, vW.y)))), 1.0);   // tall towers keep contrast
 }`;
@@ -478,6 +508,28 @@ float vnoise(vec2 p) {
   return mix(mix(a, b, f.x), mix(d, e, f.x), f.y) / 1023.0;
 }
 
+// Traffic painted into the road (no geometry): cars drive along each lane; by day a car-coloured body
+// (faded in beyond ~25 m, where it can't be told from a mesh), after dusk white headlights and red tail lights.
+// gEmit collects the lights; main() adds them unlit. Far off they blur into the light trails of a busy avenue.
+vec3 gEmit = vec3(0.0);
+const vec3 CARC[6] = vec3[6](vec3(0.9), vec3(0.17), vec3(0.6, 0.63, 0.67), vec3(0.5, 0.17, 0.17), vec3(0.18, 0.3, 0.48), vec3(0.85, 0.83, 0.78));
+void cars(inout vec3 cc, float along, float off, float dirS, float rid, float t, float w) {
+  float x = along * dirS + uTime * (11.0 + 5.0 * fract(rid * 0.618));
+  float cell = floor(x / 15.0), fx = x - cell * 15.0;
+  uint h = h2(ivec2(int(cell), int(rid)));
+  if ((h & 3u) < 2u) return;                                      // gaps in the traffic
+  fx -= float((h >> 2u) & 7u) * 0.9;                              // irregular spacing
+  float sw = max(w, 0.12), ao = abs(off);
+  float body = smoothstep(-sw, sw, fx) * smoothstep(-sw, sw, 4.2 - fx) * smoothstep(-sw, sw, 0.85 - ao);
+  int ci = int((h >> 6u) % 6u);
+  cc = mix(cc, CARC[ci] * 0.8, body * smoothstep(20.0, 45.0, t) * (1.0 - uNight * 0.6));
+  cc *= 1.0 - 0.45 * body * smoothstep(0.0, 6.0, t);             // the car's shadow / dark underside up close
+  float lat = exp(-pow((ao - 0.6) / max(0.18, w * 0.6), 2.0)) * (0.18 / max(0.18, w * 0.5));
+  float head = exp(-pow((fx - 4.2) / max(0.25, w), 2.0)), tail = exp(-pow(fx / max(0.25, w), 2.0));
+  float k = min(lat, 1.0) * clamp(0.25 / max(0.25, w), 0.15, 1.0) * 4.0;
+  gEmit += (vec3(1.0, 0.95, 0.82) * head * 1.4 + vec3(1.0, 0.08, 0.04) * tail * 0.9) * k;
+}
+
 vec3 water(vec2 p, vec3 dir, float t, vec3 deep) {
   float w = 0.0;
   if (uFar.z > 0.5 && t < 1500.0) w = (sin(p.x * 0.21 + uTime * 0.9 + sin(p.y * 0.13)) + sin(p.y * 0.17 - uTime * 0.7)) * 0.5;
@@ -486,6 +538,14 @@ vec3 water(vec2 p, vec3 dir, float t, vec3 deep) {
   vec3 c = mix(deep, uSkyHor * 0.95, 0.08 + 0.5 * fres);
   vec3 r = reflect(dir, n);
   c += uSunCol * pow(max(dot(r, uSunDir), 0.0), 220.0) * 1.6 * (1.0 - uNight * 0.7);
+  // slow swell: the surface is never one flat colour, and darkens toward deep water
+  c *= 0.9 + 0.2 * vnoise(p * 0.035 + vec2(uTime * 0.02, 0.0));
+  if (uNight > 0.2) {
+    // city light on the water: broken glints stretched toward the viewer like reflections in a harbour
+    vec2 vd = normalize(dir.xz + vec2(1e-5)), q = vec2(dot(p, vec2(-vd.y, vd.x)) * 0.09, dot(p, vd) * 0.6 + uTime * 0.4);
+    float g = smoothstep(0.6, 0.85, vnoise(vec2(q.x, q.y * 0.02))) * smoothstep(0.55, 0.8, vnoise(q * vec2(1.0, 0.25) + 7.0));
+    c += mix(vec3(1.0, 0.6, 0.28), vec3(0.6, 0.75, 1.0), step(0.6, vnoise(q * 0.13))) * g * uNight * 0.7 * (1.0 - smoothstep(500.0, 2200.0, t));
+  }
   return c;
 }
 vec3 asphalt(vec2 q, float t) {
@@ -558,12 +618,12 @@ vec3 blockCol(uvec4 c, int bx, int bz, vec2 l, vec2 p, float t, float w, vec3 gr
       float fadeIn = smoothstep(uFar.x, uFar.y, t);
       vec2 sv = cover(l - c0 + uFar.w * vec2(0.6, 0.4), hs + 0.8, max(w, 0.8));
       lot = mix(lot, lot * 0.68, max(sv.x * sv.y - inside, 0.0) * fadeIn);
-      lot = mix(lot, roof, inside * fadeIn);
+      lot = mix(lot, roof * (1.0 + vec3(0.25, 0.2, 0.4) * uNight), inside * fadeIn);   // roofs catch the dusk sky like the meshes do
       if ((c.g & 32u) != 0u && abs(l.y) < 2.0) lot = mix(lot, vec3(0.64, 0.63, 0.60), 1.0 - inside);   // roji, far
       if (uNight > 0.3) {
         float on = float(rv < 40u);
         vec2 wc = cover(l - c0, vec2(1.6), max(w, 0.8));
-        lot += vec3(1.0, 0.7, 0.38) * 3.0 * on * uNight * wc.x * wc.y * fadeIn;
+        lot += vec3(1.0, 0.7, 0.38) * 4.5 * on * uNight * wc.x * wc.y * fadeIn;
       }
     } else if (zone <= 1 && w < 1.5 && (c.g & 4u) != 0u) {
       // near the camera: the lot plan of each home (mirrors town.js homeRect / recipe.js recipe)
@@ -633,6 +693,8 @@ vec3 blockCol(uvec4 c, int bx, int bz, vec2 l, vec2 p, float t, float w, vec3 gr
     else if (a < 18.0) {
       cc = asphalt(p, t);
       float lane = abs(fract((a - 4.1) / 3.475) - 0.5);
+      float li = floor((a - 4.1) / 3.475), side = sign(ax ? l.x : l.y);
+      cars(cc, ax ? p.y : p.x, (fract((a - 4.1) / 3.475) - 0.5) * 3.475, side, float(ax ? bx : bz) * 64.0 + li * 2.0 + step(0.0, side) + (ax ? 0.25 : 0.75), t, w);
       cc = mix(cc, vec3(0.93), step(0.47, lane) * step(0.5, fract(b / 5.0)) * (1.0 - smoothstep(0.3, 1.2, w)));
     } else cc = WALK;
     // from far away the boulevard reads as a green-lined street, not a hard grey bar
@@ -677,6 +739,8 @@ vec4 groundBase(vec2 p, vec3 dir, float t, float w) {
   vec2 al = abs(l);
   uvec4 c = cellAt(bx, bz);
   uint k = c.r;
+  // the port works through the night: sodium-lit yards and quays
+  if (k == 8u) gEmit += vec3(1.0, 0.6, 0.28) * (0.12 + 0.3 * smoothstep(0.5, 0.8, vnoise(p * 0.04)));
   vec3 grass = vec3(0.33, 0.55, 0.24);
   if (uFar.z > 0.5) grass = mix(grass, vec3(0.37, 0.49, 0.23), vnoise(p * 0.033)) * (0.92 + 0.16 * vnoise(p * 0.11));
   // district tint (10x10 blocks) so the far field isn't one flat colour
@@ -693,6 +757,8 @@ vec4 groundBase(vec2 p, vec3 dir, float t, float w) {
     vec2 cv = mix(cover(l, vec2(20.0), w), vec2(40.0 / 48.0), smoothstep(10.0, 48.0, w));
     vec3 bc = blockCol(c, bx, bz, clamp(l, -19.9, 19.9), p, t, w, grass);
     vec3 rc = k == 8u ? vec3(0.62, 0.62, 0.6) : countryish(k) ? grass * vec3(1.0, 0.98, 0.85) : asphalt(p, t);
+    // from altitude the boulevards and the ring road are threads of traffic light (amber and red trails)
+    if (k == 5u || k == 7u) gEmit += vec3(1.0, 0.55, 0.28) * 0.4 * smoothstep(2.5, 9.0, w) * smoothstep(0.25, 0.75, vnoise(p * 0.004 + 3.0)) * (1.0 - cv.x * cv.y * 0.7);   // busy stretches glow, quiet ones fade
     return vec4(mix(rc, bc, cv.x * cv.y), lampOk);
   }
   if (al.x < 20.0 && al.y < 20.0) return vec4(blockCol(c, bx, bz, l, p, t, w, grass), lampOk);
@@ -731,6 +797,8 @@ vec4 groundBase(vec2 p, vec3 dir, float t, float w) {
       float stopBar = step(abs(abs(along) - 15.2), 0.22) * step(abs(across), 3.5);
       cc = mix(cc * 0.92, vec3(0.9), max(edgeL, stopBar) * fade);
     } else {
+      float alongW = sx != 0 ? p.y : p.x, rid = float(sx != 0 ? bx * 2 + sx : bz * 2 + sz) * 2.0 + (sx != 0 ? 0.5 : 0.0);
+      cars(cc, alongW, across - sign(across) * 2.0, across > 0.0 ? 1.0 : -1.0, rid + step(0.0, across), t, w);
       float dash = step(abs(across), 0.12) * step(0.5, fract(along / 6.0)) * step(abs(along), 14.0);
       float zebra = step(14.5, abs(along)) * step(abs(along), 19.5) * step(0.5, fract(across / 1.2));
       cc = mix(cc, vec3(0.95, 0.88, 0.55), dash * fade);
@@ -785,21 +853,25 @@ void main() {
         uint lh = h2(ivec2(cc));
         vec2 vd = normalize(dir.xz + vec2(1e-5)), vs = vec2(-vd.y, vd.x);
         vec2 d1 = p.xz - (cc - 4.7), d2 = p.xz - (cc + 4.7);
-        float st = mix(0.75, 0.3, smoothstep(40.0, 140.0, t));   // the reflection streak only shows at grazing angles
+        // the reflection streak only shows at grazing angles: looking down from a drone the pools stay round
+        float st = mix(mix(0.75, 0.3, smoothstep(40.0, 140.0, t)), 1.0, smoothstep(0.1, 0.3, -dir.y));
         d1 = vec2(dot(d1, vs), dot(d1, vd) * st); d2 = vec2(dot(d2, vs), dot(d2, vd) * st);
         float far = 1.0 - smoothstep(900.0, 2600.0, t);
-        float l1 = exp(-dot(d1, d1) * 0.06) * uNight * far, l2 = exp(-dot(d2, d2) * 0.06) * uNight * far;
+        // a bright core right under the lamp head with a short falloff, plus a faint halo
+        float q1 = dot(d1, d1), q2 = dot(d2, d2);
+        float l1 = (exp(-q1 * 0.22) * 1.1 + exp(-q1 * 0.045) * 0.3) * uNight * far, l2 = (exp(-q2 * 0.3) * 1.1 + exp(-q2 * 0.06) * 0.22) * uNight * far;
         vec3 lc = mix(vec3(1.0, 0.68, 0.38), vec3(0.95, 0.9, 0.8), float(lh & 1u));
         uint nh = (lh >> 4u) % 6u;
         vec3 neon = nh == 0u ? vec3(1.0, 0.25, 0.55) : nh == 1u ? vec3(0.2, 0.75, 1.0) : nh == 2u ? vec3(0.75, 0.35, 1.0) : lc;
         float gain = 0.55 + 0.35 * float((lh >> 1u) & 3u) / 3.0;
         // from altitude the pools merge into a soft street glow instead of a polka-dot grid
         float sm = smoothstep(1.5, 6.0, w);
-        vec3 glow = lc * mix(min(l1 * gain, 0.7), 0.08 * uNight, sm) + neon * mix(min(l2 * gain * 0.75, 0.45), 0.05 * uNight, sm);
+        vec3 glow = lc * mix(min(l1 * gain, 0.9), 0.08 * uNight, sm) + neon * mix(min(l2 * gain * 0.75, 0.55), 0.05 * uNight, sm);
         col += glow * 0.8;
       }
     }
   } else col *= 1.0 - 0.6 * uNight;
+  col += gEmit * smoothstep(0.15, 0.6, uNight);
   o = vec4(fogMix(col, dir, t), 1.0);
   // blend into the sky right at the horizon (only those pixels pay for the sky)
   if (dir.y > -0.02) o.rgb = mix(o.rgb, sky(vec3(dir.x, 0.0005, dir.z)), smoothstep(-0.02, -0.0005, dir.y));

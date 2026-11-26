@@ -21,7 +21,7 @@ function treeBody(mb, x, z, s, h, lod) {
   const kind = h % 7;
   if (mb.lite) {
     const c = kind === 6 ? BLOSSOM[(h >>> 3) % 3] : LEAVES[(h >>> 3) % LEAVES.length];
-    mb.cyl(x, 0, z, 0.25 * s, 1.6 * s, 0.25 * s, 3, TRUNK, M.PLAIN, h & 255, false);   // the trunk stays: a crown without one floats
+    mb.cyl(x, 0, z, 0.34 * s, 1.7 * s, 0.3 * s, 3, TRUNK, M.PLAIN, h & 255, false);   // the trunk stays (and reads): a crown without one floats
     if (kind < 2) mb.cyl(x, 1.0 * s, z, 2.2 * s, 6 * s, 0, 4, shade(c, 0.85), M.LEAF, h & 255);
     else mb.ell(x, 3.4 * s, z, 2.2 * s, 1.9 * s, 2.2 * s, 4, 2, c, M.LEAF, h & 255, false, 0.62);   // 24 tris, rounder than a diamond
     return;
@@ -54,10 +54,11 @@ export function wires(mb, x0, x1, z, n, alongZ = false) {
     const y = 8.15 - i * 0.12, dz = (i - 1) * 0.5;
     for (const [ax, bx, ay, by] of [[x0, xm, y, y - 0.4], [xm, x1, y - 0.4, y]]) {
       for (const fs of [1, -1]) {
-        const [p0x, p0z] = P(ax, dz + fs * 0.005), [p1x, p1z] = P(bx, dz + fs * 0.005);
-        // flat-shaded ribbon; fq computes the normal, the two windings make it visible from both sides
-        if (fs > 0) mb.fq(p0x, ay - 0.04, p0z, p1x, by - 0.04, p1z, p1x, by, p1z, p0x, ay, p0z, M.PLAIN, c, 0);
-        else mb.fq(p1x, by - 0.04, p1z, p0x, ay - 0.04, p0z, p0x, ay, p0z, p1x, by, p1z, M.PLAIN, c, 0);
+        // flat-shaded ribbon tilted 45 degrees, so it has width seen from the street AND from a drone (a vertical
+        // ribbon vanished from above into broken dashes); fq computes the normal, the two windings show both sides
+        const [p0x, p0z] = P(ax, dz - 0.025), [p1x, p1z] = P(bx, dz - 0.025), [q0x, q0z] = P(ax, dz + 0.025), [q1x, q1z] = P(bx, dz + 0.025);
+        if (fs > 0) mb.fq(p0x, ay - 0.035, p0z, p1x, by - 0.035, p1z, q1x, by, q1z, q0x, ay, q0z, M.PLAIN, c, 0);
+        else mb.fq(p1x, by - 0.035, p1z, p0x, ay - 0.035, p0z, q0x, ay, q0z, q1x, by, q1z, M.PLAIN, c, 0);
       }
     }
   }
@@ -78,7 +79,7 @@ export function lamp(mb, x, z, a) {
 // it sticks out (the outer edge). 4-6 tris, cheaper than the 10-tri box it replaces.
 export function kanban(mb, cx, cz, y0, kh, t, dep, axis, fs, c, h) {
   const y1 = y0 + kh, n = Math.max(2, Math.round(kh / 0.95)), v1 = 16 - ((h >>> 3) & 3) / 4, v0 = v1 - n / 4;   // v: 4 glyphs per tile, quarter steps
-  const k = h & 3, a = (h >>> 2) & 1 ? 253 : 254;            // tile, and board style (253: pale board, coloured ink)
+  const k = h & 3, a = ((h >>> 2) & 3) === 0 ? 253 : 254;    // tile, and board style (253: pale board, coloured ink; 1 in 4)
   if (axis === 'z') {
     const za = cz - dep / 2, zb = cz + dep / 2;
     mb.q(cx + t / 2, y0, zb, cx + t / 2, y0, za, cx + t / 2, y1, za, cx + t / 2, y1, zb, 1, 0, 0, k, v0, k + 1, v1, M.LIGHT, c, a);
@@ -96,7 +97,7 @@ export function kanban(mb, cx, cz, y0, kh, t, dep, axis, fs, c, h) {
 // plane 'z': z = c0, spanning x in [a0, a1]; plane 'x': x = c0, spanning z. 2 tris.
 export function board(mb, plane, c0, a0, a1, y0, y1, fs, c, h) {
   const nc = Math.max(1, Math.round((a1 - a0) / 1.5)), ng = Math.max(1, Math.min(4, Math.round((y1 - y0) / 1.0)));
-  const u0 = h & 3, u1 = u0 + nc, v1 = 16 - ((h >>> 3) & 3) / 4, v0 = v1 - ng / 4, a = (h >>> 2) & 1 ? 253 : 254;
+  const u0 = h & 3, u1 = u0 + nc, v1 = 16 - ((h >>> 3) & 3) / 4, v0 = v1 - ng / 4, a = ((h >>> 2) & 3) === 0 ? 253 : 254;
   if (plane === 'z') {
     if (fs > 0) mb.q(a0, y0, c0, a1, y0, c0, a1, y1, c0, a0, y1, c0, 0, 0, 1, u0, v0, u1, v1, M.LIGHT, c, a);
     else mb.q(a1, y0, c0, a0, y0, c0, a0, y1, c0, a1, y1, c0, 0, 0, -1, u0, v0, u1, v1, M.LIGHT, c, a);

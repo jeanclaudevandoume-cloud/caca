@@ -70,7 +70,7 @@ function shopHouse(mb, f, r, lod, a) {
   if ((r.hash >>> 23) & 1) {
     const bz = (r.hash & 1) ? z1 - 2.2 : z0 + 2.2, bc = AWNING[(r.awning + 1) % AWNING.length];
     mb.cbox(fx + fs * 1.1, gh + 0.6, bz, 1.2, 6.0, 0.16, bc, M.PLAIN, a);
-    mb.cbox(fx + fs * 1.1, gh + 2.0, bz, 0.7, 3.2, 0.2, 0xf6f4ee, M.LIGHT, a);
+    kanban(mb, fx + fs * 1.1, bz, gh + 1.6, 3.8, 0.24, 0.9, 'z', fs, ACCENT_SIGN[(r.sign + 4) % ACCENT_SIGN.length], (r.hash >>> 3) | 4);   // lit glyph column, not a blank white panel
   }
   mb.noCast = false;
 }

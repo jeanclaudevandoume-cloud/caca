@@ -106,6 +106,7 @@ export function createView(app) {
     const r = recipe(bx, bz, slot, zone, null);
     const doorX = zone === 0 && r.side ? (r.side > 0 ? q[0] + 1.3 : q[2] - 1.3) : hx;
     const safe = app.safe || { top: 0.84, bottom: -0.62, side: 0.88 };   // NDC: y up
+    const left = safe.left === undefined ? -safe.side : safe.left, cxT = (left + safe.side) / 2;   // the free band's centre (landscape: right of the card)
     const tv = Math.tan(vfov / 2), th = Math.tan(hfov / 2);
     const corners = [];
     for (const cx of [q[0], q[2]]) for (const cz of [q[1], q[3]]) for (const cy of [0, top]) corners.push([cx, cy, cz]);
@@ -136,14 +137,14 @@ export function createView(app) {
       if (inRail(x, y, z) || inRail(x, y, z - 3) || inRail(x, y, z + 3)) continue;
       // aim at the home's centre, then tilt so it sits at the middle of the safe band
       const az0 = hz + (front - hz) * aim, ax = hx - x, az = az0 - z, ah = Math.hypot(ax, az);   // aim near the facade, not the box centre: the front sits centred
-      const yaw = Math.atan2(ax, -az);
+      const yaw = Math.atan2(ax, -az) - Math.atan(cxT * th);   // turn so the home sits at the free band's centre
       const pitch = -Math.atan2(y - top * 0.5, ah) - Math.atan(midY * tv);
       const cam = [x, y, z];
       let ok = true, minX = 9, maxX = -9, minY = 9, maxY = -9;
       const P = PROJ;
       for (let k = 0; k < 8; k++) {
         const pr = P[k] = project(cam, yaw, pitch, corners[k]);
-        if (!pr || Math.abs(pr[0]) > safe.side || pr[1] > safe.top || pr[1] < safe.bottom) { ok = false; }
+        if (!pr || pr[0] > safe.side || pr[0] < left || pr[1] > safe.top || pr[1] < safe.bottom) { ok = false; }
         if (pr) { minX = Math.min(minX, pr[0]); maxX = Math.max(maxX, pr[0]); minY = Math.min(minY, pr[1]); maxY = Math.max(maxY, pr[1]); }
       }
       const width = (maxX - minX) / 2;                              // fraction of the screen width
@@ -172,7 +173,7 @@ export function createView(app) {
         const hgt = (maxY - minY) / (safe.top - safe.bottom);
         comp += Math.max(0, 0.45 - hgt, hgt - 0.6) * 12;
         const fr = FRONT, fc = (P[fr[0]][0] + P[fr[1]][0] + P[fr[2]][0] + P[fr[3]][0]) / 4;
-        comp += Math.max(0, Math.abs(fc) - 0.1) * 10;
+        comp += Math.max(0, Math.abs(fc - cxT) - 0.1) * 10;
         const fa = quadArea(P, fr), ra = quadArea(P, ROOF4);
         if (fa < ra) comp += 3 + (ra - fa) / Math.max(fa, 1e-3);
         cm = { hgt, fc, front: fa, roof: ra, pitch };

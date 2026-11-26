@@ -11,6 +11,7 @@ import { hyp2, hyp3, mulv } from './gfx.js';
 import { plotKey } from './view.js';
 
 export const MAX_TAGS = 24;
+const SHOWN = 8;   // at most this many names on screen at once (nearest first)
 
 export function createTagState() {
   return {
@@ -108,11 +109,13 @@ export function placeTags(st, VP, W, H, ui, pinKey, measure) {
     const b = measure(t.name);
     const w = b.cw;
     if (sy - 26 < ui.top || (sx + w / 2 > ui.toolsX && sy > ui.toolsY)) continue;
+    if (sx - w / 2 < 6 || sx + w / 2 > W - 6) continue;        // never a name cut off at the screen edge
+    if (used >= SHOWN) continue;                               // a few names read; a crowd of pills hides the town
     let clash = false;
     for (let q = 0; q < np; q += 3) if (Math.abs(placed[q] - sx) < (placed[q + 2] + w) / 2 && Math.abs(placed[q + 1] - sy) < 20) { clash = true; break; }
     if (clash) continue;
     placed[np] = sx; placed[np + 1] = sy; placed[np + 2] = w; np += 3;
-    const ix = Math.round(sx), iy = Math.round(sy), op = Math.round(Math.max(0.45, 1 - t.d / 400) * 20);
+    const ix = Math.round(sx), iy = Math.round(sy), op = Math.round(Math.max(0.35, 1 - t.d / 300) * 20);
     st.draw[used] = b; st.keys[used] = t.key; st.xy[used * 3] = ix; st.xy[used * 3 + 1] = iy; st.xy[used * 3 + 2] = op;
     sig = (sig * 31 + ix * 7 + iy * 13 + op + b.id) | 0;
     used++;
