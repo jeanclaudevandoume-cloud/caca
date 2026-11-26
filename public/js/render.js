@@ -53,7 +53,7 @@ export function createRenderer(d) {
   const ORDER = [], DRAWN = [], SKYORD = [], NONE = [], MIDORD = [];
   const pushOrder = (c) => { if (c.g) ORDER.push(c); }, pushSky = (s) => { if (s.g) SKYORD.push(s); }, pushMid = (s) => { if (s.g) MIDORD.push(s); };
   const FWD = new Float64Array(3), EYE = new Float64Array(3), SHD = new Float32Array(3);
-  let pinMesh = null, ringMesh = null;
+  let pinMesh = null;
   let groundTex = null, groundExt = 0, groundBytes = 0;
   // The ground data texture is a window of at most 641^2 blocks (1.6 MB) (layout.js buildGround): the whole town when it
   // fits, otherwise centred near the camera and replaced by a worker-built window when the camera has moved
@@ -162,20 +162,6 @@ export function createRenderer(d) {
       tris += hero.mesh.n / 3; draws++;
     }
     if (pin && app.L && PROBE !== 'full') {
-      if (!ringMesh) {
-        // a glowing pink ring on the ground around the follower's home: the home is singled out, not only the pin
-        const mb = new MB(0, 0, 256);
-        for (let i = 0; i < 20; i++) {
-          const a0 = i / 20 * Math.PI * 2, a1 = (i + 1) / 20 * Math.PI * 2, R = 8.2, r = 7.75, y = 0.07;
-          mb.fq(Math.cos(a0) * R, y, Math.sin(a0) * R, Math.cos(a0) * r, y, Math.sin(a0) * r, Math.cos(a1) * r, y, Math.sin(a1) * r, Math.cos(a1) * R, y, Math.sin(a1) * R, M.LIGHT, 0xff4f7b, 0);
-        }
-        ringMesh = gfx.upload(mb.finish());
-      }
-      gl.uniform4f(geo.u.uLod, 1e9, 2e9, 0, 0);
-      gl.uniform3f(geo.u.uOrigin, pin.x, 0, pin.z);
-      gl.bindVertexArray(ringMesh.vao);
-      gl.drawElements(gl.TRIANGLES, ringMesh.n, ringMesh.it, 0);
-      draws++;
       if (!pinMesh) {
         const mb = new MB(0, 0, 256);
         mb.cyl(0, 0, 0, 0.01, 5, 1.6, 10, 0xff4f7b, M.LIGHT, 0, false);
@@ -259,6 +245,7 @@ export function createRenderer(d) {
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, groundTex); gl.uniform1i(u.uGround, 0);
     const shDir = shadowDir(T);
     gl.uniform4f(u.uFar, r1 * 0.72, r1 * 0.96, !isLow() ? 1 : hasStencil ? -LOW_SHADOW : 0, 5 / shDir[1] * 0.5);   // z < 0: low preset with cast shadows out to -z
+    gl.uniform3f(u.uPin, app.pin ? app.pin.x : 0, app.pin ? app.pin.z : 0, app.pin ? 1 : 0);   // a soft pink glow on the ground around the selected home
     gl.uniform1f(u.uClouds, 1);
     gl.uniform1f(u.uPx, halfActive ? 0.5 : 1);
   }

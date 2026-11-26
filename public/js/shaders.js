@@ -396,11 +396,14 @@ void main() {
   if (city && wall > 0.5 && vW.y < 4.2 && dist < 400.0) {
     // downtown ground floor: shops and lobbies with a lit glass front and mullions every 2.4 m, a dark fascia over it
     float along = abs(n.x) > 0.5 ? vW.z : vW.x;
-    float mull = step(0.12, fract(along / 2.4)) * step(0.5, vW.y) * step(vW.y, 3.3);
-    vec3 shop = mix(vec3(1.0, 0.82, 0.55), vec3(0.85, 0.95, 1.0), float(seedAll & 1u));
-    col = mix(col, mix(vec3(0.16, 0.18, 0.2), shop * 0.55, mull) * (amb + key * sun * 0.5), step(vW.y, 4.2));
-    col = mix(col, vec3(0.08, 0.08, 0.1), step(3.3, vW.y) * step(vW.y, 4.2));
-    emis = mix(emis, shop * mull * (0.35 + 1.3 * uNight), step(vW.y, 4.2));
+    uint bay = ih(uint(int(floor(along / 4.8)) + 8192) * 7919u + seedAll * 131u);
+    float mull = step(0.08, fract(along / 1.2)) * step(0.5, vW.y) * step(vW.y, 3.1) * float((bay & 7u) != 0u);   // a dark bay now and then
+    uint sk = (bay >> 4u) % 6u;   // convenience store white, warm cafe, amber, pale blue lobby, neon pink, neon cyan
+    vec3 shop = sk == 0u ? vec3(0.95, 0.98, 1.0) : sk == 1u ? vec3(1.0, 0.72, 0.42) : sk == 2u ? vec3(1.0, 0.85, 0.55) : sk == 3u ? vec3(0.65, 0.8, 1.0) : sk == 4u ? vec3(1.0, 0.35, 0.6) : vec3(0.3, 0.85, 1.0);
+    float inner = 0.55 + 0.45 * smoothstep(3.1, 0.6, vW.y);   // brighter low: shelves and counters, not a light panel
+    col = mix(col, mix(vec3(0.14, 0.15, 0.17), shop * 0.4 * inner, mull) * (amb + key * sun * 0.5), step(vW.y, 4.2));
+    col = mix(col, shop * 0.25, step(3.1, vW.y) * step(vW.y, 4.2));   // fascia in the shop's colour
+    emis = mix(emis, shop * (mull * inner * (0.12 + 0.7 * uNight) + step(3.3, vW.y) * step(vW.y, 4.0) * 0.6 * uNight), step(vW.y, 4.2));
   }
   // warm rim on edges turned toward a low sun keeps shapes readable at sunset
 #ifdef LOWQ
@@ -468,6 +471,7 @@ uniform vec4 uTown;   // x townD2, y ground texture size, z seaX, w seaBx
 uniform vec2 uGroundO;   // the block at texel (0, 0) of the ground window
 uniform float uPx, uClouds;
 uniform vec4 uFar;    // x roof fade start, y roof fade end, z quality (0 low, 1 high), w shadow len
+uniform vec3 uPin;    // xz of the selected home, z = 1 when one is selected
 in vec2 vNdc;
 out vec4 o;
 
@@ -542,9 +546,11 @@ vec3 water(vec2 p, vec3 dir, float t, vec3 deep) {
   c *= 0.9 + 0.2 * vnoise(p * 0.035 + vec2(uTime * 0.02, 0.0));
   if (uNight > 0.2) {
     // city light on the water: broken glints stretched toward the viewer like reflections in a harbour
-    vec2 vd = normalize(dir.xz + vec2(1e-5)), q = vec2(dot(p, vec2(-vd.y, vd.x)) * 0.09, dot(p, vd) * 0.6 + uTime * 0.4);
-    float g = smoothstep(0.6, 0.85, vnoise(vec2(q.x, q.y * 0.02))) * smoothstep(0.55, 0.8, vnoise(q * vec2(1.0, 0.25) + 7.0));
-    c += mix(vec3(1.0, 0.6, 0.28), vec3(0.6, 0.75, 1.0), step(0.6, vnoise(q * 0.13))) * g * uNight * 0.7 * (1.0 - smoothstep(500.0, 2200.0, t));
+    // polar around the viewer: streaks run straight toward the camera like real reflections
+    vec2 dp = p - uCam.xz;
+    vec2 q = vec2(atan(dp.y, dp.x) * 260.0, length(dp) * 0.5 + uTime * 0.6);
+    float g = smoothstep(0.7, 0.9, vnoise(vec2(q.x, q.y * 0.04))) * smoothstep(0.55, 0.85, vnoise(q * vec2(0.5, 0.5) + 7.0));
+    c += mix(vec3(1.0, 0.62, 0.3), vec3(0.65, 0.78, 1.0), step(0.6, vnoise(q * 0.05))) * g * uNight * 0.45 * (1.0 - smoothstep(300.0, 1200.0, t));
   }
   return c;
 }
@@ -872,6 +878,11 @@ void main() {
     }
   } else col *= 1.0 - 0.6 * uNight;
   col += gEmit * smoothstep(0.15, 0.6, uNight);
+  if (uPin.z > 0.5) {
+    // the selected home stands in a soft pink glow (stronger after dusk): singled out without a drawn outline
+    vec2 dp = p.xz - uPin.xy;
+    col += vec3(1.0, 0.3, 0.5) * exp(-dot(dp, dp) / 70.0) * (0.22 + 0.5 * uNight);
+  }
   o = vec4(fogMix(col, dir, t), 1.0);
   // blend into the sky right at the horizon (only those pixels pay for the sky)
   if (dir.y > -0.02) o.rgb = mix(o.rgb, sky(vec3(dir.x, 0.0005, dir.z)), smoothstep(-0.02, -0.0005, dir.y));
