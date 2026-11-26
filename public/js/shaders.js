@@ -180,8 +180,8 @@ void main() {
       // whole floors are lit or dark (an office floor, a hotel floor), and within a lit floor most window
       // groups are on: horizontal bands with dark storeys between them, not uniform speckle
       uint fh = ih(uint(int(floor(fy)) + 64) * 7919u + seed * 31u + 5u);
-      uint bh = ih(uint(int(floor(fy)) + 64) * 7919u + uint(int(floor(g.x / 3.0)) + 4096) * 104729u + seed * 31u);
-      float bandOn = float(float(fh & 255u) < share0 * 1.25) * float((bh & 255u) < 205u);
+      float gq = fract(floor(g.x / 3.0) * 0.618034 + float(fh >> 24u) / 256.0);   // window groups along the floor: arithmetic, no second hash
+      float bandOn = float(float(fh & 255u) < share0 * 1.25) * step(gq, 0.8);
       float lit0 = mix(share0 / 560.0, bandOn * (0.5 + 0.5 * float((fh >> 8u) & 3u) / 3.0), clamp(2.2 - fwy * 1.2, 0.0, 1.0));   // lit floors persist down to ~1.5 px, then a dim average
       // a tower is mostly office (cool white, some pale blue) or hotel/flats (warm amber); a few floors break the rule
       float cool = clamp(float((seed & 3u) == 1u) + glass * float((seed & 4u) != 0u), 0.0, 1.0);
@@ -528,9 +528,11 @@ void cars(inout vec3 cc, float along, float off, float dirS, float rid, float t,
   int ci = int((h >> 6u) % 6u);
   cc = mix(cc, CARC[ci] * 0.8, body * smoothstep(20.0, 45.0, t) * (1.0 - uNight * 0.6));
   cc *= 1.0 - 0.45 * body * smoothstep(0.0, 6.0, t);             // the car's shadow / dark underside up close
-  float lat = exp(-pow((ao - 0.6) / max(0.18, w * 0.6), 2.0)) * (0.18 / max(0.18, w * 0.5));
-  float head = exp(-pow((fx - 4.2) / max(0.25, w), 2.0)), tail = exp(-pow(fx / max(0.25, w), 2.0));
-  float k = min(lat, 1.0) * clamp(0.25 / max(0.25, w), 0.15, 1.0) * 4.0;
+  if (uNight < 0.15) return;
+  float sl = max(0.25, w), la = (ao - 0.6) / max(0.18, w * 0.6), hd = (fx - 4.2) / sl, tl = fx / sl;
+  float lat = max(0.0, 1.0 - la * la) * min(1.0, 0.36 / max(0.18, w * 0.5));            // cheap bumps instead of exp/pow
+  float head = max(0.0, 1.0 - hd * hd), tail = max(0.0, 1.0 - tl * tl);
+  float k = lat * clamp(0.25 / sl, 0.15, 1.0) * 4.0;
   gEmit += (vec3(1.0, 0.95, 0.82) * head * 1.4 + vec3(1.0, 0.08, 0.04) * tail * 0.9) * k;
 }
 
@@ -543,7 +545,7 @@ vec3 water(vec2 p, vec3 dir, float t, vec3 deep) {
   vec3 r = reflect(dir, n);
   c += uSunCol * pow(max(dot(r, uSunDir), 0.0), 220.0) * 1.6 * (1.0 - uNight * 0.7);
   // slow swell: the surface is never one flat colour, and darkens toward deep water
-  c *= 0.9 + 0.2 * vnoise(p * 0.035 + vec2(uTime * 0.02, 0.0));
+  if (t < 1500.0) c *= 0.9 + 0.2 * vnoise(p * 0.035 + vec2(uTime * 0.02, 0.0));
   if (uNight > 0.2) {
     // city light on the water: broken glints stretched toward the viewer like reflections in a harbour
     // polar around the viewer: streaks run straight toward the camera like real reflections
@@ -700,7 +702,7 @@ vec3 blockCol(uvec4 c, int bx, int bz, vec2 l, vec2 p, float t, float w, vec3 gr
       cc = asphalt(p, t);
       float lane = abs(fract((a - 4.1) / 3.475) - 0.5);
       float li = floor((a - 4.1) / 3.475), side = sign(ax ? l.x : l.y);
-      cars(cc, ax ? p.y : p.x, (fract((a - 4.1) / 3.475) - 0.5) * 3.475, side, float(ax ? bx : bz) * 64.0 + li * 2.0 + step(0.0, side) + (ax ? 0.25 : 0.75), t, w);
+      if (w < 2.5) cars(cc, ax ? p.y : p.x, (fract((a - 4.1) / 3.475) - 0.5) * 3.475, side, float(ax ? bx : bz) * 64.0 + li * 2.0 + step(0.0, side) + (ax ? 0.25 : 0.75), t, w);
       cc = mix(cc, vec3(0.93), step(0.47, lane) * step(0.5, fract(b / 5.0)) * (1.0 - smoothstep(0.3, 1.2, w)));
     } else cc = WALK;
     // from far away the boulevard reads as a green-lined street, not a hard grey bar
@@ -804,7 +806,7 @@ vec4 groundBase(vec2 p, vec3 dir, float t, float w) {
       cc = mix(cc * 0.92, vec3(0.9), max(edgeL, stopBar) * fade);
     } else {
       float alongW = sx != 0 ? p.y : p.x, rid = float(sx != 0 ? bx * 2 + sx : bz * 2 + sz) * 2.0 + (sx != 0 ? 0.5 : 0.0);
-      cars(cc, alongW, across - sign(across) * 2.0, across > 0.0 ? 1.0 : -1.0, rid + step(0.0, across), t, w);
+      if (w < 0.9) cars(cc, alongW, across - sign(across) * 2.0, across > 0.0 ? 1.0 : -1.0, rid + step(0.0, across), t, w);
       float dash = step(abs(across), 0.12) * step(0.5, fract(along / 6.0)) * step(abs(along), 14.0);
       float zebra = step(14.5, abs(along)) * step(abs(along), 19.5) * step(0.5, fract(across / 1.2));
       cc = mix(cc, vec3(0.95, 0.88, 0.55), dash * fade);
@@ -865,7 +867,7 @@ void main() {
         float far = 1.0 - smoothstep(900.0, 2600.0, t);
         // a bright core right under the lamp head with a short falloff, plus a faint halo
         float q1 = dot(d1, d1), q2 = dot(d2, d2);
-        float l1 = (exp(-q1 * 0.22) * 1.1 + exp(-q1 * 0.045) * 0.3) * uNight * far, l2 = (exp(-q2 * 0.3) * 1.1 + exp(-q2 * 0.06) * 0.22) * uNight * far;
+        float l1 = exp(-q1 * 0.13) * 1.25 * uNight * far, l2 = exp(-q2 * 0.16) * 1.2 * uNight * far;   // one exp each: a tight pool
         vec3 lc = mix(vec3(1.0, 0.68, 0.38), vec3(0.95, 0.9, 0.8), float(lh & 1u));
         uint nh = (lh >> 4u) % 6u;
         vec3 neon = nh == 0u ? vec3(1.0, 0.25, 0.55) : nh == 1u ? vec3(0.2, 0.75, 1.0) : nh == 2u ? vec3(0.75, 0.35, 1.0) : lc;
