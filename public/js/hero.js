@@ -47,23 +47,25 @@ export function createHero({ gfx, data }) {
 // door, a kei car parked along the kerb and a lit vending machine at the plot corner. The arrival frame is the app's
 // emotional payoff; a lane with no one on it read as an empty diorama (blind review).
 function street(mb, f, h) {
-  const fs = f.face, front = f.z + fs * f.d / 2, lane = front + fs * 1.6;
+  const fs = f.face, front = f.z + fs * f.d / 2, lane = front + fs * 1.7;
   const cast = mb.cast; mb.cast = false;
-  const CL = [0x2b3a55, 0xd8d2c4, 0x7a2e3a, 0x34594a, 0xe8b23a, 0x3d3d3d];
-  for (let i = 0; i < 2; i++) {                                  // two people facing each other
-    const px = f.x + (h & 1 ? 1.8 : -1.8) + i * 0.75, pz = lane + i * 0.2 * fs;
-    mb.cyl(px, 0, pz, 0.2, 0.95, 0.17, 5, 0x2a2a2e, M.PLAIN, 0, false);
-    mb.cyl(px, 0.9, pz, 0.25, 1.48, 0.2, 5, CL[(h >>> (3 + i * 3)) % CL.length], M.PLAIN, 0, false);
-    mb.cyl(px, 1.48, pz, 0.13, 1.72, 0.11, 5, 0xe0b894, M.PLAIN, 0);
+  const CL = [0xf4f1ea, 0xe8463a, 0xf2c23a, 0x3a8fd8, 0xffffff, 0xe86aa8];   // bright clothing: readable at phone size
+  for (let i = 0; i < 3; i++) {                                  // three neighbours chatting on the lane
+    const px = f.x + (h & 1 ? 1.6 : -1.6) + (i - 1) * 0.8, pz = lane + (i === 1 ? 0.6 : 0) * fs;
+    mb.cyl(px, 0, pz, 0.2, 0.9, 0.18, 5, 0x2a2d36, M.PLAIN, 0, false);                       // trousers
+    mb.cyl(px, 0.88, pz, 0.27, 1.5, 0.21, 5, CL[(h >>> (3 + i * 3)) % CL.length], M.PLAIN, 0, false);   // top
+    mb.cyl(px, 1.5, pz, 0.14, 1.78, 0.12, 5, 0xf0c8a0, M.PLAIN, 0);                          // head
   }
-  const bx = f.x + (h & 2 ? 3.2 : -3.2), bz = front + fs * 0.5;   // a bicycle against the front wall line
-  for (const dx of [-0.55, 0.55]) mb.cyl(bx + dx, 0, bz, 0.34, 0.06, 0.34, 6, 0x1c1d20, M.METAL, 0);   // wheels (flat discs read from above)
-  mb.cbox(bx, 0.45, bz, 1.2, 0.08, 0.06, 0x8a2f2f, M.METAL, 0);
-  mb.cbox(bx + 0.45, 0.45, bz, 0.06, 0.5, 0.06, 0x1c1d20, M.METAL, 0);
-  if (f.d !== 18) {                                               // a kei car parked along the street (not in a 4 m roji)
-    const cx = f.x + (h & 4 ? -3.4 : 3.4), cz = front + fs * 3.4, cc = CARS[(h >>> 9) % CARS.length];
-    mb.cbox(cx, 0.15, cz, 3.3, 0.8, 1.45, cc, M.METAL, 0);
-    mb.cbox(cx - 0.2, 0.95, cz, 2.0, 0.6, 1.3, 0x2b3240, M.GLASS, 0);
+  const bx = f.x + (h & 2 ? 3.2 : -3.2), bz = front + fs * 0.6;   // a bicycle by the gate (side-on)
+  for (const dx of [-0.55, 0.55]) mb.cbox(bx + dx, 0, bz, 0.66, 0.66, 0.05, 0x1c1d20, M.METAL, 0);
+  mb.cbox(bx, 0.5, bz, 1.2, 0.08, 0.07, 0xd8402f, M.METAL, 0);
+  if (f.d !== 18) {                                               // a kei car parked on the street, on its wheels
+    const cx = f.x + (h & 4 ? -3.6 : 3.6), cz = front + fs * 4.6;
+    const cc = [0xf4f3ef, 0xe9d9a8, 0xa8c8e0, 0xe86a5a][(h >>> 9) & 3];   // light kei-car colours
+    for (const wx of [-1.05, 1.05]) for (const wz of [-0.62, 0.62]) mb.cyl(cx + wx, 0, cz + wz, 0.3, 0.6, 0.3, 6, 0x1a1a1c, M.PLAIN, 0);
+    mb.cbox(cx, 0.3, cz, 3.3, 0.75, 1.45, cc, M.METAL, 0);                  // body
+    mb.cbox(cx - 0.15, 1.05, cz, 2.3, 0.7, 1.38, cc, M.METAL, 0);           // tall kei cabin
+    for (const s2 of [-1, 1]) mb.wq(cx - 1.2, cx + 0.9, 1.15, 1.65, cz + s2 * 0.7, s2, 0x24303e, M.GLASS, 0);   // window band
   }
   const vx = f.x + (h & 8 ? f.w / 2 - 0.6 : -f.w / 2 + 0.6), vz = front - fs * 0.5;   // vending machine at the plot corner
   mb.cbox(vx, 0, vz, 0.9, 1.8, 0.7, VEND[(h >>> 12) % VEND.length], M.LIGHT, 0);

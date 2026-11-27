@@ -26,6 +26,8 @@ function trainEnds(mb, bx, X, y, tz, h, ht) {
     if (g4 !== end) continue;
     const head = (s > 0) === !!east, xe = X + s * 23.02;
     mb.xq(xe, tz - 1.2, tz + 1.2, y + 0.5, y + 1.1, s, head ? 0xfff6dc : 0xff2a1a, M.LIGHT, 0);
+    // a sloped nose: the end car's face leans back over the cab (reads as a train end, not a cut-off slab)
+    mb.fq(xe, y + 1.9, tz - 1.45, xe, y + 1.9, tz + 1.45, xe - s * 1.6, y + h, tz + 1.45, xe - s * 1.6, y + h, tz - 1.45, M.GLASS, 0x1d2630, 0);
   }
 }
 
@@ -76,7 +78,8 @@ export function viaduct(mb, bx, X, Z, lod, lite) {
     for (const s of [-1, 1]) mb.wq(X - 23, X + 23, Y1 + 0.3, Y1 + 0.85, tz + s * 1.47, s, 0x2c2f33, M.PLAIN, 0);   // dark underframe: the train sits on the deck and separates from pale blocks by day
     if (lod) for (const s of [-1, 1]) mb.wq(X - 22.5, X + 22.5, Y1 + 1.7, Y1 + 2.8, tz + s * 1.47, s, 0xf4ecd8, M.LIGHT, 248);
     if (!lod) for (const s of [-1, 1]) {
-      mb.wq(X - 23, X + 23, Y1 + 0.95, Y1 + 1.55, tz + s * 1.47, s, (ht >>> 6) & 1 ? 0x1f9e50 : 0xe86a1a, M.PLAIN, 0);   // livery band
+      mb.wq(X - 23, X + 23, Y1 + 0.95, Y1 + 1.55, tz + s * 1.47, s, (ht >>> 6) & 1 ? 0x1f9e50 : 0xe86a1a, M.LIGHT, 0);   // livery band: lit, so the line colour reads at night too
+      for (const gx of [X - 12, X + 12, X + 23.5]) mb.wq(gx - 0.35, gx + 0.35, Y1 + 0.3, Y1 + 3.7, tz + s * 1.49, s, 0x15171a, M.PLAIN, 0);   // dark gaps between carriages
       mb.wq(X - 22.5, X + 22.5, Y1 + 1.7, Y1 + 2.8, tz + s * 1.47, s, 0xf4ecd8, M.LIGHT, 248);   // lit carriages: pale by day, warm at dusk
     }
   }

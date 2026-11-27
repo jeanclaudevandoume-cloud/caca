@@ -190,12 +190,12 @@ void main() {
       vec3 lc0 = mix(vec3(1.0, 0.72, 0.38), mix(vec3(0.85, 0.93, 1.05), vec3(0.55, 0.75, 1.1), float(((fh >> 16u) & 3u) == 0u)), cool);
       emis = lc0 * lit0 * mix(0.4, 1.0, glass) * smoothstep(0.05, 0.6, uNight) * (1.0 - spand * 0.7);
       // one tower in six carries a giant LED screen: a landmark that cycles colour over the skyline
-      if ((seed % 6u) == 3u && glass > 0.5 && vW.y > 36.0 && vW.y < 66.0) {
-        float sx = fract(g.x / 14.0), sy = (vW.y - 36.0) / 30.0;
+      if ((seed % 4u) == 3u && glass > 0.5 && vW.y > 28.0 && vW.y < 76.0) {
+        float sx = fract(g.x / 14.0), sy = (vW.y - 28.0) / 48.0;
         float scr = step(0.15, sx) * step(sx, 0.85), inner = step(0.19, sx) * step(sx, 0.81) * step(0.05, sy) * step(sy, 0.95);
         // an image, not a tile: a diagonal two-colour gradient that drifts, soft scanlines, a dark frame
         float ph = uTime * 0.05 + float(seed & 15u) / 16.0;
-        vec3 ca = 0.55 + 0.45 * cos(6.2831 * (ph + vec3(0.0, 0.33, 0.67))), cb = 0.55 + 0.45 * cos(6.2831 * (ph + 0.4 + vec3(0.0, 0.33, 0.67)));
+        vec3 ca = mix(vec3(1.0, 0.18, 0.55), vec3(1.0, 0.45, 0.25), 0.5 + 0.5 * sin(ph * 6.2831)), cb = mix(vec3(0.55, 0.2, 1.0), vec3(0.15, 0.75, 1.0), 0.5 + 0.5 * cos(ph * 6.2831));   // brand pinks into violet and cyan
         vec3 led = mix(ca, cb, clamp(sy * 0.8 + (sx - 0.5) * 0.6 + 0.1 * sin(uTime * 0.7 + sy * 9.0), 0.0, 1.0)) * (0.85 + 0.15 * step(0.5, fract(vW.y / 1.1)));
         col = mix(col, mix(vec3(0.05), led * 0.3, inner), scr);
         emis = mix(emis, led * (0.35 + 1.1 * uNight) * inner, scr);
@@ -390,10 +390,10 @@ void main() {
       base = mix(board, inkC, ink * mix(0.9, 0.22, far));
       sat = rev ? 0.45 : max(sat, 0.5);                // a sign is never a pale lamp
       pale = 0.0;
-      emis = (rev ? base * mix(vec3(1.0), board, 0.5) * 1.0 : base * base * 1.05) * max(uNight, 0.12);   // saturated, below the tone curve's white roll-off   // signs burn brighter than any window
+      emis = (rev ? base * mix(vec3(1.0), board, 0.5) * 1.0 : base * base * 1.05) * max(uNight, 0.03);   // saturated, below the tone curve's white roll-off   // signs burn brighter than any window
     }
       col = mix(base, vec3(0.92, 0.93, 0.95), (1.0 - uNight) * pale) * mix(1.0, 0.65, pale) * mix(1.0, 0.8, sat);
-    col *= mix(mix(1.0, 0.62, smoothstep(0.35, 0.6, sat)), 1.0, uNight);   // by day neon tubes and signs are painted colour, not light
+    col *= mix(mix(1.0, 0.45, smoothstep(0.35, 0.6, sat)), 1.0, uNight);   // by day neon tubes and signs are painted colour, not light
     if (sa4 != 253u && sa4 != 254u) emis = mix(base * vec3(1.0, 0.85, 0.6) * 1.4, base * base * 1.8, smoothstep(0.2, 0.5, sat)) * uNight;
     if (sa4 == 248u) {                                 // train windows (rail.js): 1.6 m bays, a dark gap every 20 m carriage
       float tw = step(0.22, fract(vW.x / 1.6)) * step(0.06, fract(vW.x / 20.0 + 0.03)) * step(fract(vW.x / 20.0 + 0.03), 0.97);
@@ -451,8 +451,9 @@ void main() {
     // the selected home is singled out: a pink rim light on its walls and a little lift, strongest at dusk
     vec2 dg = vW.xz - uGlow.xy;
     float near = exp(-dot(dg, dg) / 45.0) * (1.0 - smoothstep(9.0, 16.0, vW.y));
-    col += (base * 0.25 + vec3(1.0, 0.32, 0.55) * pow(1.0 - abs(dot(n, dir)), 2.0) * 0.9) * near * (0.25 + 0.6 * uNight);
-    emis *= 1.0 + near * 1.6;                                   // its windows glow warmer and brighter than the street's
+    float rim = pow(1.0 - abs(dot(n, dir)), 1.5);
+    col += base * 0.3 * near * (0.3 + 0.5 * uNight);
+    emis = emis * (1.0 + near * 2.2) + vec3(1.0, 0.45, 0.6) * rim * near * (0.18 + 0.5 * uNight);   // warm rim light and a step brighter windows
   }   // cool sky fill after dusk: walls stay readable, not brown-black
   col = col * (1.0 - 0.5 * uNight) + emis;
   o = vec4(tone(fogMix(col, dir, dist * mix(1.0, mix(0.6, 0.35, uLowQ), smoothstep(40.0, 200.0, vW.y)))), 1.0);   // tall towers keep contrast
@@ -824,7 +825,7 @@ vec4 groundBase(vec2 p, vec3 dir, float t, float w) {
     vec3 bc = blockCol(c, bx, bz, clamp(l, -19.9, 19.9), p, t, w, grass);
     vec3 rc = k == 8u ? vec3(0.62, 0.62, 0.6) : countryish(k) ? grass * vec3(1.0, 0.98, 0.85) : asphalt(p, t);
     // from altitude the city blocks sparkle with lit windows (a dark ring around downtown read as unbuilt land)
-    if (k == 0u && (c.g & 3u) >= 2u) gEmit += vec3(1.0, 0.76, 0.48) * (0.1 + 0.22 * float(h2(ivec2(floor(p / 16.0))) & 255u) / 255.0) * cv.x * cv.y * smoothstep(2.5, 6.0, w);
+    if (k == 0u && (c.g & 3u) >= 2u) gEmit += vec3(1.0, 0.58, 0.24) * (0.04 + 0.2 * step(0.55, float(h2(ivec2(floor(p / 16.0))) & 255u) / 255.0)) * float(c.g & 3u) * 0.5 * cv.x * cv.y * smoothstep(2.5, 6.0, w);   // warm amber, denser downtown
     // from altitude the boulevards and the ring road are threads of traffic light (amber and red trails)
     if (k == 5u || k == 7u) gEmit += vec3(1.0, 0.55, 0.28) * 0.4 * smoothstep(2.5, 9.0, w) * float((hash3(fdiv(bx, 3), fdiv(bz, 3), 77) & 3u) != 0u) * (1.0 - cv.x * cv.y * 0.7);   // busy stretches glow, quiet ones fade
     return vec4(mix(rc, bc, cv.x * cv.y), lampOk);
@@ -923,7 +924,7 @@ void main() {
         vec2 vd = normalize(dir.xz + vec2(1e-5)), vs = vec2(-vd.y, vd.x);
         vec2 d1 = p.xz - (cc - 4.7), d2 = p.xz - (cc + 4.7);
         // the reflection streak only shows at grazing angles: looking down from a drone the pools stay round
-        float st = mix(mix(0.75, 0.3, smoothstep(40.0, 140.0, t)), 1.0, smoothstep(0.1, 0.3, -dir.y));
+        float st = mix(mix(1.0, 0.5, smoothstep(60.0, 200.0, t)), 1.0, smoothstep(0.1, 0.3, -dir.y));   // round pools near the camera, a short streak only far off
         d1 = vec2(dot(d1, vs), dot(d1, vd) * st); d2 = vec2(dot(d2, vs), dot(d2, vd) * st);
         float far = 1.0 - smoothstep(900.0, 2600.0, t);
         // a bright core right under the lamp head with a short falloff, plus a faint halo
@@ -951,7 +952,8 @@ void main() {
       vec2 q = abs(p.xz - c) - hs;
       float sd = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
       float lw = max(w, 0.05);
-      col += vec3(1.0, 0.35, 0.6) * (smoothstep(0.22 + lw, 0.22, abs(sd)) * (0.6 + 1.2 * uNight) + exp(-max(sd, 0.0) * 1.2) * step(-0.05, sd) * 0.12 * (0.4 + uNight));
+      // a soft glow pooled on the ground round the footprint, fading out over a metre or two (never a hairline)
+      col += vec3(1.0, 0.42, 0.55) * exp(-max(sd, 0.0) * 1.1) * step(-0.6, sd) * (0.22 + 0.55 * uNight);
     }
   }
   o = vec4(fogMix(col, dir, t), 1.0);
