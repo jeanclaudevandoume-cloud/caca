@@ -298,3 +298,12 @@ stop, and both Stop buttons. Additionally:
 Every scheduled callback path is generation-guarded (verified by audit):
 driver eval, 403 retry, settle re-check, next-page load, next-query timer,
 watchdog, blank clear.
+
+## Audit regression tests (audit cycle ADV-EBAYSS-2025-0007)
+
+`tests/CsvTest.java` and `tests/TrustTest.java` replicate the shipped
+splitCsvLine() parser (finding ADV-004) and isTrustedEbayUrl() navigation /
+credential-bridge gate (finding ADV-001) line-for-line. Run with any JDK 17+:
+`bash tests/run-tests.sh <jdk-home>`. Both suites passed during the audit
+cycle (11/11 and 9/9); the fresh sandbox used to commit them has no JDK,
+so re-execute them when making changes to either function.
