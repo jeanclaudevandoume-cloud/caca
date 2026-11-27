@@ -174,10 +174,15 @@ export function home(mb, bx, bz, f, r, lod) {
         const gx0 = r.side > 0 ? x1 - 3.2 : x0 + 0.4, gx1 = gx0 + 2.8;
         const open = (r.hash >>> 25) & 1;
         mb.wq(gx0, gx1, 0, 2.5, wallZ + fs * 0.03, fs, open ? 0x1e1f22 : 0x5f676c, M.METAL, a);   // open bay (near black) or a roller shutter
-        if (open && !mb.lite && (r.hash >>> 27) % 5 < 3) {         // a kei car parked in the open bay
+        if (open && (r.hash >>> 27) % 5 < (mb.lite ? 2 : 3)) {     // a kei car parked in the open bay
           const cx = (gx0 + gx1) / 2, cz = wallZ + fs * 0.3, cc = CARS[(r.hash >>> 9) % CARS.length];
-          mb.cbox(cx, 0.2, cz, 1.45, 0.75, 1.4, cc, M.METAL, a);
-          mb.cbox(cx, 0.95, cz - fs * 0.15, 1.35, 0.6, 0.9, 0x2b3240, M.GLASS, a);
+          if (mb.lite) {                                            // lite: body + a cabin face toward the street (12 tris)
+            mb.cbox(cx, 0.2, cz + fs * 0.6, 1.45, 1.35, 2.6, cc, M.METAL, a);
+            mb.wq(cx - 0.62, cx + 0.62, 0.95, 1.45, cz + fs * 1.92, fs, 0x2b3240, M.GLASS, a);
+          } else {
+            mb.cbox(cx, 0.2, cz, 1.45, 0.75, 1.4, cc, M.METAL, a);
+            mb.cbox(cx, 0.95, cz - fs * 0.15, 1.35, 0.6, 0.9, 0x2b3240, M.GLASS, a);
+          }
         }
         if (!mb.lite) mb.wq(gx0 - 0.15, gx1 + 0.15, 2.5, 2.7, wallZ + fs * 0.04, fs, 0xd9d3c7, M.PLAIN, a);
       }
@@ -243,6 +248,17 @@ export function home(mb, bx, bz, f, r, lod) {
         if (mb.lite) mb.wq(vx - 0.45, vx + 0.45, 0, 1.8, vz + fs * 0.35, fs, VEND[(r.hash >>> 11) % VEND.length], M.LIGHT, a);   // lite: the lit front only
         else mb.cbox(vx, 0, vz, 0.9, 1.8, 0.7, VEND[(r.hash >>> 11) % VEND.length], M.LIGHT, a);
         mb.cast = true;
+      }
+      // people on the lane in front of about one home in six: a commuter, a shopper (all presets, 13 tris). A
+      // street with no one on it reads as a model; these are what make the lanes feel lived in from the drone views.
+      if ((r.hash >>> 28) % 10 === 0) {
+        const cast = mb.cast; mb.cast = false;
+        const px = f.x + (((r.hash >>> 4) & 7) - 3.5) * 1.1, pz = front + fs * (1.2 + ((r.hash >>> 12) & 1) * 1.6);
+        const cloth = [0x2b3a55, 0x3d3d3d, 0xd8d2c4, 0x7a2e3a, 0x34594a, 0xe8b23a][(r.hash >>> 14) % 6];
+        mb.cyl(px, 0, pz, 0.22, 1.5, 0.26, 3, cloth, M.PLAIN, a, false);              // body (6 tris)
+        mb.cyl(px, 1.5, pz, 0.14, 1.72, 0.12, 3, 0xe0b894, M.PLAIN, a);                // head (7 tris)
+        if ((r.hash >>> 17) & 1) mb.wq(px + 0.25, px + 1.85, 0.05, 0.95, pz + 0.3, fs, 0x2a2c30, M.METAL, a);   // a bicycle by them (side-on silhouette)
+        mb.cast = cast;
       }
       if (!mb.lite) {
         const spots = [r.side > 0 ? -2.5 : 2.5];

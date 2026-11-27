@@ -110,7 +110,7 @@ export function placeTags(st, VP, W, H, ui, pinKey, measure) {
     const w = b.cw;
     if (sy - 26 < ui.top || (sx + w / 2 > ui.toolsX && sy > ui.toolsY)) continue;
     if (sx - w / 2 < 6 || sx + w / 2 > W - 6) continue;        // never a name cut off at the screen edge
-    if (used >= SHOWN) continue;                               // a few names read; a crowd of pills hides the town
+    if (used >= (W > H ? SHOWN - 2 : SHOWN)) continue;        // landscape sees more town: fewer pills                               // a few names read; a crowd of pills hides the town
     let clash = false;
     for (let q = 0; q < np; q += 3) if (Math.abs(placed[q] - sx) < (placed[q + 2] + w) / 2 && Math.abs(placed[q + 1] - sy) < 20) { clash = true; break; }
     if (clash) continue;

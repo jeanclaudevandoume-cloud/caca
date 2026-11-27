@@ -10,7 +10,7 @@ uniform vec3 uCam;
 // ACES filmic fit: rich mid-tones, highlights roll off instead of clipping to neon
 vec3 tone(vec3 x) {
   x = clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
-  return clamp(mix(vec3(dot(x, vec3(0.3, 0.59, 0.11))), x, 1.08), 0.0, 1.0);   // keep it vibrant after the curve
+  return clamp(mix(vec3(dot(x, vec3(0.3, 0.59, 0.11))), x, 1.14), 0.0, 1.0);   // keep it vibrant after the curve (blind review: daytime read greyed)
 }
 vec3 fogMix(vec3 col, vec3 dir, float dist) {
   float f = 1.0 - exp(-pow(dist / (uFogD * 1.4), 1.6));
@@ -375,17 +375,17 @@ void main() {
       vec3 board = rev ? mix(vec3(0.95, 0.94, 0.9), base, 0.3) : base, inkC = rev ? base * 0.7 : mix(base, vec3(1.0, 0.97, 0.9), 0.7);
       // far off the glyphs average out: keep the board colour instead of washing it to pastel
       float far = clamp(length(fwidth(vUV)) * 0.6, 0.0, 1.0);
-      base = mix(board, inkC, ink * mix(0.9, 0.3, far));
+      base = mix(board, inkC, ink * mix(0.9, 0.22, far));
       sat = rev ? 0.45 : max(sat, 0.5);                // a sign is never a pale lamp
       pale = 0.0;
-      emis = (rev ? base * mix(vec3(1.0), board, 0.5) * 1.1 : base * base * 1.25) * max(uNight, 0.12);   // saturated, below the tone curve's white roll-off   // signs burn brighter than any window
+      emis = (rev ? base * mix(vec3(1.0), board, 0.5) * 1.0 : base * base * 1.05) * max(uNight, 0.12);   // saturated, below the tone curve's white roll-off   // signs burn brighter than any window
     }
       col = mix(base, vec3(0.92, 0.93, 0.95), (1.0 - uNight) * pale) * mix(1.0, 0.65, pale) * mix(1.0, 0.8, sat);
     if (sa4 != 253u && sa4 != 254u) emis = mix(base * vec3(1.0, 0.85, 0.6) * 1.4, base * base * 1.8, smoothstep(0.2, 0.5, sat)) * uNight;
     if (sa4 == 248u) {                                 // train windows (rail.js): 1.6 m bays, a dark gap every 20 m carriage
       float tw = step(0.22, fract(vW.x / 1.6)) * step(0.06, fract(vW.x / 20.0 + 0.03)) * step(fract(vW.x / 20.0 + 0.03), 0.97);
       tw = mix(0.55, tw, clamp(1.5 - fwidth(vW.x / 1.6) * 2.0, 0.0, 1.0));
-      col *= mix(0.35, 1.0, tw); emis *= tw * 0.8;
+      col *= mix(0.35, 1.0, tw); emis *= tw * 1.35;   // lit carriages read from across town at dusk
     }
     if (sa4 == 249u) emis = vec3(1.6, 0.08, 0.04) * (0.2 + 0.8 * step(0.45, fract(uTime * 0.5 + float(ih(uint(int(vW.x * 0.1) + 4096) * 7919u + uint(int(vW.z * 0.1) + 4096)) & 255u) / 255.0))) * max(uNight, 0.3);   // aviation lights blink   // saturated signs burn like neon
   } else if (vMat == 3) {
@@ -433,9 +433,10 @@ layout(location=0) in vec3 aPos;
 layout(location=3) in float aMat;
 uniform mat4 uVP;
 uniform vec3 uOrigin, uCam, uShadowDir;
-out float vD;
+out float vD, vH;
 void main() {
   vec3 p = aPos / 64.0 + uOrigin;
+  vH = p.y;                                          // height of the casting point: the shadow softens toward its tip
   p.xz -= uShadowDir.xz * (p.y / uShadowDir.y);
   p.y = 0.04;
   vD = length(p.xz - uCam.xz);
@@ -446,9 +447,11 @@ export const SHADOW_FS = /* glsl */ `#version 300 es
 precision mediump float;
 uniform vec3 uShadowCol;
 uniform float uShadowFar;
-in float vD;
+in float vD, vH;
 out vec4 o;
-void main() { o = vec4(mix(uShadowCol, vec3(1.0), smoothstep(uShadowFar * 0.6, uShadowFar, vD)), 1.0); }`;
+// contact-hardening: dark where the wall meets the ground, lighter toward the far tip (a wider penumbra there),
+// so the shadow reads as attached to its caster instead of a flat slab on the road
+void main() { o = vec4(mix(uShadowCol, vec3(1.0), max(smoothstep(uShadowFar * 0.6, uShadowFar, vD), clamp(vH / 22.0, 0.0, 0.55))), 1.0); }`;
 
 // Upsample of the half-resolution ground/sky pass (low quality): fills only depth == 1 pixels.
 export const COPY_FS = /* glsl */ `#version 300 es
@@ -574,7 +577,12 @@ vec3 asphalt(vec2 q, float t) {
 // Distance from the river's smooth centreline (the block-wise river is a staircase; the water
 // inside it is drawn as a smooth band, the rest of the river blocks become embankment parks).
 float riverDist(vec2 p) {
-  return abs(p.y - (9.0 + 6.0 * sin(6.2831853 * (p.x / 48.0 + 0.5) / 48.0)) * 48.0);
+  // the river's blocks follow town.js (homes never move); inside its 144 m corridor the water itself meanders
+  // and changes width, so from the air it reads as a river, not a sine wave
+  float c = (9.0 + 6.0 * sin(6.2831853 * (p.x / 48.0 + 0.5) / 48.0)) * 48.0;
+  float wob = 11.0 * sin(p.x * 0.0093 + 1.7) + 5.0 * sin(p.x * 0.031 + 0.4) + 2.0 * sin(p.x * 0.077);   // stays inside the corridor: 44 + 6 + 18 < 72
+  float wid = 4.0 * sin(p.x * 0.0061 + 2.3) + 2.0 * sin(p.x * 0.047);
+  return abs(p.y - c - wob) - wid;
 }
 vec2 cover(vec2 x, vec2 h, float w) { return max(min(x + w * 0.5, h) - max(x - w * 0.5, -h), 0.0) / w; }
 
@@ -638,10 +646,11 @@ vec3 blockCol(uvec4 c, int bx, int bz, vec2 l, vec2 p, float t, float w, vec3 gr
       float fadeIn = smoothstep(uFar.x, uFar.y, t);
       vec2 sv = cover(l - c0 + uFar.w * vec2(0.6, 0.4), hs + 0.8, max(w, 0.8));
       lot = mix(lot, lot * 0.68, max(sv.x * sv.y - inside, 0.0) * fadeIn);
-      lot = mix(lot, roof * (1.0 + vec3(0.25, 0.2, 0.4) * uNight), inside * fadeIn);   // roofs catch the dusk sky like the meshes do
+      // after dusk city roofs go dark against the lit streets (contrast reads as built fabric, not a flat carpet)
+      lot = mix(lot, roof * (1.0 + vec3(0.25, 0.2, 0.4) * uNight) * mix(1.0, 0.55, uNight * float(zone >= 2)), inside * fadeIn);   // roofs catch the dusk sky like the meshes do
       if ((c.g & 32u) != 0u && abs(l.y) < 2.0) lot = mix(lot, vec3(0.64, 0.63, 0.60), 1.0 - inside);   // roji, far
       if (uNight > 0.3) {
-        float on = float(rv < 40u);
+        float on = float(rv < (zone >= 2 ? 70u : 45u));
         vec2 wc = cover(l - c0, vec2(1.6), max(w, 0.8));
         lot += vec3(1.0, 0.7, 0.38) * 4.5 * on * uNight * wc.x * wc.y * fadeIn;
       }

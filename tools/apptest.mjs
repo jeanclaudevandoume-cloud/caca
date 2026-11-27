@@ -24,7 +24,7 @@ let L = T.buildLayout(100000);
 if (L.rB === undefined) L = T.finishLayout(L);
 const tall = new Set(L.tall);                         // regions with skyline buildings (the formula layout lists them)
 void SKY;
-const HOME = { x: -176, y: 24, z: 1190, yaw: 0.12, pitch: -0.17 };
+const HOME = { x: -176, y: 22, z: 980, yaw: 0.12, pitch: -0.13 };
 
 // ---------------- streaming ----------------
 function harness({ meshBytes = 40000 } = {}) {

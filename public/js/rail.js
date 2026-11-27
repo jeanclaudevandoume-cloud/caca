@@ -11,6 +11,22 @@ export const RAIL_Z = 19;                                      // the road on th
 const isStation = (bx) => mod(bx, 12) === 5;
 const DECK = 0x9d9a93, DECK_TOP = 0x6f6c67, LINE = 0x2f9e5f, Y0 = 9.6, Y1 = 10.8, HW = 3.6;
 
+// the train over block column bx, or 0: one train per group of 4 blocks on half the groups (a station breaks it)
+function trainAt(bx) {
+  const g = Math.floor(bx / 4), ht = hash3(g, RAIL_Z, 71);
+  return ht % 2 === 0 ? (ht | 1) : 0;
+}
+// a white headlight on the leading end and a red tail light on the trailing end (the lit face is drawn on the
+// group's first and last block only; 2 tris each)
+function trainEnds(mb, bx, X, y, tz, h, ht) {
+  const g4 = ((bx % 4) + 4) % 4, east = (ht >>> 5) & 1;
+  for (const [end, s] of [[0, -1], [3, 1]]) {
+    if (g4 !== end) continue;
+    const head = (s > 0) === !!east, xe = X + s * 23.02;
+    mb.xq(xe, tz - 1.2, tz + 1.2, y + 0.5, y + 1.1, s, head ? 0xfff6dc : 0xff2a1a, M.LIGHT, 0);
+  }
+}
+
 // one block's 48 m of viaduct, centred on the road at Z + 24
 export function viaduct(mb, bx, X, Z, lod, lite) {
   // TALL: the viaduct hands over to the mid-band copy per 192 m chunk, unscaled (a sunk/grown 48 m deck would
@@ -47,11 +63,13 @@ export function viaduct(mb, bx, X, Z, lod, lite) {
       board(mb, 'z', zr + 6.55, X - 6, X + 6, Y1 + 4.7, Y1 + 6.3, 1, 0x2f6f8f, h >>> 3);
     }
   }
-  // a train on about one block in two: silver cars, a coloured stripe, a dark window band on both sides
-  const ht = hash3(bx, RAIL_Z, 71);
-  if (ht % 2 === 0 && !st) {
+  // trains: four blocks long (about 190 m) with gaps between, so they read as trains, not a continuous stripe;
+  // silver cars, a coloured stripe, a lit window band, a headlight and a tail light on the end faces
+  const ht = trainAt(bx);
+  if (ht && !st) {
     const tz = zr + ((ht >>> 4) & 1 ? 1.6 : -1.6);
     mb.cbox(X, Y1 + 0.3, tz, 46, 3.4, 2.9, 0xdfe2e4, M.METAL, ht & 255);
+    trainEnds(mb, bx, X, Y1 + 0.3, tz, 3.4, ht);
     if (lod) for (const s of [-1, 1]) mb.wq(X - 22.5, X + 22.5, Y1 + 1.7, Y1 + 2.8, tz + s * 1.47, s, 0xf4ecd8, M.LIGHT, 248);
     if (!lod) for (const s of [-1, 1]) {
       mb.wq(X - 23, X + 23, Y1 + 1.0, Y1 + 1.35, tz + s * 1.47, s, (ht >>> 6) & 1 ? 0x2f9e5f : 0xe07a2f, M.PLAIN, 0);
@@ -74,10 +92,11 @@ export function viaductMid(mb, bx, X, Z) {
   // without legs would float
   const pc = shade(DECK, 0.9);
   mb.wq(X - 0.9, X + 0.9, 0, Y0, zr, 1, pc, M.PLAIN, 3); mb.wq(X - 0.9, X + 0.9, 0, Y0, zr, -1, pc, M.PLAIN, 3);
-  const ht = hash3(bx, RAIL_Z, 71);                            // the same trains as the chunks (silver reads from afar)
-  if (ht % 2 === 0 && !isStation(bx)) {
+  const ht = trainAt(bx);                                      // the same trains as the chunks (silver reads from afar)
+  if (ht && !isStation(bx)) {
     const tz = zr + ((ht >>> 4) & 1 ? 1.6 : -1.6);
     mb.cbox(X, Y1 + 0.8, tz, 46, 3.0, 2.9, 0xdfe2e4, M.METAL, ht & 255);
+    trainEnds(mb, bx, X, Y1 + 0.8, tz, 3.0, ht);
     for (const s of [-1, 1]) mb.wq(X - 22.5, X + 22.5, Y1 + 1.9, Y1 + 2.9, tz + s * 1.47, s, 0xf4ecd8, M.LIGHT, 248);
   }
   mb.flag = flag;
