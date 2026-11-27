@@ -251,7 +251,7 @@ export function home(mb, bx, bz, f, r, lod) {
       }
       // people on the lane in front of about one home in six: a commuter, a shopper (all presets, 13 tris). A
       // street with no one on it reads as a model; these are what make the lanes feel lived in from the drone views.
-      if ((r.hash >>> 28) % 10 === 0) {
+      if ((r.hash >>> 28) % 12 === 0) {
         const cast = mb.cast; mb.cast = false;
         const px = f.x + (((r.hash >>> 4) & 7) - 3.5) * 1.1, pz = front + fs * (1.2 + ((r.hash >>> 12) & 1) * 1.6);
         const cloth = [0x2b3a55, 0x3d3d3d, 0xd8d2c4, 0x7a2e3a, 0x34594a, 0xe8b23a][(r.hash >>> 14) % 6];
