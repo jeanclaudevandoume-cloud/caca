@@ -14,7 +14,9 @@ const DECK = 0x9d9a93, DECK_TOP = 0x6f6c67, LINE = 0x2f9e5f, Y0 = 9.6, Y1 = 10.8
 // the train over block column bx, or 0: one train per group of 4 blocks on half the groups (a station breaks it)
 function trainAt(bx) {
   const g = Math.floor(bx / 4), ht = hash3(g, RAIL_Z, 71);
-  return ht % 2 === 0 ? (ht | 1) : 0;
+  // group -1 (bx -4..-1) is the stretch the opening camera looks across: a train always stands there, so the first
+  // frame shows the line in use (blind review round 3: an empty viaduct read as a UI divider)
+  return ht % 2 === 0 || g === -1 ? (ht | 1) : 0;
 }
 // a white headlight on the leading end and a red tail light on the trailing end (the lit face is drawn on the
 // group's first and last block only; 2 tris each)

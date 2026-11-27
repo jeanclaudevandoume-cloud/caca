@@ -23,6 +23,7 @@ function treeBody(mb, x, z, s, h, lod) {
     const c = kind === 6 ? BLOSSOM[(h >>> 3) % 3] : LEAVES[(h >>> 3) % LEAVES.length];
     mb.cyl(x, 0, z, 0.34 * s, 1.7 * s, 0.3 * s, 3, TRUNK, M.PLAIN, h & 255, false);   // the trunk stays (and reads): a crown without one floats
     if (kind < 2) mb.cyl(x, 1.0 * s, z, 2.2 * s, 6 * s, 0, 4, shade(c, 0.85), M.LEAF, h & 255);
+    else if (kind === 6) mb.ell(x, 3.0 * s, z, 2.8 * s, 1.25 * s, 2.8 * s, 6, 2, c, M.LEAF, h & 255, false, 0.62);   // sakura: a wide, flat canopy, not a pink ball
     else mb.ell(x, 3.4 * s, z, 2.2 * s, 1.9 * s, 2.2 * s, 4, 2, c, M.LEAF, h & 255, false, 0.62);   // 24 tris, rounder than a diamond
     return;
   }
@@ -233,7 +234,7 @@ export function roofClutter(mb, x0, z0, x1, z1, top, wall, h, a) {
   if (!mb.lite) mb.wq(hx - 0.45, hx + 0.45, top + 0.05, top + 2.0, (h & 2) ? hz + 1.21 : hz - 1.21, (h & 2) ? 1 : -1, 0x5a5f66, M.METAL, a);
   if (mb.lite && (h & 96) === 96) {                     // lite, a quarter of the roofs: a water tank still breaks the flat roof (7 tris)
     const tx = (h & 1) ? x1 - 1.4 : x0 + 1.4, tz = z0 + d * 0.5;
-    mb.cyl(tx, top, tz, 0.8, top + 1.9, 0.8, 3, (h & 16) ? 0x9fb3c2 : 0xd9dcd6, M.METAL, a);
+    mb.cbox(tx, top, tz, 1.4, 1.8, 1.4, (h & 16) ? 0x9fb3c2 : 0xd9dcd6, M.METAL, a);   // squared to the roof (a 3-sided prism read as a tumbled die)
   }
   if (!mb.lite) {
     mb.cbox(x0 + w * 0.5, top, z0 + d * ((h & 4) ? 0.3 : 0.7), 0.9, 0.65, 0.4, 0xe9e9e6, M.METAL, a);       // AC condenser

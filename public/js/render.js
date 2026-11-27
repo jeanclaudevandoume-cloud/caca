@@ -7,14 +7,14 @@ import { hyp2, hyp3, vfovFor, persp, lookDir, mul, invert, planes, inFrustum } f
 // keys: 0 noon, 1 sunset, 2 blue hour, 3 night, 4 dawn (cycle of 5)
 const KEYS = [
   // noon: crisp and saturated, a clear blue sky, little haze
-  { top: [0.1, 0.36, 0.86], hor: [0.58, 0.77, 0.97], sun: [1.36, 1.2, 0.98], sky: [0.26, 0.33, 0.47], gnd: [0.40, 0.34, 0.27], fog: [0.62, 0.76, 0.95], el: 0.62, night: 0 },
+  { top: [0.08, 0.34, 0.86], hor: [0.56, 0.76, 0.98], sun: [1.5, 1.32, 1.06], sky: [0.22, 0.29, 0.44], gnd: [0.36, 0.3, 0.24], fog: [0.6, 0.75, 0.96], el: 0.62, night: 0 },   // stronger sun vs sky: shapes model, not flat
   // sunset: a low burning sun (west faces orange), violet shadow side, a hot horizon, first windows and signs on
   { top: [0.16, 0.2, 0.52], hor: [1.0, 0.52, 0.3], sun: [1.55, 0.78, 0.36], sky: [0.34, 0.34, 0.6], gnd: [0.32, 0.25, 0.26], fog: [0.92, 0.58, 0.48], el: 0.085, night: 0.36 },
   // blue hour (the default opening look): violet sky, a magenta glow on the horizon, lights on, the sun just set
   { top: [0.05, 0.09, 0.3], hor: [0.78, 0.42, 0.55], sun: [0.36, 0.28, 0.38], sky: [0.34, 0.32, 0.43], gnd: [0.24, 0.19, 0.2], fog: [0.36, 0.3, 0.5], el: 0.05, night: 0.78 },
   { top: [0.015, 0.025, 0.08], hor: [0.06, 0.08, 0.18], sun: [0.22, 0.28, 0.42], sky: [0.26, 0.31, 0.5], gnd: [0.12, 0.12, 0.16], fog: [0.06, 0.08, 0.16], el: 0.9, night: 1 },
   // dawn: peach horizon under a clear pale blue, soft cool light, a few windows still lit
-  { top: [0.22, 0.4, 0.8], hor: [1.0, 0.72, 0.58], sun: [1.15, 0.82, 0.6], sky: [0.4, 0.46, 0.68], gnd: [0.38, 0.32, 0.3], fog: [0.86, 0.76, 0.78], el: 0.14, night: 0.22 },
+  { top: [0.18, 0.34, 0.78], hor: [1.0, 0.62, 0.5], sun: [1.3, 0.8, 0.52], sky: [0.38, 0.42, 0.68], gnd: [0.34, 0.28, 0.3], fog: [0.82, 0.66, 0.72], el: 0.12, night: 0.3 },   // rosy, not grey: peach horizon, low gold sun, lights still on
 ];
 // Writes into one preallocated object (the frame loop allocates nothing).
 const TOD_KEYS = ['top', 'hor', 'sun', 'sky', 'gnd', 'fog'];
