@@ -13,16 +13,16 @@ const DECK = 0x9d9a93, DECK_TOP = 0x6f6c67, LINE = 0x2f9e5f, Y0 = 9.6, Y1 = 10.8
 
 // the train over block column bx, or 0: one train per group of 4 blocks on half the groups (a station breaks it)
 function trainAt(bx) {
-  const g = Math.floor(bx / 4), ht = hash3(g, RAIL_Z, 71);
-  // group -1 (bx -4..-1) is the stretch the opening camera looks across: a train always stands there, so the first
-  // frame shows the line in use (blind review round 3: an empty viaduct read as a UI divider)
-  return ht % 2 === 0 || g === -1 ? (ht | 1) : 0;
+  const g = Math.floor(bx / 2), ht = hash3(g, RAIL_Z, 71);
+  // two-block sets (about 94 m: reads as a vehicle, not a second deck). Group -2 (bx -4..-3) is the stretch the
+  // opening camera looks across: a train always stands there, so the first frame shows the line in use
+  return ht % 3 === 0 || g === -2 ? (ht | 1) : 0;
 }
 // a white headlight on the leading end and a red tail light on the trailing end (the lit face is drawn on the
 // group's first and last block only; 2 tris each)
 function trainEnds(mb, bx, X, y, tz, h, ht) {
-  const g4 = ((bx % 4) + 4) % 4, east = (ht >>> 5) & 1;
-  for (const [end, s] of [[0, -1], [3, 1]]) {
+  const g4 = ((bx % 2) + 2) % 2, east = (ht >>> 5) & 1;
+  for (const [end, s] of [[0, -1], [1, 1]]) {
     if (g4 !== end) continue;
     const head = (s > 0) === !!east, xe = X + s * 23.02;
     mb.xq(xe, tz - 1.2, tz + 1.2, y + 0.5, y + 1.1, s, head ? 0xfff6dc : 0xff2a1a, M.LIGHT, 0);
@@ -44,6 +44,7 @@ export function viaduct(mb, bx, X, Z, lod, lite) {
   }
   if (!lite) mb.fqY(x0, Y0, zr - hw, x1, Y0, zr - hw, x1, Y0, zr + hw, x0, Y0, zr + hw, M.PLAIN, shade(DECK, 0.55), 3, -1);   // underside, seen from the street
   for (const px of lite || lod ? [X] : [X - 12, X + 12]) mb.cbox(px, 0, zr, 1.6, Y0, 2.6, shade(DECK, 0.92), M.PLAIN, 3, -1);
+  if (lite && !lod) for (const s of [-1, 1]) mb.wq(x0, x1, Y1, Y1 + 0.9, zr + s * (hw - 0.1), s, shade(DECK, 0.95), M.PLAIN, 3);   // lite parapets: the deck reads as a deck the train runs in
   if (!lod && !lite) {
     const cast = mb.cast; mb.cast = false;
     for (const s of [-1, 1]) mb.box(x0, Y1, zr + s * hw - 0.15, x1, Y1 + 1.0, zr + s * hw + 0.15, shade(DECK, 0.95), shade(DECK, 0.8), M.PLAIN, 3);   // parapets
@@ -72,9 +73,10 @@ export function viaduct(mb, bx, X, Z, lod, lite) {
     const tz = zr + ((ht >>> 4) & 1 ? 1.6 : -1.6);
     mb.cbox(X, Y1 + 0.3, tz, 46, 3.4, 2.9, 0xdfe2e4, M.METAL, ht & 255);
     trainEnds(mb, bx, X, Y1 + 0.3, tz, 3.4, ht);
+    for (const s of [-1, 1]) mb.wq(X - 23, X + 23, Y1 + 0.3, Y1 + 0.85, tz + s * 1.47, s, 0x2c2f33, M.PLAIN, 0);   // dark underframe: the train sits on the deck and separates from pale blocks by day
     if (lod) for (const s of [-1, 1]) mb.wq(X - 22.5, X + 22.5, Y1 + 1.7, Y1 + 2.8, tz + s * 1.47, s, 0xf4ecd8, M.LIGHT, 248);
     if (!lod) for (const s of [-1, 1]) {
-      mb.wq(X - 23, X + 23, Y1 + 1.0, Y1 + 1.35, tz + s * 1.47, s, (ht >>> 6) & 1 ? 0x2f9e5f : 0xe07a2f, M.PLAIN, 0);
+      mb.wq(X - 23, X + 23, Y1 + 0.95, Y1 + 1.55, tz + s * 1.47, s, (ht >>> 6) & 1 ? 0x1f9e50 : 0xe86a1a, M.PLAIN, 0);   // livery band
       mb.wq(X - 22.5, X + 22.5, Y1 + 1.7, Y1 + 2.8, tz + s * 1.47, s, 0xf4ecd8, M.LIGHT, 248);   // lit carriages: pale by day, warm at dusk
     }
   }

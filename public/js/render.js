@@ -231,6 +231,7 @@ export function createRenderer(d) {
     gl.uniform3fv(u.uSunDir, T.dir); gl.uniform3fv(u.uSunCol, T.sun); gl.uniform3fv(u.uSkyCol, T.sky); gl.uniform3fv(u.uGndCol, T.gnd);
     gl.uniform3fv(u.uFogCol, T.fog); gl.uniform3fv(u.uSkyTop, T.top); gl.uniform3fv(u.uSkyHor, T.hor);
     gl.uniform1f(u.uFogD, fogD); gl.uniform1f(u.uNight, T.night); gl.uniform1f(u.uTime, time);
+    if (u.uGlow) gl.uniform3f(u.uGlow, app.pin ? app.pin.x : 0, app.pin ? app.pin.z : 0, app.pin ? 1 : 0);
     gl.uniform3f(u.uCam, cam.x, cam.y, cam.z);
     if (u.uLodCam) { const lc = app.lodCam || cam; gl.uniform3f(u.uLodCam, lc.x, lc.y, lc.z); }   // app.lodCam: poptest only
     if (u.uLowQ) gl.uniform1f(u.uLowQ, isLow() ? 1 : 0);

@@ -86,6 +86,7 @@ void winLayout(uint seed, uint cell, float glass, uint style, vec2 g, vec3 n, ou
 // The whole window opening (frame, reveal, glass, curtains, sill) comes from one mipmapped fetch, so far
 // windows average out instead of shimmering, and the phone gets the same windows as the desktop.
 uniform sampler2D uAtlas;
+uniform vec3 uGlow;   // xz of the selected home, z = 1 when one is selected
 vec4 winTex(uint wt, uint cell, vec2 uvw, vec2 gx, vec2 gy, bool plain) {
   vec2 t = wt == 2u ? vec2(float((cell >> 6u) & 1u), 1.0) : wt == 3u ? vec2(2.0 + float((cell >> 7u) & 1u), 1.0) : vec2(float((cell >> 4u) & 3u), 0.0);
   const float P = 6.0 / 256.0;
@@ -190,11 +191,14 @@ void main() {
       emis = lc0 * lit0 * mix(0.4, 1.0, glass) * smoothstep(0.05, 0.6, uNight) * (1.0 - spand * 0.7);
       // one tower in six carries a giant LED screen: a landmark that cycles colour over the skyline
       if ((seed % 6u) == 3u && glass > 0.5 && vW.y > 36.0 && vW.y < 66.0) {
-        float sx = fract(g.x / 14.0);
-        float scr = step(0.15, sx) * step(sx, 0.85);
-        vec3 led = 0.55 + 0.45 * cos(6.2831 * (uTime * 0.05 + float(seed & 15u) / 16.0 + vec3(0.0, 0.33, 0.67)) + vW.y * 0.08);
-        col = mix(col, led * 0.3, scr);
-        emis = mix(emis, led * (0.35 + 1.1 * uNight), scr);
+        float sx = fract(g.x / 14.0), sy = (vW.y - 36.0) / 30.0;
+        float scr = step(0.15, sx) * step(sx, 0.85), inner = step(0.19, sx) * step(sx, 0.81) * step(0.05, sy) * step(sy, 0.95);
+        // an image, not a tile: a diagonal two-colour gradient that drifts, soft scanlines, a dark frame
+        float ph = uTime * 0.05 + float(seed & 15u) / 16.0;
+        vec3 ca = 0.55 + 0.45 * cos(6.2831 * (ph + vec3(0.0, 0.33, 0.67))), cb = 0.55 + 0.45 * cos(6.2831 * (ph + 0.4 + vec3(0.0, 0.33, 0.67)));
+        vec3 led = mix(ca, cb, clamp(sy * 0.8 + (sx - 0.5) * 0.6 + 0.1 * sin(uTime * 0.7 + sy * 9.0), 0.0, 1.0)) * (0.85 + 0.15 * step(0.5, fract(vW.y / 1.1)));
+        col = mix(col, mix(vec3(0.05), led * 0.3, inner), scr);
+        emis = mix(emis, led * (0.35 + 1.1 * uNight) * inner, scr);
       }
     } else {
       // phone, near walls: one hash, hard-edged frame and pane (MSAA is off on the low preset), no mullions/sills/reveals
@@ -410,12 +414,17 @@ void main() {
     float pier = step(uf, 0.09) + step(0.97, uf), mull = step(abs(uf - 0.53), 0.012);
     float shut = float((bay & 7u) == 0u);
     float glassA = (1.0 - pier) * (1.0 - mull) * step(0.35, vW.y) * step(vW.y, 3.0);
-    vec3 inside = (bay & 16u) != 0u ? vec3(1.0, 0.76, 0.5) : vec3(0.95, 0.9, 0.8);   // warm interiors (a convenience store now and then is whiter)
+    vec3 inside = (bay & 16u) != 0u ? vec3(1.0, 0.7, 0.42) : vec3(0.95, 0.82, 0.62);   // warm interiors
     vec3 hue = mix(clamp(0.55 + 0.6 * cos(6.2831 * (float((bay >> 5u) % 7u) / 7.0 + vec3(0.0, 0.33, 0.67))), 0.0, 1.0), vec3(0.85, 0.82, 0.78), 0.3);
     float sign = (1.0 - pier) * step(3.25, vW.y) * step(vW.y, 3.9) * step(0.14, uf) * step(uf, 0.92);   // a sign board per unit, not a continuous band
     // lettering on the board: blocky glyph marks in a row (white ink), so it reads as a shop name, not a colour bar
-    float gx = fract(along / 0.42), gy = (vW.y - 3.25) / 0.65;
-    float letter = step(0.18, gx) * step(gx, 0.82) * step(0.2, gy) * step(gy, 0.8) * step(0.35, fract(sin(floor(along / 0.42) * 12.9898 + float(bay & 255u)) * 43758.5)) * step(0.25, uf) * step(uf, 0.85);
+    // blocky characters: each 0.5 m cell is a 3x3 grid of strokes picked by a hash (reads as kana/kanji at a glance)
+    vec2 gc = vec2(along / 0.5, (vW.y - 3.3) / 0.55);
+    vec2 gl = fract(gc);
+    uint gh2 = (uint(int(floor(gc.x)) + 8192) * 2654435761u ^ bay * 97u) >> 7u;
+    ivec2 sub = ivec2(floor(clamp((gl - 0.15) / 0.7, 0.0, 0.999) * 3.0));
+    float stroke = float((gh2 >> uint(sub.x + sub.y * 3)) & 1u) + float(sub.y == 1) * float((gh2 & 512u) != 0u);
+    float letter = clamp(stroke, 0.0, 1.0) * step(0.15, gl.x) * step(gl.x, 0.85) * step(0.15, gl.y) * step(gl.y, 0.85) * step(0.0, gc.y) * step(gc.y, 1.0) * step(0.22, uf) * step(uf, 0.86);
     float door = step(abs(uf - 0.3), 0.07) * step(vW.y, 2.3);   // the shop door: darker glass
     vec3 lit = amb + key * sun * 0.5;
     vec3 c0 = vec3(0.1, 0.1, 0.12) * lit;                                    // piers and frames
@@ -437,7 +446,13 @@ void main() {
   col += uSunCol * rim * 0.22;
   col += uSkyHor * base * 0.35 * uNight * smoothstep(0.5, 0.95, n.y);   // roofs catch the glow of the dusk sky
   col += base * vec3(1.0, 0.68, 0.42) * 0.55 * uNight * (1.0 - smoothstep(0.5, 7.0, vW.y)) * (1.0 - abs(n.y)) * (1.0 - smoothstep(300.0, 900.0, dist));   // street light washes the ground floors
-  col += base * vec3(0.15, 0.16, 0.3) * uNight * wall * (vMat == 5 ? 0.5 : 1.0);   // cool sky fill after dusk: walls stay readable, not brown-black
+  col += base * vec3(0.15, 0.16, 0.3) * uNight * wall * (vMat == 5 ? 0.5 : 1.0);
+  if (uGlow.z > 0.5) {
+    // the selected home is singled out: a pink rim light on its walls and a little lift, strongest at dusk
+    vec2 dg = vW.xz - uGlow.xy;
+    float near = exp(-dot(dg, dg) / 45.0) * (1.0 - smoothstep(9.0, 16.0, vW.y));
+    col += (base * 0.25 + vec3(1.0, 0.32, 0.55) * pow(1.0 - abs(dot(n, dir)), 2.0) * 0.5) * near * (0.25 + 0.6 * uNight);
+  }   // cool sky fill after dusk: walls stay readable, not brown-black
   col = col * (1.0 - 0.5 * uNight) + emis;
   o = vec4(tone(fogMix(col, dir, dist * mix(1.0, mix(0.6, 0.35, uLowQ), smoothstep(40.0, 200.0, vW.y)))), 1.0);   // tall towers keep contrast
 }`;
@@ -553,17 +568,18 @@ void cars(inout vec3 cc, float along, float off, float dirS, float rid, float t,
   float body = smoothstep(-sw, sw, fx) * smoothstep(-sw, sw, 4.2 - fx) * smoothstep(-sw, sw, 0.85 - ao);
   int ci = int((h >> 6u) % 6u);
   // the body: its paint picking up some sky and street light (a flat black slab read as a hole in the road)
-  cc = mix(cc, CARC[ci] * 0.75 + uSkyHor * 0.12 + vec3(0.06), body * smoothstep(12.0, 30.0, t));
+  cc = mix(cc, CARC[ci] * 0.75 + uSkyHor * 0.12 + vec3(0.06), body * smoothstep(1.0, 6.0, t));
   float roof = body * smoothstep(-sw, sw, fx - 1.3) * smoothstep(-sw, sw, 3.3 - fx) * smoothstep(-sw, sw, 0.6 - ao);
-  cc = mix(cc, CARC[ci] * 0.55 + uSkyHor * 0.35, roof * smoothstep(12.0, 30.0, t));   // the cabin roof catching the sky
+  cc = mix(cc, CARC[ci] * 0.55 + uSkyHor * 0.35 + vec3(0.08), roof * smoothstep(1.0, 6.0, t));   // the cabin roof catching the sky
   if (uNight < 0.15) return;
   float sl = max(0.25, w), la = (ao - 0.6) / max(0.18, w * 0.6), hd = (fx - 4.2) / sl, tl = fx / sl;
   float lat = max(0.0, 1.0 - la * la) * min(1.0, 0.36 / max(0.18, w * 0.5));            // cheap bumps instead of exp/pow
   float head = max(0.0, 1.0 - hd * hd), tail = max(0.0, 1.0 - tl * tl);
   float k = lat * clamp(0.25 / sl, 0.15, 1.0) * 4.0;
   float toward = step(0.0, (camA - along) * dirS);              // a car driving toward the viewer shows headlights, one driving away its tail lights
-  float bx2 = (fx - 4.2) / 9.0;                                   // headlight beam: a short warm wedge on the road ahead of the car
-  gEmit += vec3(1.0, 0.9, 0.7) * 0.22 * step(0.0, bx2) * max(0.0, 1.0 - bx2) * max(0.0, 1.0 - ao / (0.9 + bx2 * 1.2)) * toward;
+  float bx2 = (fx - 4.2) / 5.0;                                   // headlight beam: a short soft pool just ahead of the car
+  float bm = step(0.0, bx2) * max(0.0, 1.0 - bx2); bm *= bm;
+  gEmit += vec3(1.0, 0.88, 0.66) * 0.14 * bm * max(0.0, 1.0 - ao / (0.9 + bx2 * 0.8)) * toward;
   gEmit += (vec3(1.0, 0.95, 0.82) * head * 1.6 * toward + vec3(1.0, 0.08, 0.04) * tail * 1.1 * (1.0 - toward)) * k;
 }
 
@@ -908,7 +924,7 @@ void main() {
         // a bright core right under the lamp head with a short falloff, plus a faint halo
         float q1 = dot(d1, d1), q2 = dot(d2, d2);
         float l1 = exp(-q1 * 0.18) * 1.15 * uNight * far, l2 = exp(-q2 * 0.2) * 1.1 * uNight * far;   // one exp each: a tight pool
-        vec3 lc = mix(vec3(1.0, 0.68, 0.38), vec3(0.95, 0.9, 0.8), float(lh & 1u));
+        vec3 lc = mix(vec3(1.0, 0.66, 0.36), vec3(1.0, 0.82, 0.6), float(lh & 1u));   // warm lamps: white pools read as fog
         uint nh = (lh >> 4u) % 6u;
         vec3 neon = nh == 0u ? vec3(1.0, 0.25, 0.55) : nh == 1u ? vec3(0.2, 0.75, 1.0) : nh == 2u ? vec3(0.75, 0.35, 1.0) : lc;
         float gain = 0.55 + 0.35 * float((lh >> 1u) & 3u) / 3.0;
