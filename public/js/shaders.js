@@ -195,10 +195,13 @@ void main() {
         float scr = step(0.15, sx) * step(sx, 0.85), inner = step(0.19, sx) * step(sx, 0.81) * step(0.05, sy) * step(sy, 0.95);
         // an image, not a tile: a diagonal two-colour gradient that drifts, soft scanlines, a dark frame
         float ph = uTime * 0.05 + float(seed & 15u) / 16.0;
-        vec3 ca = mix(vec3(1.0, 0.18, 0.55), vec3(1.0, 0.45, 0.25), 0.5 + 0.5 * sin(ph * 6.2831)), cb = mix(vec3(0.55, 0.2, 1.0), vec3(0.15, 0.75, 1.0), 0.5 + 0.5 * cos(ph * 6.2831));   // brand pinks into violet and cyan
+        uint fam = (seed >> 4u) % 3u;   // a colour family per screen: pink/amber, cyan/blue, lime/yellow
+        vec3 ca = fam == 0u ? vec3(1.0, 0.18, 0.55) : fam == 1u ? vec3(0.1, 0.8, 1.0) : vec3(0.55, 1.0, 0.25);
+        vec3 cb = fam == 0u ? vec3(1.0, 0.6, 0.2) : fam == 1u ? vec3(0.3, 0.25, 1.0) : vec3(1.0, 0.85, 0.2);
         vec3 led = mix(ca, cb, clamp(sy * 0.8 + (sx - 0.5) * 0.6 + 0.1 * sin(uTime * 0.7 + sy * 9.0), 0.0, 1.0)) * (0.85 + 0.15 * step(0.5, fract(vW.y / 1.1)));
+        led *= 0.8 + 0.35 * step(0.6, fract(sx * 3.0 + uTime * 0.12)) * step(0.55, fract(sy * 4.0));   // a crawl of brighter text blocks
         col = mix(col, mix(vec3(0.05), led * 0.3, inner), scr);
-        emis = mix(emis, led * (0.35 + 1.1 * uNight) * inner, scr);
+        emis = mix(emis, led * (0.08 + 1.1 * uNight) * inner, scr);   // dim by day
       }
     } else {
       // phone, near walls: one hash, hard-edged frame and pane (MSAA is off on the low preset), no mullions/sills/reveals
@@ -446,7 +449,7 @@ void main() {
   col += uSunCol * rim * 0.22;
   col += uSkyHor * base * 0.35 * uNight * smoothstep(0.5, 0.95, n.y);   // roofs catch the glow of the dusk sky
   col += base * vec3(1.0, 0.68, 0.42) * 0.55 * uNight * (1.0 - smoothstep(0.5, 7.0, vW.y)) * (1.0 - abs(n.y)) * (1.0 - smoothstep(300.0, 900.0, dist));   // street light washes the ground floors
-  col += base * vec3(0.15, 0.16, 0.3) * uNight * wall * (vMat == 5 ? 0.5 : 1.0);
+  col += base * vec3(0.2, 0.2, 0.38) * uNight * wall * (vMat == 5 ? 0.5 : 1.0);
   if (uGlow.z > 0.5) {
     // the selected home is singled out: a pink rim light on its walls and a little lift, strongest at dusk
     vec2 dg = vW.xz - uGlow.xy;
@@ -825,7 +828,11 @@ vec4 groundBase(vec2 p, vec3 dir, float t, float w) {
     vec3 bc = blockCol(c, bx, bz, clamp(l, -19.9, 19.9), p, t, w, grass);
     vec3 rc = k == 8u ? vec3(0.62, 0.62, 0.6) : countryish(k) ? grass * vec3(1.0, 0.98, 0.85) : asphalt(p, t);
     // from altitude the city blocks sparkle with lit windows (a dark ring around downtown read as unbuilt land)
-    if (k == 0u && (c.g & 3u) >= 2u) gEmit += vec3(1.0, 0.58, 0.24) * (0.04 + 0.2 * step(0.55, float(h2(ivec2(floor(p / 16.0))) & 255u) / 255.0)) * float(c.g & 3u) * 0.5 * cv.x * cv.y * smoothstep(2.5, 6.0, w);   // warm amber, denser downtown
+    if (k == 0u && (c.g & 3u) >= 2u) {   // warm amber cores, white tower-top sparks, densest downtown
+      uint ch = h2(ivec2(floor(p / 16.0)));
+      float z3 = float(c.g & 3u) - 1.0;
+      gEmit += (vec3(1.0, 0.6, 0.22) * (0.03 + 0.28 * step(0.5, float(ch & 255u) / 255.0)) + vec3(1.0, 0.95, 0.85) * 0.9 * step(0.94, float((ch >> 8u) & 255u) / 255.0)) * z3 * cv.x * cv.y * smoothstep(2.5, 6.0, w);
+    }
     // from altitude the boulevards and the ring road are threads of traffic light (amber and red trails)
     if (k == 5u || k == 7u) gEmit += vec3(1.0, 0.55, 0.28) * 0.4 * smoothstep(2.5, 9.0, w) * float((hash3(fdiv(bx, 3), fdiv(bz, 3), 77) & 3u) != 0u) * (1.0 - cv.x * cv.y * 0.7);   // busy stretches glow, quiet ones fade
     return vec4(mix(rc, bc, cv.x * cv.y), lampOk);
@@ -944,8 +951,8 @@ void main() {
   col += gEmit * smoothstep(0.15, 0.6, uNight);
   if (uPin.z > 0.5) {
     // the selected home stands in a soft pink glow (stronger after dusk): singled out without a drawn outline
-    vec2 dp = p.xz - uPin.xy;
-    col += vec3(1.0, 0.3, 0.5) * exp(-dot(dp, dp) / 26.0) * (0.08 + 0.2 * uNight);   // hugs the lot, no spill over the street
+    vec2 dp = p.xz - (uPinQ.z != uPinQ.x ? (uPinQ.xy + uPinQ.zw) * 0.5 : uPin.xy);   // centred on the footprint, not the street-side pin
+    if (uPinQ.z == uPinQ.x) col += vec3(1.0, 0.3, 0.5) * exp(-dot(dp, dp) / 26.0) * (0.08 + 0.2 * uNight);
     if (uPinQ.z != uPinQ.x) {
       // a crisp lit outline 0.7 m outside the home's walls (it shows in the forecourt and the side gaps)
       vec2 c = (uPinQ.xy + uPinQ.zw) * 0.5, hs = (uPinQ.zw - uPinQ.xy) * 0.5 + 0.7;
@@ -953,7 +960,7 @@ void main() {
       float sd = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
       float lw = max(w, 0.05);
       // a soft glow pooled on the ground round the footprint, fading out over a metre or two (never a hairline)
-      col += vec3(1.0, 0.42, 0.55) * exp(-max(sd, 0.0) * 1.1) * step(-0.6, sd) * (0.22 + 0.55 * uNight);
+      col += vec3(1.0, 0.42, 0.55) * exp(-max(sd, 0.0) * 1.6) * step(-0.6, sd) * (0.22 + 0.55 * uNight);   // fades within the lot
     }
   }
   o = vec4(fogMix(col, dir, t), 1.0);

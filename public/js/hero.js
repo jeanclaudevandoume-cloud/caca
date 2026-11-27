@@ -60,7 +60,10 @@ function street(mb, f, h) {
   for (const dx of [-0.55, 0.55]) mb.cbox(bx + dx, 0, bz, 0.66, 0.66, 0.05, 0x1c1d20, M.METAL, 0);
   mb.cbox(bx, 0.5, bz, 1.2, 0.08, 0.07, 0xd8402f, M.METAL, 0);
   if (f.d !== 18) {                                               // a kei car parked on the street, on its wheels
-    const cx = f.x + (h & 4 ? -3.6 : 3.6), cz = front + fs * 4.6;
+    // parked parallel just off the kerb, on the side clear of the utility poles (mesher.js: X - 18 and X + 6)
+    const X = Math.round((f.x + 15) / 48) * 48, clear = (x) => Math.abs(x - (X - 18)) > 2.4 && Math.abs(x - (X + 6)) > 2.4;
+    let cx = f.x + (h & 4 ? -3.6 : 3.6); if (!clear(cx)) cx = 2 * f.x - cx;
+    const cz = front + fs * 2.4;
     const cc = [0xf4f3ef, 0xe9d9a8, 0xa8c8e0, 0xe86a5a][(h >>> 9) & 3];   // light kei-car colours
     for (const wx of [-1.05, 1.05]) for (const wz of [-0.62, 0.62]) mb.cyl(cx + wx, 0, cz + wz, 0.3, 0.6, 0.3, 6, 0x1a1a1c, M.PLAIN, 0);
     mb.cbox(cx, 0.3, cz, 3.3, 0.75, 1.45, cc, M.METAL, 0);                  // body

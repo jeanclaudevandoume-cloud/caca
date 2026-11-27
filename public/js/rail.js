@@ -16,7 +16,7 @@ function trainAt(bx) {
   const g = Math.floor(bx / 2), ht = hash3(g, RAIL_Z, 71);
   // two-block sets (about 94 m: reads as a vehicle, not a second deck). Group -2 (bx -4..-3) is the stretch the
   // opening camera looks across: a train always stands there, so the first frame shows the line in use
-  return ht % 3 === 0 || g === -2 ? (ht | 1) : 0;
+  return (ht % 3 === 0 && Math.abs(g + 2) > 1) || g === -2 ? (ht | 1) : 0;   // its neighbours stay clear: the opening shows its nose and tail
 }
 // a white headlight on the leading end and a red tail light on the trailing end (the lit face is drawn on the
 // group's first and last block only; 2 tris each)
@@ -79,7 +79,7 @@ export function viaduct(mb, bx, X, Z, lod, lite) {
     if (lod) for (const s of [-1, 1]) mb.wq(X - 22.5, X + 22.5, Y1 + 1.7, Y1 + 2.8, tz + s * 1.47, s, 0xf4ecd8, M.LIGHT, 248);
     if (!lod) for (const s of [-1, 1]) {
       mb.wq(X - 23, X + 23, Y1 + 0.95, Y1 + 1.55, tz + s * 1.47, s, (ht >>> 6) & 1 ? 0x1f9e50 : 0xe86a1a, M.LIGHT, 0);   // livery band: lit, so the line colour reads at night too
-      for (const gx of [X - 12, X + 12, X + 23.5]) mb.wq(gx - 0.35, gx + 0.35, Y1 + 0.3, Y1 + 3.7, tz + s * 1.49, s, 0x15171a, M.PLAIN, 0);   // dark gaps between carriages
+      for (const gx of [X - 12, X + 12, X + 23.5]) mb.wq(gx - 0.25, gx + 0.25, Y1 + 0.55, Y1 + 3.35, tz + s * 1.49, s, 0x2a2d31, M.PLAIN, 0);   // recessed gaps between carriages (inside the body outline)
       mb.wq(X - 22.5, X + 22.5, Y1 + 1.7, Y1 + 2.8, tz + s * 1.47, s, 0xf4ecd8, M.LIGHT, 248);   // lit carriages: pale by day, warm at dusk
     }
   }
