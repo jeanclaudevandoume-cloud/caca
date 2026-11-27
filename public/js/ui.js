@@ -238,7 +238,7 @@ export function createUI(deps) {
     if (!seq.isCurrent(my)) return;                   // a later tap or search won
     if (name === null) { toast('Network problem: try again'); return; }
     const q = view.plotInfo(hit.bx, hit.bz, hit.slot, hit.zone).q;
-    app.pin = { x: (q[0] + q[2]) / 2, y: view.homeTop(hit.bx, hit.bz, hit.slot, hit.zone) + 0.8, z: (q[1] + q[3]) / 2, key: plotKey(hit.bx, hit.bz, hit.slot) };
+    app.pin = { x: (q[0] + q[2]) / 2, y: view.homeTop(hit.bx, hit.bz, hit.slot, hit.zone) + 0.8, z: (q[1] + q[3]) / 2, key: plotKey(hit.bx, hit.bz, hit.slot), q: hit.zone <= 1 ? q : null };
     showCard(name, hit.p, { zone: hit.zone });
   }
 

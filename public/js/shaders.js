@@ -451,7 +451,8 @@ void main() {
     // the selected home is singled out: a pink rim light on its walls and a little lift, strongest at dusk
     vec2 dg = vW.xz - uGlow.xy;
     float near = exp(-dot(dg, dg) / 45.0) * (1.0 - smoothstep(9.0, 16.0, vW.y));
-    col += (base * 0.25 + vec3(1.0, 0.32, 0.55) * pow(1.0 - abs(dot(n, dir)), 2.0) * 0.5) * near * (0.25 + 0.6 * uNight);
+    col += (base * 0.25 + vec3(1.0, 0.32, 0.55) * pow(1.0 - abs(dot(n, dir)), 2.0) * 0.9) * near * (0.25 + 0.6 * uNight);
+    emis *= 1.0 + near * 1.6;                                   // its windows glow warmer and brighter than the street's
   }   // cool sky fill after dusk: walls stay readable, not brown-black
   col = col * (1.0 - 0.5 * uNight) + emis;
   o = vec4(tone(fogMix(col, dir, dist * mix(1.0, mix(0.6, 0.35, uLowQ), smoothstep(40.0, 200.0, vW.y)))), 1.0);   // tall towers keep contrast
@@ -513,6 +514,7 @@ uniform vec2 uGroundO;   // the block at texel (0, 0) of the ground window
 uniform float uPx, uClouds;
 uniform vec4 uFar;    // x roof fade start, y roof fade end, z quality (0 low, 1 high), w shadow len
 uniform vec3 uPin;    // xz of the selected home, z = 1 when one is selected
+uniform vec4 uPinQ;   // its footprint x0, z0, x1, z1 (0 for towers)
 in vec2 vNdc;
 out vec4 o;
 
@@ -821,6 +823,8 @@ vec4 groundBase(vec2 p, vec3 dir, float t, float w) {
     vec2 cv = mix(cover(l, vec2(20.0), w), vec2(40.0 / 48.0), smoothstep(10.0, 48.0, w));
     vec3 bc = blockCol(c, bx, bz, clamp(l, -19.9, 19.9), p, t, w, grass);
     vec3 rc = k == 8u ? vec3(0.62, 0.62, 0.6) : countryish(k) ? grass * vec3(1.0, 0.98, 0.85) : asphalt(p, t);
+    // from altitude the city blocks sparkle with lit windows (a dark ring around downtown read as unbuilt land)
+    if (k == 0u && (c.g & 3u) >= 2u) gEmit += vec3(1.0, 0.76, 0.48) * (0.1 + 0.22 * float(h2(ivec2(floor(p / 16.0))) & 255u) / 255.0) * cv.x * cv.y * smoothstep(2.5, 6.0, w);
     // from altitude the boulevards and the ring road are threads of traffic light (amber and red trails)
     if (k == 5u || k == 7u) gEmit += vec3(1.0, 0.55, 0.28) * 0.4 * smoothstep(2.5, 9.0, w) * float((hash3(fdiv(bx, 3), fdiv(bz, 3), 77) & 3u) != 0u) * (1.0 - cv.x * cv.y * 0.7);   // busy stretches glow, quiet ones fade
     return vec4(mix(rc, bc, cv.x * cv.y), lampOk);
@@ -909,6 +913,7 @@ void main() {
     col *= uGndCol * 0.6 + uSkyCol * 0.55 + uSunCol * max(uSunDir.y, 0.0) * 0.95 * cloud;
     if (uNight > 0.2) {
       col *= (1.0 - 0.6 * uNight) * mix(vec3(1.0), vec3(0.8, 0.85, 1.08), uNight);   // cool dusk asphalt
+      if (g.a == 0.0) col += uSkyHor * 0.16 * uNight * pow(1.0 - max(-dir.y, 0.0), 6.0) * (1.0 - smoothstep(200.0, 800.0, t));   // damp road: the dusk sky glints off it at grazing angles
       if (g.a == 0.0) {
         // pools of street light: each intersection cell holds its two corner lamps; cell edges fall
         // in the middle of blocks where the light is ~0, so there are no seams. The asphalt is damp: each pool
@@ -939,7 +944,15 @@ void main() {
   if (uPin.z > 0.5) {
     // the selected home stands in a soft pink glow (stronger after dusk): singled out without a drawn outline
     vec2 dp = p.xz - uPin.xy;
-    col += vec3(1.0, 0.3, 0.5) * exp(-dot(dp, dp) / 26.0) * (0.12 + 0.3 * uNight);   // hugs the lot, no spill over the street
+    col += vec3(1.0, 0.3, 0.5) * exp(-dot(dp, dp) / 26.0) * (0.08 + 0.2 * uNight);   // hugs the lot, no spill over the street
+    if (uPinQ.z != uPinQ.x) {
+      // a crisp lit outline 0.7 m outside the home's walls (it shows in the forecourt and the side gaps)
+      vec2 c = (uPinQ.xy + uPinQ.zw) * 0.5, hs = (uPinQ.zw - uPinQ.xy) * 0.5 + 0.7;
+      vec2 q = abs(p.xz - c) - hs;
+      float sd = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
+      float lw = max(w, 0.05);
+      col += vec3(1.0, 0.35, 0.6) * (smoothstep(0.22 + lw, 0.22, abs(sd)) * (0.6 + 1.2 * uNight) + exp(-max(sd, 0.0) * 1.2) * step(-0.05, sd) * 0.12 * (0.4 + uNight));
+    }
   }
   o = vec4(fogMix(col, dir, t), 1.0);
   // blend into the sky right at the horizon (only those pixels pay for the sky)

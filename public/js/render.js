@@ -205,7 +205,7 @@ export function createRenderer(d) {
       gl.uniformMatrix4fv(sh.u.uVP, false, VP);
       gl.uniform3f(sh.u.uCam, cam.x, cam.y, cam.z);
       gl.uniform3fv(sh.u.uShadowDir, shDir);
-      const k = 1 - T.night * 1.4;
+      const k = Math.max(0, Math.min(1, 1 - (T.night - 0.3) * 2.2));   // full strength through sunset (long raking shadows), gone by blue hour
       gl.uniform3f(sh.u.uShadowCol, 1 - 0.4 * k, 1 - 0.33 * k, 1 - 0.16 * k);   // sky-lit shade: lighter and blue, not a grey slab
       gl.uniform1f(sh.u.uShadowFar, shadowR);
       gl.enable(gl.BLEND); gl.blendFunc(gl.DST_COLOR, gl.ZERO);
@@ -247,6 +247,7 @@ export function createRenderer(d) {
     const shDir = shadowDir(T);
     gl.uniform4f(u.uFar, r1 * 0.72, r1 * 0.96, !isLow() ? 1 : hasStencil ? -LOW_SHADOW : 0, 5 / shDir[1] * 0.5);   // z < 0: low preset with cast shadows out to -z
     gl.uniform3f(u.uPin, app.pin ? app.pin.x : 0, app.pin ? app.pin.z : 0, app.pin ? 1 : 0);   // a soft pink glow on the ground around the selected home
+    const pq = app.pin && app.pin.q; gl.uniform4f(u.uPinQ, pq ? pq[0] : 0, pq ? pq[1] : 0, pq ? pq[2] : 0, pq ? pq[3] : 0);   // its footprint: a crisp lit outline
     gl.uniform1f(u.uClouds, 1);
     gl.uniform1f(u.uPx, halfActive ? 0.5 : 1);
   }
@@ -291,7 +292,7 @@ export function createRenderer(d) {
   function shadowDir(T) {
     const s = SHD;
     if (T.night > 0.5) { s[0] = 0.3; s[1] = 0.9; s[2] = 0.2; } else { s[0] = T.dir[0]; s[1] = T.dir[1]; s[2] = T.dir[2]; }
-    if (s[1] < 0.3) { const h = hyp2(s[0], s[2]); const k = Math.sqrt(1 - 0.3 * 0.3) / h; s[0] *= k; s[2] *= k; s[1] = 0.3; }
+    if (s[1] < 0.2) { const h = hyp2(s[0], s[2]); const k = Math.sqrt(1 - 0.2 * 0.2) / h; s[0] *= k; s[2] *= k; s[1] = 0.2; }   // low sun: longer shadows
     return s;
   }
   // the ground data texture (layout.js buildGround); false if this GPU can't hold it (nothing changed then)

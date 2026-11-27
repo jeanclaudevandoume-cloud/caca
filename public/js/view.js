@@ -224,7 +224,8 @@ export function createView(app) {
     return v;
   }
   // the pin for an arrival view (the roof's front edge for homes; above the roof in the city)
-  const pinFor = (v) => ({ x: v.px !== undefined ? v.px : v.tx, y: v.py !== undefined ? v.py : v.ty * 0.6 + 9, z: v.pz !== undefined ? v.pz : v.tz, key: plotKey(v.bx, v.bz, v.slot) });
+  // q: the home's footprint (houses only), for the outline the ground draws around the selected home
+  const pinFor = (v) => ({ x: v.px !== undefined ? v.px : v.tx, y: v.py !== undefined ? v.py : v.ty * 0.6 + 9, z: v.pz !== undefined ? v.pz : v.tz, key: plotKey(v.bx, v.bz, v.slot), q: v.zone <= 1 ? plotInfo(v.bx, v.bz, v.slot, v.zone).q : null });
 
   // A flight from cam to view v starting at `now`. The arc clears every building under the path (a short hop
   // through the towers would fly through them). Instant: the camera jumps and there is no flight (null).
