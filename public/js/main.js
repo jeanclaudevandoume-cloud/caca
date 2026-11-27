@@ -78,7 +78,7 @@ gl.uniform3fv(P.full.u.uRoof, new Float32Array(ROOF.flatMap((c) => [((c >> 16) &
 // ---------------- state ----------------
 // ART.md composition (round F): a low drone over dense jutaku and villa lanes south-west of the river, the
 // towers and spire as the backdrop. The product is "your follower's home", so homes fill the opening frame.
-const HOME = { x: -176, y: 22, z: 980, yaw: 0.12, pitch: -0.13 };   // over the signed shopping street, the viaduct crossing mid-frame, the skyline large ahead (blind review: closer, flatter)
+const HOME = { x: -176, y: 26, z: 1050, yaw: 0.12, pitch: -0.12 };   // over the signed shopping street, the viaduct crossing mid-frame, the skyline large ahead (blind review: closer, flatter)
 if (innerWidth / innerHeight > 1.2) Object.assign(HOME, { y: 22, z: 1040, pitch: -0.1 });   // landscape: the 46° lens (gfx.js vfovFor) needs a flatter tilt to keep the skyline under the search bar
 const cam = { ...HOME };
 const PRESETS = { low: { s: 0.55, pr: 1 }, mid: { s: 0.8, pr: 1.5 }, high: { s: 1, pr: 2 } };
