@@ -232,7 +232,7 @@ export function roofClutter(mb, x0, z0, x1, z1, top, wall, h, a) {
   const w = x1 - x0, d = z1 - z0, hx = (h & 1) ? x0 + 1.5 : x1 - 1.5, hz = (h & 2) ? z0 + 1.6 : z1 - 1.6;
   mb.box(hx - 1.1, top, hz - 1.2, hx + 1.1, top + 2.5, hz + 1.2, shade(wall, 0.92), 0x6e7378, M.PLAIN, a);   // stair hut
   if (!mb.lite) mb.wq(hx - 0.45, hx + 0.45, top + 0.05, top + 2.0, (h & 2) ? hz + 1.21 : hz - 1.21, (h & 2) ? 1 : -1, 0x5a5f66, M.METAL, a);
-  if (mb.lite && (h & 96) === 96) {                     // lite, a quarter of the roofs: a water tank still breaks the flat roof (7 tris)
+  if (mb.lite && (h & 224) === 224) {                   // lite, an eighth of the roofs: a water tank still breaks the flat roof (7 tris)
     const tx = (h & 1) ? x1 - 1.4 : x0 + 1.4, tz = z0 + d * 0.5;
     mb.cbox(tx, top, tz, 1.4, 1.8, 1.4, (h & 16) ? 0x9fb3c2 : 0xd9dcd6, M.METAL, a);   // squared to the roof (a 3-sided prism read as a tumbled die)
   }

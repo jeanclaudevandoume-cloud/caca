@@ -174,7 +174,7 @@ export function home(mb, bx, bz, f, r, lod) {
         const gx0 = r.side > 0 ? x1 - 3.2 : x0 + 0.4, gx1 = gx0 + 2.8;
         const open = (r.hash >>> 25) & 1;
         mb.wq(gx0, gx1, 0, 2.5, wallZ + fs * 0.03, fs, open ? 0x1e1f22 : 0x5f676c, M.METAL, a);   // open bay (near black) or a roller shutter
-        if (open && (r.hash >>> 27) % 5 < (mb.lite ? 2 : 3)) {     // a kei car parked in the open bay
+        if (open && (r.hash >>> 27) % 5 < (mb.lite ? 1 : 3)) {     // a kei car parked in the open bay
           const cx = (gx0 + gx1) / 2, cz = wallZ + fs * 0.3, cc = CARS[(r.hash >>> 9) % CARS.length];
           if (mb.lite) {                                            // lite: body + a cabin face toward the street (12 tris)
             mb.cbox(cx, 0.2, cz + fs * 0.6, 1.45, 1.35, 2.6, cc, M.METAL, a);
