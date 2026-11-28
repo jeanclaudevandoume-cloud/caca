@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "reddit-mcp-buddy": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "reddit-mcp-buddy@1.3.0"],
+      "env": {
+        "REDDIT_CLIENT_ID": "${REDDIT_CLIENT_ID}",
+        "REDDIT_CLIENT_SECRET": "${REDDIT_CLIENT_SECRET}"
+      }
+    }
+  }
+}
